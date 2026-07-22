@@ -210,7 +210,9 @@
   function fmtCPUPercent(p) {
     p = Number(p);
     if (!isFinite(p) || p < 0) return '0%';
-    if (p < 0.05) return '0%';
+    // Keep sub-1% live so idle Go services do not look frozen at 0%.
+    if (p < 0.01) return '<0.01%';
+    if (p < 1) return p.toFixed(2) + '%';
     if (p < 10) return p.toFixed(1) + '%';
     return Math.round(p) + '%';
   }
