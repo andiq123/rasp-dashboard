@@ -69,6 +69,11 @@
             +'<span class="type-copy"><strong>Postgres</strong><span>Shared database — apps get DB_* + DATABASE_URL</span></span>'
             +'<span class="type-chev" aria-hidden="true"></span>'
           +'</button>'
+          +'<button type="button" class="type-opt" data-action="wizard:type:bucket">'
+            +'<span class="type-icon go">S3</span>'
+            +'<span class="type-copy"><strong>Bucket</strong><span>Object storage on SD — apps get BUCKET_URL</span></span>'
+            +'<span class="type-chev" aria-hidden="true"></span>'
+          +'</button>'
         +'</div>';
     } else if (step === 'go') {
       var repoOptions = (repos || []).map(function(r){
@@ -106,10 +111,16 @@
         }
       }
       var dbs = (deployed || []).filter(function(x){ return x.type === 'postgres'; });
+      var buckets = (deployed || []).filter(function(x){ return x.type === 'bucket'; });
       var autoDb = wizard.linked_database != null ? wizard.linked_database : (dbs.length === 1 ? dbs[0].slug : '');
       if (wizard.linked_database == null && dbs.length === 1) wizard.linked_database = autoDb;
+      var autoBucket = wizard.linked_bucket != null ? wizard.linked_bucket : (buckets.length === 1 ? buckets[0].slug : '');
+      if (wizard.linked_bucket == null && buckets.length === 1) wizard.linked_bucket = autoBucket;
       var dbOptions = [{value: '', label: 'No database', meta: 'attach later'}].concat(dbs.map(function(d){
         return {value: d.slug, label: d.name || d.slug, meta: 'Postgres'};
+      }));
+      var bucketOptions = [{value: '', label: 'No bucket', meta: 'attach later'}].concat(buckets.map(function(d){
+        return {value: d.slug, label: d.name || d.slug, meta: 'Bucket'};
       }));
       var cap0 = piCapacity();
       var wizMem = wizard.memory_mb || Math.min(512, cap0.maxMem);
@@ -136,6 +147,7 @@
       var advSummary = wizMem + ' MB · ' + wizCpu + ' CPU · go ' + goTc + (wizard.build_cmd ? ' · custom' : '');
       var mode = wizard.env_mode || 'text';
       var link = autoDb || '';
+      var blink = autoBucket || '';
       var envText = wizard.env != null ? wizard.env : '';
       // PORT is auto-assigned — keep it out of the custom editor.
       if (envText && typeof stripReservedDBEnv === 'function') {
@@ -147,16 +159,21 @@
         }
       }
       var envCount = countEnvKeys(envText);
-      var envSummaryTxt = link
-        ? ((envCount ? envCount + ' custom' : 'linked') + ' · ' + link)
+      var envSummaryTxt = (link || blink)
+        ? ((envCount ? envCount + ' custom' : 'linked') + (link ? (' · DB ' + link) : '') + (blink ? (' · bucket ' + blink) : ''))
         : (envCount ? (envCount + ' key' + (envCount === 1 ? '' : 's')) : 'Optional');
       var conflictHits = link ? findReservedEnvConflicts(envText) : [];
       var dups = findDuplicateEnvKeys(envText);
       var warnMsg = formatEnvConflictWarn(conflictHits, dups, link);
       var conflictKeys = reservedConflictKeys(conflictHits);
       var linkedMap = linkedEnvMapFromSources(wizard.db_env || {}, envText);
+      var bucketMap = linkedBucketMapFromEnv(envText);
+      if (wizard.bucket_env) {
+        BUCKET_ENV_KEYS.forEach(function(k){ if (wizard.bucket_env[k]) bucketMap[k] = wizard.bucket_env[k]; });
+      }
       var envBody = ''
         +(link ? wizAutoDBEnvHTML(link, linkedMap, conflictKeys, { reveal: !!wizEnvReveal, revealAction: 'wizenvreveal' }) : '')
+        +(blink ? wizAutoBucketEnvHTML(blink, bucketMap, { reveal: !!wizEnvReveal, revealAction: 'wizenvreveal' }) : '')
         +'<div class="wiz-custom-env">'
           +'<div class="wiz-custom-head">'
             +'<span>Your variables</span>'
@@ -196,6 +213,11 @@
             label: 'Database',
             meta: 'link',
             control: cselectHTML('db', autoDb || '', 'No database', dbOptions, false, {searchable: dbs.length > 4, searchPlaceholder:'Filter databases…'})
+          })
+          +uiField({
+            label: 'Bucket',
+            meta: 'link',
+            control: cselectHTML('bucket', autoBucket || '', 'No bucket', bucketOptions, false, {searchable: buckets.length > 4, searchPlaceholder:'Filter buckets…'})
           })
           +uiField({
             label: 'Port',
@@ -252,6 +274,20 @@
           })
           +uiHint('Shared on this Pi')
       });
+    } else if (step === 'bucket') {
+      body = wizardShell({
+        title: 'Add Bucket',
+        submitAction: 'wizard:create-bucket',
+        submitLabel: 'Create',
+        busy: !!busy.deploy,
+        body: ''
+          +uiField({
+            label: 'Name',
+            tip: 'S3 bucket on this Pi',
+            control: uiInput({ id: 'wiz-bucket-name', placeholder: 'uploads', value: wizard.name || '', autofocus: true })
+          })
+          +uiHint('Stored on this Pi · link a Go app for BUCKET_URL')
+      });
     }
     var size = (step === 'go') ? ' modal-md' : (step === 'type' ? ' modal-sm' : '');
     var submit = '';
@@ -259,5 +295,6 @@
     else if (step === 'group') submit = 'wizard:group-create';
     else if (step === 'go') submit = 'wizard:deploy';
     else if (step === 'postgres') submit = 'wizard:create-pg';
+    else if (step === 'bucket') submit = 'wizard:create-bucket';
     return '<div class="modal-backdrop" data-action="wizard:backdrop"><div class="modal'+size+'" data-stop="1"'+(submit ? ' data-submit-action="'+esc(submit)+'"' : '')+'>'+body+'</div></div>';
   }

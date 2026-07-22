@@ -129,6 +129,33 @@
     return null;
   }
 
+  function findMinIOEngineContainer() {
+    var inv = (manageOv && manageOv.docker) || dockerInv || { containers: [] };
+    var list = inv.containers || [];
+    for (var i = 0; i < list.length; i++) {
+      var c = list[i];
+      var n = String((c && c.name) || '').replace(/^\/+/, '');
+      if (n === 'firewifi-minio' || n.indexOf('firewifi-minio') === 0) return c;
+    }
+    return null;
+  }
+  function isMinIOEngineContainer(c) {
+    if (!c) return false;
+    var n = String(c.name || '').replace(/^\/+/, '');
+    return n === 'firewifi-minio' || n.indexOf('firewifi-minio') === 0;
+  }
+  function minioEngineStatusLabel(ev) {
+    if (manageLoading && !(ev && ev.minio_running) && !findMinIOEngineContainer()) {
+      return { cls: 'wait', text: 'Checking…' };
+    }
+    if (ev && ev.minio_running) return { cls: 'on', text: 'Running' };
+    var c = findMinIOEngineContainer();
+    if (c && (c.running || String(c.state||'').toLowerCase()==='restarting')) {
+      return { cls: 'warn', text: c.running ? 'Starting…' : 'Restarting' };
+    }
+    return { cls: 'off', text: 'Stopped' };
+  }
+
   function engineStatusLabel(ev) {
     if (manageLoading && !(ev && ev.postgres_running) && !findPostgresEngineContainer()) {
       return { text: 'Checking…', cls: 'wait' };
@@ -210,7 +237,7 @@
             +btn(powerLabel, powerAction, powerCls, busyD || st.checking, on ? 'stop' : 'play')
           +'</div>'
         +'</div>'
-        +'<p class="engine-help">Host container runtime (dockerd). Go apps and the shared Postgres engine both need this running.</p>'
+        +'<p class="engine-help">Host container runtime (dockerd). Go apps, Postgres, and MinIO engines need this running.</p>'
         +'<p class="engine-meta mono">'+esc(meta.join(' · '))+'</p>'
         +'<p class="engine-depend ghost">'+esc(depend)+'</p>'
       +'</div>';
@@ -269,12 +296,55 @@
       +'</div>';
   }
 
+  function minioEngineCard() {
+    var ev = engineView || {};
+    var st = minioEngineStatusLabel(ev);
+    var busyStart = !!busy['minio:start'];
+    var busyStop = !!busy['minio:stop'];
+    var busyEng = busyStart || busyStop;
+    var checking = st.cls === 'wait';
+    var on = !checking && (!!ev.minio_running || st.cls === 'on' || st.cls === 'warn');
+    var powerLabel = busyStart ? 'Starting…' : (busyStop ? 'Stopping…' : (checking ? '…' : (on ? 'Stop' : 'Start')));
+    var powerAction = on ? 'minio:stop' : 'minio:start';
+    var powerCls = on ? 'btn-quiet btn-compact danger-soft' : 'primary btn-compact';
+    var pubs = (manageOv && manageOv.published) || [];
+    var bN = 0;
+    for (var i = 0; i < pubs.length; i++) {
+      if (pubs[i] && pubs[i].kind === 'bucket') bN++;
+    }
+    // Fallback: count bucket services from deployed list if manage overview lacks kind.
+    if (!bN && typeof deployed !== 'undefined' && deployed) {
+      for (var j = 0; j < deployed.length; j++) {
+        if (deployed[j] && deployed[j].type === 'bucket') bN++;
+      }
+    }
+    var depend = bN === 1 ? '1 bucket uses this engine' : (bN + ' buckets use this engine');
+    var hostLine = 'firewifi-minio · ' + esc(ev.minio_image || 'minio/minio') + ' · ' + esc(ev.minio_endpoint || 'http://127.0.0.1:9000');
+    return ''
+      +'<div class="manage-block engine-card">'
+        +'<div class="manage-block-head">'
+          +'<div class="engine-title">'
+            +'<span class="engine-ico" aria-hidden="true">'+ico('storage')+'</span>'
+            +'<span class="dock-state '+st.cls+'"></span>'
+            +'<strong>Shared MinIO engine</strong>'
+            +'<span class="dock-badge '+st.cls+'">'+esc(st.text)+'</span>'
+          +'</div>'
+          +'<div class="engine-power" data-stop="1">'
+            +btn(powerLabel, powerAction, powerCls, busyEng || checking, on ? 'stop' : 'play')
+          +'</div>'
+        +'</div>'
+        +'<p class="engine-help">Object storage on this Pi’s SD card. Link a Go app to get one env: BUCKET_URL.</p>'
+        +'<p class="engine-meta mono">'+hostLine+'</p>'
+        +'<p class="engine-depend ghost">'+esc(depend)+'</p>'
+      +'</div>';
+  }
+
   function storagePanelBody(s) {
     var ov = manageOv || {};
     var inv = ov.docker || dockerInv || { images: [], containers: [], volumes: [], disk: [], reclaim_bytes: 0 };
     var imgs = inv.images || [];
     var allCtrs = inv.containers || [];
-    var ctrs = allCtrs.filter(function(c){ return !isPostgresEngineContainer(c); }).slice().sort(function(a, b){
+    var ctrs = allCtrs.filter(function(c){ return !isPostgresEngineContainer(c) && !isMinIOEngineContainer(c); }).slice().sort(function(a, b){
       var ar = a.running || String(a.state||'').toLowerCase()==='restarting' ? 1 : 0;
       var br = b.running || String(b.state||'').toLowerCase()==='restarting' ? 1 : 0;
       if (ar !== br) return br - ar;
@@ -340,6 +410,7 @@
         +dockerWarn
         +dockerDaemonCard()
         +engineCard()
+        +minioEngineCard()
         +strip
         +manageSection('Volumes', vols.length, volMeta, vols.length ? vols.map(dockVolumeRow).join('') : manageEmpty(manageLoading ? 'Scanning volumes…' : 'No volumes'))
         +prune

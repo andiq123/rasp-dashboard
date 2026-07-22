@@ -117,3 +117,13 @@ func formatRemaining(pending int) string {
 		return fmt.Sprintf("%d steps left", pending)
 	}
 }
+
+// CreateBucketSteps is the shared MinIO bucket provision pipeline.
+func CreateBucketSteps() []ProgressStep {
+	return []ProgressStep{
+		{ID: "prepare", Label: "Validate", Weight: 10, Status: "pending"},
+		{ID: "engine", Label: "MinIO engine", Weight: 25, Status: "pending"},
+		{ID: "bucket", Label: "Create bucket", Weight: 40, Status: "pending"},
+		{ID: "register", Label: "Register service", Weight: 25, Status: "pending"},
+	}
+}

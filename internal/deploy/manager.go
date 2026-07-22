@@ -23,6 +23,7 @@ type Manager struct {
 	DeployDir string
 	TokenPath string
 	Postgres  *infra.Postgres
+	MinIO     *infra.MinIO
 	Activity  *ActivityHub
 	Cache     *cache.Store
 	mu        sync.Mutex
@@ -35,13 +36,14 @@ type Manager struct {
 	stats     *statsHub
 }
 
-func NewManager(baseDir, homeDir string, pg *infra.Postgres) *Manager {
+func NewManager(baseDir, homeDir string, pg *infra.Postgres, mn *infra.MinIO) *Manager {
 	deployDir := filepath.Join(homeDir, "deployments")
 	m := &Manager{
 		BaseDir:   baseDir,
 		DeployDir: deployDir,
 		TokenPath: filepath.Join(baseDir, "config", "github.token"),
 		Postgres:  pg,
+		MinIO:     mn,
 		Activity:  newActivityHub(),
 		Cache:     cache.New(deployDir),
 	}
@@ -652,6 +654,14 @@ func (m *Manager) createGo(ctx context.Context, group string, in CreateGoRequest
 			return Service{}, "", fmt.Errorf("linked database has no DATABASE_URL")
 		}
 	}
+	blink := strings.TrimSpace(in.LinkedBucket)
+	if blink != "" {
+		bSvc, bi := findService(reg, group, blink)
+		if bi < 0 || bSvc.Type != TypeBucket {
+			m.mu.Unlock()
+			return Service{}, "", fmt.Errorf("linked bucket must be a bucket service in this group")
+		}
+	}
 
 	existing, existIdx := findService(reg, group, slug)
 	if existIdx >= 0 && !allowReplace {
@@ -806,6 +816,9 @@ func (m *Manager) createGo(ctx context.Context, group string, in CreateGoRequest
 	} else if linkURL != "" {
 		envBody = injectDatabaseURL(envBody, linkURL)
 	}
+	if blink != "" {
+		envBody = m.injectLinkedBucket(envBody, group, blink)
+	}
 	envBody = ensureProductionEnv(envBody)
 	_ = os.WriteFile(envPath, []byte(normalizeEnv(envBody)), 0o600)
 	m.logf("info", "Port %d · %dMB · %.1f CPU%s", port, mem, cpus, func() string {
@@ -827,7 +840,7 @@ func (m *Manager) createGo(ctx context.Context, group string, in CreateGoRequest
 		Repo: repo, Branch: branch, Port: port, Cmd: cmdPath,
 		RootDir: rootDir, BuildCmd: buildCmd, MemoryMB: mem, CPUs: cpus,
 		GoToolchain:    strings.TrimSpace(in.GoToolchain),
-		LinkedDatabase: link, URL: fmt.Sprintf("http://rasp.local:%d", port),
+		LinkedDatabase: link, LinkedBucket: blink, URL: fmt.Sprintf("http://rasp.local:%d", port),
 		Status: "building", UpdatedAt: time.Now().UTC().Format(time.RFC3339),
 		AutoDeploy: true, AutoDeploySet: true,
 	}
@@ -994,6 +1007,31 @@ func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in Set
 		}
 		recreate = true
 	}
+	if in.LinkedBucket != nil && svc.Type == TypeGo {
+		link := strings.TrimSpace(*in.LinkedBucket)
+		if link != "" {
+			bSvc, bi := findService(reg, group, link)
+			if bi < 0 || bSvc.Type != TypeBucket {
+				m.mu.Unlock()
+				return Service{}, fmt.Errorf("bucket must be in this group")
+			}
+			svc.LinkedBucket = link
+			envPath := filepath.Join(m.serviceDir(group, slug), "env")
+			cur, _ := os.ReadFile(envPath)
+			body := m.injectLinkedBucket(string(cur), group, link)
+			if strings.TrimSpace(parseEnvMap(body)["BUCKET_URL"]) == "" {
+				m.mu.Unlock()
+				return Service{}, fmt.Errorf("linked bucket has no credentials")
+			}
+			_ = os.WriteFile(envPath, []byte(body), 0o600)
+		} else {
+			svc.LinkedBucket = ""
+			envPath := filepath.Join(m.serviceDir(group, slug), "env")
+			cur, _ := os.ReadFile(envPath)
+			_ = os.WriteFile(envPath, []byte(removeLinkedBucketEnv(string(cur))), 0o600)
+		}
+		recreate = true
+	}
 	if in.Env != nil {
 		path := filepath.Join(m.serviceDir(group, slug), "env")
 		body := normalizeEnv(*in.Env)
@@ -1006,6 +1044,9 @@ func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in Set
 		} else {
 			if svc.Type == TypeGo && svc.LinkedDatabase != "" {
 				body = m.injectLinkedDatabase(body, group, svc.LinkedDatabase)
+			}
+			if svc.Type == TypeGo && svc.LinkedBucket != "" {
+				body = m.injectLinkedBucket(body, group, svc.LinkedBucket)
 			}
 			if body != curNorm {
 				if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
@@ -1096,6 +1137,13 @@ func (m *Manager) Start(ctx context.Context, group, slug string) error {
 	if svc.Type == TypePostgres {
 		m.logf("step", "Starting shared Postgres engine")
 		runErr = m.Postgres.Start(ctx)
+	} else if svc.Type == TypeBucket {
+		if m.MinIO == nil {
+			runErr = fmt.Errorf("minio engine not configured")
+		} else {
+			m.logf("step", "Starting shared MinIO engine")
+			runErr = m.MinIO.Start(ctx)
+		}
 	} else {
 		m.logf("step", "Starting container")
 		runErr = m.recreateGo(ctx, svc)
@@ -1111,12 +1159,18 @@ func (m *Manager) Start(ctx context.Context, group, slug string) error {
 		return runErr
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	if svc.Type == TypePostgres {
+	if svc.Type == TypePostgres || svc.Type == TypeBucket {
+		engineType := TypePostgres
+		addr := "127.0.0.1:5432"
+		if svc.Type == TypeBucket {
+			engineType = TypeBucket
+			addr = "127.0.0.1:9000"
+		}
 		m.mu.Lock()
 		reg2, err2 := m.loadRegistry()
 		if err2 == nil {
 			for i := range reg2.Services {
-				if reg2.Services[i].Type == TypePostgres {
+				if reg2.Services[i].Type == engineType {
 					reg2.Services[i].Running = true
 					reg2.Services[i].Status = "running"
 					reg2.Services[i].LastError = ""
@@ -1128,7 +1182,7 @@ func (m *Manager) Start(ctx context.Context, group, slug string) error {
 		}
 		m.mu.Unlock()
 		m.stepProgress("health")
-		m.logf("ok", "Engine running · 127.0.0.1:5432")
+		m.logf("ok", "Engine running · %s", addr)
 		m.releaseJob(true, "Engine started")
 		return nil
 	}
@@ -1161,16 +1215,34 @@ func (m *Manager) Stop(ctx context.Context, group, slug string) error {
 		m.releaseJob(false, err.Error())
 		return err
 	}
-	if svc.Type == TypePostgres {
-		if m.Postgres == nil {
-			err := fmt.Errorf("postgres engine not configured")
-			m.releaseJob(false, err.Error())
-			return err
+	if svc.Type == TypePostgres || svc.Type == TypeBucket {
+		engineType := TypePostgres
+		label := "Postgres"
+		hint := "database"
+		var stopErr error
+		if svc.Type == TypeBucket {
+			engineType = TypeBucket
+			label = "MinIO"
+			hint = "bucket"
+			if m.MinIO == nil {
+				err := fmt.Errorf("minio engine not configured")
+				m.releaseJob(false, err.Error())
+				return err
+			}
+			m.logf("step", "Stopping shared MinIO engine (all buckets offline)")
+			stopErr = m.MinIO.Stop(ctx)
+		} else {
+			if m.Postgres == nil {
+				err := fmt.Errorf("postgres engine not configured")
+				m.releaseJob(false, err.Error())
+				return err
+			}
+			m.logf("step", "Stopping shared Postgres engine (all databases offline)")
+			stopErr = m.Postgres.Stop(ctx)
 		}
-		m.logf("step", "Stopping shared Postgres engine (all databases offline)")
-		if err := m.Postgres.Stop(ctx); err != nil {
-			m.releaseJob(false, err.Error())
-			return err
+		if stopErr != nil {
+			m.releaseJob(false, stopErr.Error())
+			return stopErr
 		}
 		now := time.Now().UTC().Format(time.RFC3339)
 		m.mu.Lock()
@@ -1181,7 +1253,7 @@ func (m *Manager) Stop(ctx context.Context, group, slug string) error {
 			return err
 		}
 		for i := range reg.Services {
-			if reg.Services[i].Type == TypePostgres {
+			if reg.Services[i].Type == engineType {
 				reg.Services[i].Running = false
 				reg.Services[i].Status = "stopped"
 				reg.Services[i].UpdatedAt = now
@@ -1190,7 +1262,7 @@ func (m *Manager) Stop(ctx context.Context, group, slug string) error {
 		}
 		_ = m.saveRegistry(reg)
 		m.mu.Unlock()
-		m.logf("ok", "Engine stopped · Start from any database card")
+		m.logf("ok", "%s engine stopped · Start from any %s card", label, hint)
 		m.releaseJob(true, "Engine stopped")
 		return nil
 	}
@@ -1240,6 +1312,13 @@ func (m *Manager) Restart(ctx context.Context, group, slug string) error {
 			m.logf("step", "Restarting shared Postgres engine")
 			runErr = m.Postgres.Restart(ctx)
 		}
+	} else if svc.Type == TypeBucket {
+		if m.MinIO == nil {
+			runErr = fmt.Errorf("minio engine not configured")
+		} else {
+			m.logf("step", "Restarting shared MinIO engine")
+			runErr = m.MinIO.Restart(ctx)
+		}
 	} else {
 		m.logf("step", "Restarting container")
 		runErr = m.restartGo(ctx, svc)
@@ -1249,14 +1328,17 @@ func (m *Manager) Restart(ctx context.Context, group, slug string) error {
 		m.releaseJob(false, runErr.Error())
 		return runErr
 	}
-	if svc.Type == TypePostgres {
-		// Reuse Start path side-effects via Start after unlock already restarted.
+	if svc.Type == TypePostgres || svc.Type == TypeBucket {
+		engineType := TypePostgres
+		if svc.Type == TypeBucket {
+			engineType = TypeBucket
+		}
 		now := time.Now().UTC().Format(time.RFC3339)
 		m.mu.Lock()
 		reg2, err2 := m.loadRegistry()
 		if err2 == nil {
 			for i := range reg2.Services {
-				if reg2.Services[i].Type == TypePostgres {
+				if reg2.Services[i].Type == engineType {
 					reg2.Services[i].Running = true
 					reg2.Services[i].Status = "running"
 					reg2.Services[i].LastError = ""
@@ -1370,6 +1452,9 @@ func (m *Manager) Delete(ctx context.Context, group, slug string) error {
 		if reg.Services[i].Group == group && reg.Services[i].LinkedDatabase == slug {
 			reg.Services[i].LinkedDatabase = ""
 		}
+		if reg.Services[i].Group == group && reg.Services[i].LinkedBucket == slug {
+			reg.Services[i].LinkedBucket = ""
+		}
 	}
 	if err := m.saveRegistry(reg); err != nil {
 		m.releaseJob(false, err.Error())
@@ -1392,6 +1477,10 @@ func (m *Manager) deleteServiceLocked(ctx context.Context, reg registry, svc Ser
 	if svc.Type == TypePostgres && m.Postgres != nil && svc.Database != "" {
 		m.logf("info", "Dropping database %s", svc.Database)
 		_ = m.Postgres.DropDatabase(ctx, svc.Database)
+	}
+	if svc.Type == TypeBucket && m.MinIO != nil && svc.Bucket != "" {
+		m.logf("info", "Deleting bucket %s", svc.Bucket)
+		_ = m.MinIO.DeleteBucket(ctx, svc.Bucket)
 	}
 	if m.Cache != nil {
 		m.Cache.ForgetService(svc.Group, svc.Slug)
@@ -1466,6 +1555,22 @@ func (m *Manager) refreshStatus(ctx context.Context, svc Service) Service {
 		}
 		if svc.ConnectionURL == "" {
 			svc.ConnectionURL = m.readServiceDATABASEURL(svc.Group, svc.Slug)
+		}
+		if svc.Running {
+			svc.Status = "running"
+		} else {
+			svc.Status = "stopped"
+		}
+	case TypeBucket:
+		if m.MinIO != nil {
+			st := m.MinIO.Status(ctx)
+			svc.Running = st.Running
+			svc.EngineImage = st.Image
+		}
+		if u := m.readServiceBUCKETURL(svc.Group, svc.Slug); u != "" {
+			svc.ConnectionURL = u
+		} else if svc.ConnectionURL == "" && m.MinIO != nil {
+			svc.ConnectionURL = m.MinIO.Status(ctx).Endpoint
 		}
 		if svc.Running {
 			svc.Status = "running"

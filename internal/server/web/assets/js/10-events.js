@@ -68,6 +68,15 @@
       return;
     }
     if (e.target.closest && e.target.closest('#config-form')) formDirty = true;
+    if (e.target.name === 'files-q') {
+      filesQuery = e.target.value || '';
+      if (navView === 'files' || navView === 'activity') {
+        var body = document.querySelector('.fe-body');
+        if (body && filesListing) body.innerHTML = filesTableHTML(filesListing);
+        else render({ animate: false });
+      }
+      return;
+    }
   }
   document.getElementById('app').addEventListener('input', onUiInput);
   var _modalRootInput = document.getElementById('modal-root');
@@ -81,7 +90,21 @@
     }
   }
   if (_drawerRootInput) _drawerRootInput.addEventListener('change', onUiChange);
-  document.getElementById('app').addEventListener('change', onUiChange);
+  document.getElementById('app').addEventListener('change', function(e){
+    if (e.target && e.target.hasAttribute && e.target.hasAttribute('data-files-hidden')) {
+      filesShowHidden = !!e.target.checked;
+      if (navView === 'files' || navView === 'activity') {
+        var body = document.querySelector('.fe-body');
+        var sum = document.querySelector('.fe-summary');
+        if (body && filesListing) {
+          body.innerHTML = filesTableHTML(filesListing);
+          if (sum) sum.outerHTML = filesSummaryHTML(filesListing, filesVisibleEntries(filesListing));
+        } else render({ animate: false });
+      }
+      return;
+    }
+    onUiChange(e);
+  });
   document.getElementById("app").addEventListener("keydown", onSvcCardKey);
   if (_drawerRootInput) _drawerRootInput.addEventListener("keydown", onSvcCardKey);
 
@@ -228,9 +251,8 @@
   history.replaceState({ fw: 1, path: routePath() }, '', routePath());
   _routeSync = false;
   render({animate:true});
-  if (navView === 'activity') {
-    activity.userCollapsed = false;
-    openActivityConsole({ forceExpand: true });
+  if (navView === 'files') {
+    loadFiles(filesPath || (typeof FILES_HOME !== 'undefined' ? FILES_HOME : '/home/andiq'), { render: true });
   }
   if (navView === 'settings') {
     manageLoading = true;
@@ -242,6 +264,36 @@
   watchActivity();
   document.querySelectorAll('[data-res-panel]').forEach(syncResLabels);
   setInterval(function(){ if (!wizard && !picker) refreshServices(); }, 8000);
+
+
+  document.getElementById('app').addEventListener('click', function(e){
+    if (!e.target || !e.target.closest) return;
+    if (e.target.closest('[data-action]')) return;
+    var row = e.target.closest('.fe-row[data-fe-path]');
+    if (!row) return;
+    filesSelected = row.getAttribute('data-fe-path');
+    document.querySelectorAll('.fe-row.is-selected').forEach(function(n){ n.classList.remove('is-selected'); });
+    row.classList.add('is-selected');
+  }, true);
+
+  document.getElementById('app').addEventListener('dblclick', function(e){
+    if (!e.target || !e.target.closest) return;
+    if (e.target.closest('[data-action]')) return;
+    var row = e.target.closest('.fe-row[data-fe-path]');
+    if (!row) return;
+    e.preventDefault();
+    var path = row.getAttribute('data-fe-path');
+    if (row.getAttribute('data-fe-dir') === '1') {
+      closeFilesPreview();
+      loadFiles(path, { render: true });
+      return;
+    }
+    if (row.getAttribute('data-fe-text') === '1') {
+      openFilesPreview(path);
+      return;
+    }
+    showToast('No text preview for this file');
+  }, true);
 
   window.addEventListener('popstate', function() {
     _routeSync = true;

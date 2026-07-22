@@ -798,6 +798,17 @@ func (m *Manager) runGoContainer(ctx context.Context, svc Service) error {
 			m.logf("warn", "Linked database %s missing DATABASE_URL", svc.LinkedDatabase)
 		}
 	}
+	if svc.LinkedBucket != "" {
+		beforeB := merged
+		merged = m.injectLinkedBucket(merged, svc.Group, svc.LinkedBucket)
+		if strings.TrimSpace(parseEnvMap(merged)["BUCKET_URL"]) != "" {
+			m.logf("info", "Injected BUCKET_URL from %s", svc.LinkedBucket)
+		} else if beforeB == merged {
+			m.logf("warn", "Linked bucket %s has no connection env", svc.LinkedBucket)
+		} else {
+			m.logf("warn", "Linked bucket %s missing BUCKET", svc.LinkedBucket)
+		}
+	}
 	envMap := parseEnvMap(merged)
 	if strings.TrimSpace(envMap["DATABASE_URL"]) == "" && strings.TrimSpace(envMap["DB_HOST"]) == "" {
 		m.logf("warn", "No database env — apps that need Postgres will crash on boot")
@@ -953,4 +964,12 @@ func (m *Manager) readServiceDATABASEURL(group, slug string) string {
 		return ""
 	}
 	return parseEnvMap(string(b))["DATABASE_URL"]
+}
+
+func (m *Manager) readServiceBUCKETURL(group, slug string) string {
+	b, err := os.ReadFile(filepath.Join(m.serviceDir(group, slug), "env"))
+	if err != nil {
+		return ""
+	}
+	return bucketURLFromEnvMap(parseEnvMap(string(b)))
 }

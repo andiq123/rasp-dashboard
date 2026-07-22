@@ -15,8 +15,8 @@ func parseRoute(path string) map[string]string {
 	switch p {
 	case "/", "/overview":
 		return out
-	case "/activity":
-		out["navView"] = "activity"
+	case "/activity", "/files":
+		out["navView"] = "files"
 		return out
 	case "/settings":
 		out["navView"] = "settings"
@@ -28,6 +28,10 @@ func parseRoute(path string) map[string]string {
 		return out
 	case "/projects":
 		out["navView"] = "projects"
+		return out
+	}
+	if strings.HasPrefix(p, "/files/") {
+		out["navView"] = "files"
 		return out
 	}
 	const prefix = "/projects/"
@@ -55,7 +59,8 @@ func TestParseRoute(t *testing.T) {
 	}{
 		{"/", map[string]string{"navView": "overview"}},
 		{"/overview/", map[string]string{"navView": "overview"}},
-		{"/activity", map[string]string{"navView": "activity"}},
+		{"/activity", map[string]string{"navView": "files"}},
+		{"/files", map[string]string{"navView": "files"}},
 		{"/settings", map[string]string{"navView": "settings", "settingsTab": "github"}},
 		{"/settings/storage", map[string]string{"navView": "settings", "settingsTab": "storage"}},
 		{"/projects", map[string]string{"navView": "projects"}},

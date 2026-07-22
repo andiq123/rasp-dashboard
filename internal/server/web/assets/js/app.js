@@ -10,6 +10,8 @@
   var groups = [];
   var activeGroup = null;
   var deployed = [];
+  var canvasLayout = { nodes: {} }; // group canvas positions {slug:{x,y}}
+  var _canvasDrag = null;
   var repos = [];
   var wizard = null;
   var settingsSlug = null;
@@ -141,6 +143,7 @@
       upload: '<path d="M12 20V8"/><path d="M7 13l5-5 5 5"/><path d="M5 4h14"/>',
       shield: '<path d="M12 3l8 3v6c0 5-3.4 8.4-8 9-4.6-.6-8-4-8-9V6l8-3z"/>',
       settings: '<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.86 1.01 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+      arrange: '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/>',
       storage: '<path d="M4 7h16v4H4zM4 13h16v4H4z"/><circle cx="8" cy="9" r="1" fill="currentColor" stroke="none"/><circle cx="8" cy="15" r="1" fill="currentColor" stroke="none"/>',
       spark: '<path d="M12 3l1.5 5.5L19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5L12 3z"/>'
     };
@@ -889,6 +892,8 @@
 
 
   var DB_ENV_KEYS = ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_SSLMODE', 'DATABASE_URL'];
+  var BUCKET_ENV_KEYS = ['BUCKET_URL'];
+  var LEGACY_BUCKET_ENV_KEYS = ['BUCKET','BUCKET_NAME','BUCKET_ENDPOINT','BUCKET_ACCESS_KEY_ID','BUCKET_SECRET_ACCESS_KEY','BUCKET_REGION','BUCKET_FORCE_PATH_STYLE','AWS_ENDPOINT_URL','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_REGION','AWS_S3_FORCE_PATH_STYLE'];
 
   function clearScopeFolds(scope) {
     if (!scope) return;
@@ -987,6 +992,8 @@
   function stripReservedDBEnv(text) {
     var map = parseEnvMapClient(text);
     RESERVED_DB_KEYS.forEach(function(k){ delete map[k]; });
+    BUCKET_ENV_KEYS.forEach(function(k){ delete map[k]; });
+    LEGACY_BUCKET_ENV_KEYS.forEach(function(k){ delete map[k]; });
     // Also strip POSTGRES_* if pasted
     Object.keys(map).forEach(function(k){
       if (/^POSTGRES_/.test(k)) delete map[k];
@@ -1075,7 +1082,7 @@
 
   function isSecretEnvKey(k) {
     k = String(k || '');
-    return k === 'DB_PASSWORD' || k === 'DATABASE_URL' || /PASSWORD|SECRET|TOKEN|KEY$/i.test(k);
+    return k === 'DB_PASSWORD' || k === 'DATABASE_URL' || k === 'BUCKET_URL' || k === 'BUCKET_SECRET_ACCESS_KEY' || k === 'AWS_SECRET_ACCESS_KEY' || /PASSWORD|SECRET|TOKEN|KEY$/i.test(k);
   }
 
   /** Split user env text into custom-only (no reserved DB keys). */
@@ -1084,6 +1091,8 @@
     var custom = {};
     Object.keys(map).forEach(function(k){
       if (RESERVED_DB_KEYS.indexOf(k) >= 0) return;
+      if (BUCKET_ENV_KEYS.indexOf(k) >= 0) return;
+      if (LEGACY_BUCKET_ENV_KEYS.indexOf(k) >= 0) return;
       if (/^POSTGRES_/.test(k)) return;
       custom[k] = map[k];
     });
@@ -1111,6 +1120,38 @@
     });
     Object.keys(custom).forEach(function(k){ merged[k] = custom[k]; });
     return envMapToDotenv(merged);
+  }
+
+
+  function wizAutoBucketEnvHTML(link, bucketMap, opts) {
+    if (!link) return '';
+    opts = opts || {};
+    bucketMap = bucketMap || {};
+    var keys = BUCKET_ENV_KEYS.filter(function(k){ return bucketMap[k]; });
+    if (!keys.length) {
+      return '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(link)+'</span><span class="ghost">linking…</span></div><div class="ghost" style="font-size:11px">BUCKET_URL appears after save/deploy</div></div>';
+    }
+    var reveal = !!opts.reveal;
+    var rows = keys.map(function(k){
+      var val = String(bucketMap[k] || '');
+      var secret = (k === 'BUCKET_URL') || /SECRET|PASSWORD|TOKEN/i.test(k) || /_KEY$/i.test(k);
+      var shown = (secret && !reveal) ? '••••••••' : val;
+      return '<div class="wiz-auto-row"><code>'+esc(k)+'</code><span class="mono">'+esc(shown)+'</span></div>';
+    }).join('');
+    return ''
+      +'<div class="wiz-auto-env">'
+        +'<div class="wiz-auto-head"><span>From '+esc(link)+'</span>'
+          +(opts.revealAction ? '<button type="button" class="btn btn-quiet btn-compact" data-action="'+esc(opts.revealAction)+'">'+(reveal?'Hide':'Reveal')+'</button>' : '')
+        +'</div>'
+        +rows
+      +'</div>';
+  }
+
+  function linkedBucketMapFromEnv(envText) {
+    var mp = parseEnvMapClient(envText || '');
+    var out = {};
+    BUCKET_ENV_KEYS.forEach(function(k){ if (mp[k]) out[k] = mp[k]; });
+    return out;
   }
 
   function wizAutoDBEnvHTML(link, dbMap, conflictKeys, opts) {
@@ -1370,19 +1411,14 @@
   }
 
   function activityMainView() {
-    return ''
-      +'<div class="nav-page" data-view="activity">'
-        +'<div class="activity-main-placeholder page-hint">'
-          +'<h2>Activity</h2>'
-          +'<p class="ghost">Deploy and engine logs stream in the console at the bottom of the screen.</p>'
-        +'</div>'
-      +'</div>';
+    // Legacy stub — Activity page is now Files explorer.
+    return filesExplorerView();
   }
 
   function services(s) {
     var gh = github || {};
     if (navView === 'settings') return settingsWorkspaceView(s);
-    if (navView === 'activity') return activityMainView();
+    if (navView === 'files' || navView === 'activity') return filesExplorerView();
     if (navView !== 'projects') return '';
     if (manageTab === 'network') manageTab = 'services';
     return projectsWorkspaceView(s, gh);
@@ -1466,9 +1502,6 @@
     var g = (groups || []).filter(function(x){ return x.slug === activeGroup; })[0] || { slug: activeGroup, name: activeGroup };
     var list = deployed || [];
     var dbs = list.filter(function(x){ return x.type === 'postgres'; });
-    var apps = list.filter(function(x){ return x.type !== 'postgres'; });
-    var dbCards = dbs.map(function(svc){ return serviceCard(svc, dbs); }).join('');
-    var appCards = apps.map(function(svc){ return serviceCard(svc, dbs); }).join('');
     var draftName = (groupDraft && groupDraft.name != null) ? groupDraft.name : (g.name || g.slug);
     var savedName = g.name || g.slug;
     var nameDirty = String(draftName).trim() !== String(savedName).trim();
@@ -1480,35 +1513,37 @@
         +'<div class="gd-empty">'
           +'<div class="gd-empty-ill" aria-hidden="true">'+ico('plus')+'</div>'
           +'<strong>Nothing here yet</strong>'
-          +'<p>Add a database first, then an app — link them so the app gets <code>DB_*</code> automatically.</p>'
-          +'<button type="button" class="btn primary has-ico" data-action="wizard:open">'+ico('plus')+'<span>Add service</span></button>'
+          +'<p>Add a service — Go app, Postgres, or Bucket — then link them in settings.</p>'
         +'</div>');
-    function lane(opts) {
-      return ''
-        +'<div class="svc-lane kind-'+opts.kind+'">'
-          +'<div class="svc-lane-head">'
-            +'<div class="svc-lane-title">'+ico(opts.ico)+'<h3>'+esc(opts.title)+'</h3><span class="gd-count">'+opts.count+'</span></div>'
-            +(opts.action || '')
-          +'</div>'
-          +'<div class="svc-list svc-grid'+(navLoading?' is-loading':'')+'">'+(opts.body || '')+'</div>'
-        +'</div>';
+    var nodes = (canvasLayout && canvasLayout.nodes) || {};
+    var board = '';
+    if (list.length) {
+      ensureCanvasPositions(list);
+      nodes = (canvasLayout && canvasLayout.nodes) || {};
+      board = list.map(function(svc){
+        var pos = nodes[svc.slug] || { x: 24, y: 24 };
+        return ''
+          +'<div class="rw-node-wrap" data-node="'+esc(svc.slug)+'" style="left:'+Math.round(pos.x)+'px;top:'+Math.round(pos.y)+'px">'
+            + serviceCard(svc, dbs)
+          +'</div>';
+      }).join('');
     }
-    var canvasInner;
-    if (!list.length) {
-      canvasInner = empty;
-    } else {
-      canvasInner = ''
-        +(dbs.length || true
-          ? lane({ kind: 'db', ico: 'db', title: 'Databases', count: dbs.length,
-              body: dbCards || '<div class="svc-lane-empty">No database — add one to store app data.</div>',
-              action: '<button type="button" class="rw-add-btn" data-action="wizard:type:postgres">'+ico('plus')+' Database</button>' })
-          : '')
-        +lane({ kind: 'app', ico: 'app', title: 'Apps', count: apps.length,
-            body: appCards || '<div class="svc-lane-empty">No app yet — deploy a Go service and link a database.</div>',
-            action: '<button type="button" class="rw-add-btn rw-add-primary" data-action="wizard:type:go">'+ico('plus')+' App</button>' });
-    }
+    var canvasInner = list.length
+      ? ('<div class="rw-board" data-board="1">'+board+'</div>')
+      : empty;
+    var toolbar = ''
+      +'<div class="rw-canvas-toolbar" data-stop="1">'
+        +'<span class="rw-canvas-count ghost">'+esc(String(list.length))+' service'+(list.length===1?'':'s')+'</span>'
+        +'<div class="rw-canvas-tools">'
+          +(list.length
+            ? '<button type="button" class="btn btn-quiet btn-compact has-ico" data-action="canvas:arrange" title="Auto arrange">'+ico('arrange')+'<span>Auto arrange</span></button>'
+            : '')
+          +'<button type="button" class="btn primary btn-compact has-ico" data-action="wizard:open">'+ico('plus')+'<span>Add service</span></button>'
+        +'</div>'
+      +'</div>';
     var body = ''
-      +'<div class="rw-canvas'+(settingsSlug?' drawer-open':'')+(!list.length?' is-empty':'')+(navLoading?' is-loading':'')+'" data-canvas="1">'
+      + toolbar
+      +'<div class="rw-canvas is-free'+(settingsSlug?' drawer-open':'')+(!list.length?' is-empty':'')+(navLoading?' is-loading':'')+'" data-canvas="1">'
         +'<svg class="rw-links" aria-hidden="true"><g class="rw-links-g"></g></svg>'
         +canvasInner
       +'</div>';
@@ -1533,7 +1568,6 @@
       +'</div>';
   }
 
-
   function systemSyncroxInner(s) {
     return ''
       +'<div class="system-row">'
@@ -1555,11 +1589,14 @@
     if (svc && svc.type === 'postgres') {
       return { kind: 'db', label: 'Database', ico: 'db' };
     }
+    if (svc && svc.type === 'bucket') {
+      return { kind: 'db', label: 'Bucket', ico: 'storage' };
+    }
     return { kind: 'app', label: 'App', ico: 'app' };
   }
 
   function statusMeta(svc, building, failed, isUp) {
-    if (svc && svc.type === 'postgres') {
+    if (svc && (svc.type === 'postgres' || svc.type === 'bucket')) {
       return isUp
         ? { cls: 'ok', label: 'Ready' }
         : { cls: 'off', label: 'Offline' };
@@ -1581,14 +1618,30 @@
   }
 
 
+  function maskBucketURLDisplay(raw) {
+    raw = String(raw || '');
+    if (!raw) return '';
+    try {
+      var u = new URL(raw);
+      if (u.username || u.password) {
+        u.username = '••••';
+        u.password = '';
+      }
+      return u.toString().replace(/••••:@/, '••••@').replace(/\/@/, '/');
+    } catch (e) {
+      return raw.replace(/:\/\/[^@\s]+@/, '://••••@');
+    }
+  }
   function accessURL(svc) {
     if (!svc) return '';
-    if (svc.type === 'postgres') return rewriteHost(svc.connection_url || '');
+    if (svc.type === 'postgres' || svc.type === 'bucket') return rewriteHost(svc.connection_url || '');
     var raw = svc.url || (svc.port ? ('http://rasp.local:' + svc.port) : '');
     return rewriteHost(raw);
   }
   function accessLabel(svc) {
-    return svc && svc.type === 'postgres' ? 'DATABASE_URL' : 'App URL';
+    if (svc && svc.type === 'postgres') return 'DATABASE_URL';
+    if (svc && svc.type === 'bucket') return 'BUCKET_URL';
+    return 'App URL';
   }
   function publicURL(svc) {
     return (svc && svc.public_url) ? String(svc.public_url) : '';
@@ -1597,6 +1650,9 @@
     if (!svc) return '—';
     if (svc.type === 'postgres') {
       return svc.database || accessHostSummary(accessURL(svc)) || '—';
+    }
+    if (svc.type === 'bucket') {
+      return svc.bucket || accessHostSummary(accessURL(svc)) || '—';
     }
     var pub = publicURL(svc);
     if (pub) return String(pub).replace(/^https?:\/\//, '');
@@ -1610,8 +1666,8 @@
     if (!primary) {
       return '<div class="svc-foot empty"><span class="ghost">No endpoint yet</span></div>';
     }
-    var isPg = svc.type === 'postgres';
-    var label = pub ? 'Public' : (isPg ? 'Database URL' : 'App URL');
+    var isPg = svc.type === 'postgres' || svc.type === 'bucket';
+    var label = pub ? 'Public' : (svc.type === 'postgres' ? 'Database URL' : (svc.type === 'bucket' ? 'Bucket URL' : 'App URL'));
     var openBtn = isPg ? '' : (
       '<a class="btn btn-compact svc-act primary" href="'+esc(primary)+'" target="_blank" rel="noopener" data-stop="1" title="Open">'
         +ico('open')+'<span>Open</span></a>'
@@ -1620,7 +1676,7 @@
       +'<div class="svc-foot'+(pub?' is-public':'')+(isPg?' is-db':' is-app')+'" data-stop="1">'
         +'<div class="svc-foot-main">'
           +'<div class="svc-foot-label"><span>'+esc(label)+'</span></div>'
-          +'<code class="svc-foot-url" id="access-'+esc(svc.slug)+'" data-copy="'+esc(primary)+'" title="'+esc(primary)+'">'+esc(primary)+'</code>'
+          +'<code class="svc-foot-url" id="access-'+esc(svc.slug)+'" data-copy="'+esc(primary)+'" title="'+esc(primary)+'">'+esc(svc.type==='bucket' ? maskBucketURLDisplay(primary) : primary)+'</code>'
         +'</div>'
         +'<div class="svc-foot-acts">'
           +'<button type="button" class="btn btn-compact svc-act" data-action="copy:access:'+esc(svc.slug)+'" title="Copy full URL">'
@@ -1639,6 +1695,15 @@
           +'<button type="button" class="btn" data-action="copy:access-cfg:'+esc(svc.slug)+'">Copy</button>'
         +'</div>'
         +uiHint('Paste into clients · linked apps get DB_* + DATABASE_URL');
+    }
+    if (svc.type === 'bucket') {
+      if (!local) return uiHint('No endpoint yet — start the MinIO engine');
+      return ''
+        +'<div class="copy-row">'
+          +'<code id="access-cfg-'+esc(svc.slug)+'" data-copy="'+esc(local)+'">'+esc(maskBucketURLDisplay(local))+'</code>'
+          +'<button type="button" class="btn" data-action="copy:access-cfg:'+esc(svc.slug)+'">Copy</button>'
+        +'</div>'
+        +uiHint('Copy BUCKET_URL into your app · or link the service to inject it');
     }
     if (!local) return uiHint('No URL yet — start or redeploy');
     var pub = publicURL(svc);
@@ -1748,14 +1813,15 @@
 
   function drawerToolbarHTML(svc) {
     var isPg = svc.type === 'postgres';
-    var building = !isPg && (svc.status === 'building' || !!(svc.deployments || []).some(function(d){ return d.status === 'building' || d.status === 'queued'; }));
-    var failed = !isPg && !building && (svc.status === 'failed' || !!svc.last_error);
+    var isBucket = svc.type === 'bucket';
+    var building = !isPg && !isBucket && (svc.status === 'building' || !!(svc.deployments || []).some(function(d){ return d.status === 'building' || d.status === 'queued'; }));
+    var failed = !isPg && !isBucket && !building && (svc.status === 'failed' || !!svc.last_error);
     var isUp = !!svc.running && !failed && !building;
     var startStopBusy = !!(busy['svc:start:'+svc.slug] || busy['svc:stop:'+svc.slug]);
     var restartBusy = !!(busy['svc:restart:'+svc.slug]);
     var toolCls = 'drawer-tool-btn btn-compact';
     var acts = '';
-    if (isPg) {
+    if (isPg || isBucket) {
       if (isUp) {
         acts = btn('Stop', 'svc:stop:'+svc.slug, toolCls + ' danger-soft', startStopBusy, 'stop')
           + btn('Restart', 'svc:restart:'+svc.slug, toolCls, restartBusy, 'refresh');
@@ -1905,11 +1971,13 @@
       +'</section>';
   }
 
-  function serviceSettingsHTML(svc, dbs) {
+  function serviceSettingsHTML(svc, dbs, buckets) {
+    buckets = buckets || (deployed || []).filter(function(x){ return x.type === 'bucket'; });
     var draft = settingsDraft[svc.slug] || {};
     var isPg = svc.type === 'postgres';
-    var building = !isPg && (svc.status === 'building' || !!(svc.deployments || []).some(function(d){ return d.status === 'building' || d.status === 'queued'; }));
-    var failed = !isPg && !building && (svc.status === 'failed' || !!svc.last_error);
+    var isBucket = svc.type === 'bucket';
+    var building = !isPg && !isBucket && (svc.status === 'building' || !!(svc.deployments || []).some(function(d){ return d.status === 'building' || d.status === 'queued'; }));
+    var failed = !isPg && !isBucket && !building && (svc.status === 'failed' || !!svc.last_error);
     var isUp = !!svc.running && !failed && !building;
     var usageLabel = serviceUsageLabel(svc);
     var mode = envMode[svc.slug] || 'text';
@@ -1923,6 +1991,9 @@
     var linkVal = (draft.linked_database != null && String(draft.linked_database) !== '')
       ? draft.linked_database
       : (svc.linked_database || '');
+    var bucketVal = (draft.linked_bucket != null && String(draft.linked_bucket) !== '')
+      ? draft.linked_bucket
+      : (svc.linked_bucket || '');
     var envVal = (draft.env != null && String(draft.env).trim() !== '')
       ? draft.env
       : '';
@@ -1931,8 +2002,13 @@
       var linked = (dbs || []).filter(function(d){ return d.slug === linkVal; })[0];
       linkedName = linked ? (linked.name || linked.slug) : linkVal;
     }
+    var linkedBucketName = '';
+    if (bucketVal) {
+      var lb = (buckets || []).filter(function(d){ return d.slug === bucketVal; })[0];
+      linkedBucketName = lb ? (lb.name || lb.slug) : bucketVal;
+    }
     var scope = svc.slug;
-    var customEnvVal = linkVal ? splitCustomEnv(envVal) : envVal;
+    var customEnvVal = (linkVal || bucketVal) ? splitCustomEnv(envVal) : envVal;
     if (isPg) {
       return ''
         +'<div class="settings settings-drawer settings-pg">'
@@ -1956,6 +2032,25 @@
           })
         +'</div>';
     }
+    if (isBucket) {
+      return ''
+        +'<div class="settings settings-drawer settings-pg">'
+          +pgEnvBoardHTML(svc, envVal)
+          +'<section class="drawer-section drawer-section-card drawer-section-compact">'
+            +uiField({
+              label: 'Display name',
+              meta: 'label',
+              control: uiInput({ name: 'name', value: nameVal })
+            })
+            +uiHint('Bucket · '+esc(svc.bucket || svc.slug)+' · '+esc(svc.connection_url || 'http://127.0.0.1:9000'))
+          +'</section>'
+          +uiFooter({
+            left: '<span class="ghost">Delete removes this bucket and objects</span>',
+            right: '<button type="button" class="btn danger" data-action="svc:delete:'+esc(svc.slug)+'">Delete</button>'
+              +'<button type="button" class="btn primary" data-action="svc:save:'+svc.slug+'">Save</button>'
+          })
+        +'</div>';
+    }
     var linkLabel = linkedName || 'None';
     var generalSummary = (branchVal || 'main') + (rootVal ? ' · ' + String(rootVal).slice(0,12) : '');
     var linkedMap = linkVal ? linkedEnvMapFromSources(null, envVal) : {};
@@ -1966,6 +2061,14 @@
     var linkedBlock = !linkVal ? '' : (linkedReady
       ? wizAutoDBEnvHTML(linkLabel, linkedMap, [], { reveal: !!envReveal[svc.slug + ':env'], revealAction: 'envreveal:' + svc.slug + ':env' })
       : '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(linkLabel)+'</span><span class="ghost">linking…</span></div><div class="ghost" style="font-size:11px">DB_* + DATABASE_URL appear after save/deploy</div></div>');
+    var bucketPicker = buckets.length
+      ? cselectHTML('link-bucket', bucketVal, 'No bucket', [{value:'',label:'No bucket'}].concat(buckets.map(function(d){ return {value:d.slug,label:d.name||d.slug,meta:'Bucket'}; })), false, {searchable: (buckets||[]).length > 4, searchPlaceholder:'Filter…'})
+      : uiEmpty({ mini: true, body: 'No bucket in this group yet.' });
+    var bucketMap = bucketVal ? linkedBucketMapFromEnv(envVal) : {};
+    var bucketReady = bucketVal && BUCKET_ENV_KEYS.some(function(k){ return bucketMap[k]; });
+    var bucketBlock = !bucketVal ? '' : (bucketReady
+      ? wizAutoBucketEnvHTML(linkedBucketName || bucketVal, bucketMap, { reveal: !!envReveal[svc.slug + ':bucket'], revealAction: 'envreveal:' + svc.slug + ':bucket' })
+      : '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(linkedBucketName || bucketVal)+'</span><span class="ghost">linking…</span></div><div class="ghost" style="font-size:11px">BUCKET_URL appears after save/deploy</div></div>');
     var envMergedBody = ''
       +'<div class="env-merge">'
         +'<div class="env-merge-block">'
@@ -1974,8 +2077,13 @@
         +'</div>'
         +linkedBlock
         +'<div class="env-merge-block">'
+          +'<div class="env-merge-label">Bucket</div>'
+          +bucketPicker
+        +'</div>'
+        +bucketBlock
+        +'<div class="env-merge-block">'
           +'<div class="wiz-custom-head">'
-            +'<span>'+(linkVal ? 'Your variables' : 'Variables')+'</span>'
+            +'<span>'+(linkVal || bucketVal ? 'Your variables' : 'Variables')+'</span>'
             +'<div class="seg mini">'
               +'<button type="button" data-action="envmode:'+esc(svc.slug)+':text" class="'+(mode!=='json'?'active':'')+'">KEY=value</button>'
               +'<button type="button" data-action="envmode:'+esc(svc.slug)+':json" class="'+(mode==='json'?'active':'')+'">JSON</button>'
@@ -1985,7 +2093,8 @@
         +'</div>'
       +'</div>';
     var envSummaryText = (linkVal ? (linkedName || linkVal) : 'No database')
-      + ' · ' + envSummary(linkVal ? customEnvVal : envVal);
+      + ' · ' + (bucketVal ? (linkedBucketName || bucketVal) : 'No bucket')
+      + ' · ' + envSummary((linkVal || bucketVal) ? customEnvVal : envVal);
     return ''
       +'<div class="settings settings-drawer">'
         +'<div class="folds folds-drawer folds-compact">'
@@ -2096,8 +2205,10 @@
     var selected = settingsSlug === svc.slug;
     var draft = settingsDraft[svc.slug] || {};
     var isPg = svc.type === 'postgres';
-    var building = !isPg && (svc.status === 'building' || !!(svc.deployments || []).some(function(d){ return d.status === 'building' || d.status === 'queued'; }));
-    var failed = !isPg && !building && (svc.status === 'failed' || !!svc.last_error);
+    var isBucket = svc.type === 'bucket';
+    var isEngine = isPg || isBucket;
+    var building = !isEngine && (svc.status === 'building' || !!(svc.deployments || []).some(function(d){ return d.status === 'building' || d.status === 'queued'; }));
+    var failed = !isEngine && !building && (svc.status === 'failed' || !!svc.last_error);
     var isUp = !!svc.running && !failed && !building;
     var diskLabel = svc.disk_bytes ? fmtBytes(svc.disk_bytes) : '';
     var kind = svcKindMeta(svc);
@@ -2106,6 +2217,9 @@
     if (isPg) {
       if (svc.database) metaBits.push(svc.database);
       if (svc.volume_size) metaBits.push(svc.volume_size);
+      else if (diskLabel) metaBits.push(diskLabel);
+    } else if (isBucket) {
+      if (svc.bucket) metaBits.push(svc.bucket);
       else if (diskLabel) metaBits.push(diskLabel);
     } else {
       if (svc.repo) metaBits.push(svc.repo.split('/').pop() || svc.repo);
@@ -2117,11 +2231,14 @@
     var linkVal = (draft.linked_database != null && String(draft.linked_database) !== '')
       ? draft.linked_database
       : (svc.linked_database || '');
+    var bucketVal = (draft.linked_bucket != null && String(draft.linked_bucket) !== '')
+      ? draft.linked_bucket
+      : (svc.linked_bucket || '');
     var powerBusy = !!(busy['svc:start:'+svc.slug] || busy['svc:stop:'+svc.slug] || building);
     var pgPowerBusy = !!(busy['svc:start:'+svc.slug] || busy['svc:stop:'+svc.slug] || busy['svc:restart:'+svc.slug]);
     var quickActs = '';
     if (!selected) {
-      if (isPg) {
+      if (isEngine) {
         if (isUp) {
           quickActs = ''
             +actionBtn({ label: 'Restart', action: 'svc:restart:'+svc.slug, icon: 'refresh', busy: pgPowerBusy, title: 'Restart shared engine' })
@@ -2146,13 +2263,13 @@
       }
     }
     var banner = '';
-    if (!selected && !isPg && failed && svc.last_error) {
+    if (!selected && !isEngine && failed && svc.last_error) {
       banner = ''
         +'<div class="svc-banner fail" data-stop="1">'
           +'<div class="svc-banner-text">'+esc(String(svc.last_error).slice(0,120))+'</div>'
           +'<button type="button" class="btn btn-quiet btn-compact" data-action="svc:logs:'+esc(svc.slug)+'">Logs</button>'
         +'</div>';
-    } else if (!selected && !isPg && building) {
+    } else if (!selected && !isEngine && building) {
       banner = ''
         +'<div class="svc-banner build" data-stop="1">'
           +'<div class="svc-build-track"><span class="svc-build-fill"></span></div>'
@@ -2162,7 +2279,7 @@
     var accessIcon = '';
     if (!selected && !failed && !building) {
       var primary = publicURL(svc) || accessURL(svc);
-      if (primary && !isPg) {
+      if (primary && !isEngine) {
         accessIcon = ''
           +'<a class="svc-node-link" href="'+esc(primary)+'" target="_blank" rel="noopener" data-stop="1" title="Open '+esc(primary)+'">'
             +ico('open')
@@ -2170,7 +2287,7 @@
       }
     }
     return ''
-      +'<div class="svc-card svc-widget svc-node kind-'+kind.kind+(selected?' selected':'')+(building?' building':'')+(failed?' failed':'')+(isUp?' is-up':'')+'" data-slug="'+esc(svc.slug)+'" data-kind="'+kind.kind+'"'+(linkVal?' data-linked="'+esc(linkVal)+'"':'')+'>'
+      +'<div class="svc-card svc-widget svc-node kind-'+kind.kind+(selected?' selected':'')+(building?' building':'')+(failed?' failed':'')+(isUp?' is-up':'')+'" data-slug="'+esc(svc.slug)+'" data-kind="'+kind.kind+'"'+(linkVal?' data-linked="'+esc(linkVal)+'"':'')+(bucketVal?' data-linked-bucket="'+esc(bucketVal)+'"':'')+'>'
         +'<div class="svc-widget-face svc-row clickable" data-action="svc:settings:'+esc(svc.slug)+'" role="button" tabindex="0" aria-expanded="'+(selected?'true':'false')+'" aria-haspopup="dialog" title="Configure">'
           +'<div class="svc-widget-hover" data-stop="1">'+quickActs+'</div>'
           +accessIcon
@@ -2324,6 +2441,33 @@
     return null;
   }
 
+  function findMinIOEngineContainer() {
+    var inv = (manageOv && manageOv.docker) || dockerInv || { containers: [] };
+    var list = inv.containers || [];
+    for (var i = 0; i < list.length; i++) {
+      var c = list[i];
+      var n = String((c && c.name) || '').replace(/^\/+/, '');
+      if (n === 'firewifi-minio' || n.indexOf('firewifi-minio') === 0) return c;
+    }
+    return null;
+  }
+  function isMinIOEngineContainer(c) {
+    if (!c) return false;
+    var n = String(c.name || '').replace(/^\/+/, '');
+    return n === 'firewifi-minio' || n.indexOf('firewifi-minio') === 0;
+  }
+  function minioEngineStatusLabel(ev) {
+    if (manageLoading && !(ev && ev.minio_running) && !findMinIOEngineContainer()) {
+      return { cls: 'wait', text: 'Checking…' };
+    }
+    if (ev && ev.minio_running) return { cls: 'on', text: 'Running' };
+    var c = findMinIOEngineContainer();
+    if (c && (c.running || String(c.state||'').toLowerCase()==='restarting')) {
+      return { cls: 'warn', text: c.running ? 'Starting…' : 'Restarting' };
+    }
+    return { cls: 'off', text: 'Stopped' };
+  }
+
   function engineStatusLabel(ev) {
     if (manageLoading && !(ev && ev.postgres_running) && !findPostgresEngineContainer()) {
       return { text: 'Checking…', cls: 'wait' };
@@ -2405,7 +2549,7 @@
             +btn(powerLabel, powerAction, powerCls, busyD || st.checking, on ? 'stop' : 'play')
           +'</div>'
         +'</div>'
-        +'<p class="engine-help">Host container runtime (dockerd). Go apps and the shared Postgres engine both need this running.</p>'
+        +'<p class="engine-help">Host container runtime (dockerd). Go apps, Postgres, and MinIO engines need this running.</p>'
         +'<p class="engine-meta mono">'+esc(meta.join(' · '))+'</p>'
         +'<p class="engine-depend ghost">'+esc(depend)+'</p>'
       +'</div>';
@@ -2464,12 +2608,55 @@
       +'</div>';
   }
 
+  function minioEngineCard() {
+    var ev = engineView || {};
+    var st = minioEngineStatusLabel(ev);
+    var busyStart = !!busy['minio:start'];
+    var busyStop = !!busy['minio:stop'];
+    var busyEng = busyStart || busyStop;
+    var checking = st.cls === 'wait';
+    var on = !checking && (!!ev.minio_running || st.cls === 'on' || st.cls === 'warn');
+    var powerLabel = busyStart ? 'Starting…' : (busyStop ? 'Stopping…' : (checking ? '…' : (on ? 'Stop' : 'Start')));
+    var powerAction = on ? 'minio:stop' : 'minio:start';
+    var powerCls = on ? 'btn-quiet btn-compact danger-soft' : 'primary btn-compact';
+    var pubs = (manageOv && manageOv.published) || [];
+    var bN = 0;
+    for (var i = 0; i < pubs.length; i++) {
+      if (pubs[i] && pubs[i].kind === 'bucket') bN++;
+    }
+    // Fallback: count bucket services from deployed list if manage overview lacks kind.
+    if (!bN && typeof deployed !== 'undefined' && deployed) {
+      for (var j = 0; j < deployed.length; j++) {
+        if (deployed[j] && deployed[j].type === 'bucket') bN++;
+      }
+    }
+    var depend = bN === 1 ? '1 bucket uses this engine' : (bN + ' buckets use this engine');
+    var hostLine = 'firewifi-minio · ' + esc(ev.minio_image || 'minio/minio') + ' · ' + esc(ev.minio_endpoint || 'http://127.0.0.1:9000');
+    return ''
+      +'<div class="manage-block engine-card">'
+        +'<div class="manage-block-head">'
+          +'<div class="engine-title">'
+            +'<span class="engine-ico" aria-hidden="true">'+ico('storage')+'</span>'
+            +'<span class="dock-state '+st.cls+'"></span>'
+            +'<strong>Shared MinIO engine</strong>'
+            +'<span class="dock-badge '+st.cls+'">'+esc(st.text)+'</span>'
+          +'</div>'
+          +'<div class="engine-power" data-stop="1">'
+            +btn(powerLabel, powerAction, powerCls, busyEng || checking, on ? 'stop' : 'play')
+          +'</div>'
+        +'</div>'
+        +'<p class="engine-help">Object storage on this Pi’s SD card. Link a Go app to get one env: BUCKET_URL.</p>'
+        +'<p class="engine-meta mono">'+hostLine+'</p>'
+        +'<p class="engine-depend ghost">'+esc(depend)+'</p>'
+      +'</div>';
+  }
+
   function storagePanelBody(s) {
     var ov = manageOv || {};
     var inv = ov.docker || dockerInv || { images: [], containers: [], volumes: [], disk: [], reclaim_bytes: 0 };
     var imgs = inv.images || [];
     var allCtrs = inv.containers || [];
-    var ctrs = allCtrs.filter(function(c){ return !isPostgresEngineContainer(c); }).slice().sort(function(a, b){
+    var ctrs = allCtrs.filter(function(c){ return !isPostgresEngineContainer(c) && !isMinIOEngineContainer(c); }).slice().sort(function(a, b){
       var ar = a.running || String(a.state||'').toLowerCase()==='restarting' ? 1 : 0;
       var br = b.running || String(b.state||'').toLowerCase()==='restarting' ? 1 : 0;
       if (ar !== br) return br - ar;
@@ -2535,6 +2722,7 @@
         +dockerWarn
         +dockerDaemonCard()
         +engineCard()
+        +minioEngineCard()
         +strip
         +manageSection('Volumes', vols.length, volMeta, vols.length ? vols.map(dockVolumeRow).join('') : manageEmpty(manageLoading ? 'Scanning volumes…' : 'No volumes'))
         +prune
@@ -2648,6 +2836,387 @@
 
   function dockerView(s) { return storageView(s); }
 
+  /* === 06c-files.js === */
+  /* Files explorer — home-rooted browser with preview + clipboard ops. */
+  var FILES_HOME = '/home/andiq';
+  var filesPath = FILES_HOME;
+  var filesListing = null;
+  var filesLoading = false;
+  var filesError = null;
+  var filesReq = 0;
+  var filesShowHidden = false;
+  var filesQuery = '';
+  var filesSelected = null;
+  var filesClip = null; // { op:'copy'|'cut', path, name, type }
+  var filesPreview = null; // { path, name, text, ... } | loading | error
+  var filesPreviewLoading = false;
+
+  function filesIsUnder(path, root) {
+    path = path || '';
+    root = root || FILES_HOME;
+    if (path === root) return true;
+    return path.indexOf(root + '/') === 0;
+  }
+
+  function filesParentOf(path) {
+    if (!path || path === '/') return '';
+    var p = path.replace(/\/+$/, '');
+    var i = p.lastIndexOf('/');
+    if (i <= 0) return '/';
+    return p.slice(0, i) || '/';
+  }
+
+  function filesCanUp(path) {
+    path = path || FILES_HOME;
+    if (path === '/') return false;
+    // Stay inside home by default; only leave via System shortcut.
+    if (filesIsUnder(path, FILES_HOME) && path !== FILES_HOME) return true;
+    if (!filesIsUnder(path, FILES_HOME) && path !== '/') return true;
+    return false;
+  }
+
+  function filesFmtWhen(ms) {
+    if (!ms) return '—';
+    var d = new Date(ms);
+    if (isNaN(d.getTime())) return '—';
+    var now = new Date();
+    var pad = function(n){ return n < 10 ? ('0'+n) : String(n); };
+    var sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+    var t = pad(d.getHours()) + ':' + pad(d.getMinutes());
+    if (sameDay) return 'Today, ' + t;
+    var y = d.getFullYear() === now.getFullYear();
+    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return months[d.getMonth()] + ' ' + d.getDate() + (y ? '' : (', ' + d.getFullYear())) + ', ' + t;
+  }
+
+  function filesFmtBytes(n) {
+    n = Number(n) || 0;
+    if (n < 0) return '—';
+    if (n < 1024) return n + ' B';
+    var units = ['KB', 'MB', 'GB', 'TB'];
+    var v = n / 1024;
+    var i = 0;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    if (v >= 100) return Math.round(v) + ' ' + units[i];
+    if (v >= 10) return v.toFixed(1) + ' ' + units[i];
+    return v.toFixed(2) + ' ' + units[i];
+  }
+
+  function filesRowIco(ent) {
+    if (ent.type === 'dir') {
+      return '<svg class="ico fe-ico fe-ico-dir" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>';
+    }
+    if (ent.type === 'symlink') {
+      return '<svg class="ico fe-ico fe-ico-link" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.1 0l2.1-2.1a5 5 0 0 0-7.1-7.1L10.9 5"/><path d="M14 11a5 5 0 0 0-7.1 0L4.8 13.1a5 5 0 0 0 7.1 7.1L13.1 19"/></svg>';
+    }
+    var ext = ent.ext || '';
+    if (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'gif' || ext === 'webp' || ext === 'svg') {
+      return '<svg class="ico fe-ico fe-ico-img" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M21 16l-5-5-4 4-2-2-5 5"/></svg>';
+    }
+    return '<svg class="ico fe-ico fe-ico-file" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>';
+  }
+
+  function filesActIco(kind) {
+    if (kind === 'preview') return ico('logs');
+    if (kind === 'rename') return ico('settings');
+    if (kind === 'copy') return ico('copy');
+    if (kind === 'cut') return ico('open');
+    if (kind === 'delete') return ico('trash');
+    return '';
+  }
+
+  function filesBreadcrumbs(path) {
+    path = path || FILES_HOME;
+    var under = filesIsUnder(path, FILES_HOME);
+    var html = '';
+    if (under) {
+      html += '<button type="button" class="fe-crumb'+(path===FILES_HOME?' is-current':'')+'" data-action="files:go" data-path="'+esc(FILES_HOME)+'" title="'+esc(FILES_HOME)+'">'
+        +'<span class="fe-crumb-ico" aria-hidden="true"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5z"/></svg></span>'
+        +'<span>Home</span>'
+      +'</button>';
+      var rest = path === FILES_HOME ? [] : path.slice(FILES_HOME.length).replace(/^\/+/, '').split('/').filter(Boolean);
+      var acc = FILES_HOME;
+      for (var i = 0; i < rest.length; i++) {
+        acc += '/' + rest[i];
+        var cur = i === rest.length - 1;
+        html += '<span class="fe-crumb-sep" aria-hidden="true">/</span>'
+          +'<button type="button" class="fe-crumb'+(cur?' is-current':'')+'" data-action="files:go" data-path="'+esc(acc)+'" title="'+esc(acc)+'">'
+            +'<span>'+esc(rest[i])+'</span>'
+          +'</button>';
+      }
+      return html;
+    }
+    html += '<button type="button" class="fe-crumb'+(path==='/'?' is-current':'')+'" data-action="files:go" data-path="/" title="/">'
+      +'<span class="fe-crumb-ico" aria-hidden="true"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></span>'
+      +'<span>System</span>'
+    +'</button>';
+    var parts = path === '/' ? [] : path.replace(/^\/+/, '').split('/').filter(Boolean);
+    var a = '';
+    for (var j = 0; j < parts.length; j++) {
+      a += '/' + parts[j];
+      var c = j === parts.length - 1;
+      html += '<span class="fe-crumb-sep" aria-hidden="true">/</span>'
+        +'<button type="button" class="fe-crumb'+(c?' is-current':'')+'" data-action="files:go" data-path="'+esc(a)+'" title="'+esc(a)+'">'
+          +'<span>'+esc(parts[j])+'</span>'
+        +'</button>';
+    }
+    return html;
+  }
+
+  function filesVisibleEntries(list) {
+    var ents = (list && list.entries) || [];
+    var q = String(filesQuery || '').trim().toLowerCase();
+    var out = [];
+    for (var i = 0; i < ents.length; i++) {
+      var e = ents[i];
+      if (!filesShowHidden && e.name && e.name.charAt(0) === '.') continue;
+      if (q) {
+        var hay = (e.name + ' ' + (e.ext||'') + ' ' + (e.kind||'')).toLowerCase();
+        if (hay.indexOf(q) < 0) continue;
+      }
+      out.push(e);
+    }
+    return out;
+  }
+
+  function filesVisibleBytes(rows) {
+    var n = 0;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].type === 'file') n += Number(rows[i].size) || 0;
+    }
+    return n;
+  }
+
+  function filesSummaryHTML(list, visible) {
+    var s = (list && list.summary) || {};
+    var rows = visible || [];
+    var n = rows.length;
+    var dirs = 0, files = 0;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].type === 'dir') dirs++;
+      else if (rows[i].type === 'file') files++;
+    }
+    var bits = [];
+    bits.push(n + (n === 1 ? ' item' : ' items'));
+    if (dirs) bits.push(dirs + (dirs === 1 ? ' folder' : ' folders'));
+    if (files) bits.push(files + (files === 1 ? ' file' : ' files'));
+    if (s.truncated) bits.push('truncated');
+    if (s.hidden && !filesShowHidden) bits.push(s.hidden + ' hidden');
+    var sizeLabel = files ? filesFmtBytes(filesVisibleBytes(rows)) : '—';
+    return ''
+      +'<div class="fe-summary" role="status">'
+        +'<div class="fe-sum-pill"><span class="fe-sum-k">Location</span><span class="fe-sum-v mono">'+esc((list && list.path) || FILES_HOME)+'</span></div>'
+        +'<div class="fe-sum-pill"><span class="fe-sum-k">Contents</span><span class="fe-sum-v">'+esc(bits.slice(0,3).join(' · '))+'</span></div>'
+        +'<div class="fe-sum-pill"><span class="fe-sum-k">Files size</span><span class="fe-sum-v">'+esc(sizeLabel)+'</span></div>'
+      +'</div>';
+  }
+
+  function filesRowActions(e) {
+    var canPreview = e.type === 'file' && (e.textual || isTextExtClient(e.ext, e.name));
+    return ''
+      +'<span class="fe-c-actions" role="group" aria-label="Actions">'
+        +(canPreview
+          ? '<button type="button" class="fe-act" data-action="files:preview" data-path="'+esc(e.path)+'" title="Preview">'+filesActIco('preview')+'</button>'
+          : '<span class="fe-act fe-act-spacer" aria-hidden="true"></span>')
+        +'<button type="button" class="fe-act" data-action="files:rename" data-path="'+esc(e.path)+'" data-name="'+esc(e.name)+'" title="Rename">'+filesActIco('rename')+'</button>'
+        +'<button type="button" class="fe-act" data-action="files:copy" data-path="'+esc(e.path)+'" data-name="'+esc(e.name)+'" data-type="'+esc(e.type||'')+'" title="Copy">'+filesActIco('copy')+'</button>'
+        +'<button type="button" class="fe-act" data-action="files:cut" data-path="'+esc(e.path)+'" data-name="'+esc(e.name)+'" data-type="'+esc(e.type||'')+'" title="Cut">'+filesActIco('cut')+'</button>'
+        +'<button type="button" class="fe-act fe-act-danger" data-action="files:delete" data-path="'+esc(e.path)+'" data-name="'+esc(e.name)+'" title="Delete">'+filesActIco('delete')+'</button>'
+      +'</span>';
+  }
+
+  function isTextExtClient(ext, name) {
+    ext = (ext || '').toLowerCase();
+    name = (name || '').toLowerCase();
+    var text = {
+      txt:1, md:1, rst:1, log:1, csv:1, tsv:1, json:1, yml:1, yaml:1, toml:1, xml:1,
+      ini:1, conf:1, cfg:1, env:1, go:1, js:1, ts:1, tsx:1, jsx:1, py:1, rs:1, c:1, h:1,
+      cpp:1, hpp:1, java:1, sh:1, bash:1, zsh:1, html:1, css:1, scss:1, sass:1, sql:1,
+      mod:1, sum:1, service:1, gitignore:1, dockerignore:1, editorconfig:1
+    };
+    if (text[ext]) return true;
+    return !ext && /^(dockerfile|makefile|readme|license|changelog|gemfile|procfile)$/.test(name);
+  }
+
+  function filesTableHTML(list) {
+    var visible = filesVisibleEntries(list);
+    if (filesLoading && !list) {
+      return '<div class="fe-empty" role="status"><div class="nav-spinner" aria-hidden="true"></div><p>Loading…</p></div>';
+    }
+    if (filesError) {
+      return '<div class="fe-empty" role="alert"><strong>Could not open folder</strong><p>'+esc(filesError)+'</p>'
+        +'<button type="button" class="btn primary btn-compact has-ico" data-action="files:refresh">'+ico('refresh')+'<span>Retry</span></button></div>';
+    }
+    if (list && list.error && !(list.entries && list.entries.length)) {
+      return '<div class="fe-empty" role="alert"><strong>Unavailable</strong><p>'+esc(list.error)+'</p></div>';
+    }
+    if (!visible.length) {
+      return '<div class="fe-empty"><strong>Empty folder</strong><p class="ghost">No items to show'+(filesQuery?' for this filter':'')+'.</p></div>';
+    }
+    var rows = visible.map(function(e) {
+      var isDir = e.type === 'dir';
+      var sel = filesSelected === e.path ? ' is-selected' : '';
+      var cut = (filesClip && filesClip.op === 'cut' && filesClip.path === e.path) ? ' is-cut' : '';
+      var typeCls = 'fe-type-' + esc(e.type || 'other');
+      return ''
+        +'<div class="fe-row '+typeCls+sel+cut+'" role="row" tabindex="0"'
+          +' data-fe-path="'+esc(e.path)+'"'
+          +' data-fe-type="'+esc(e.type||'')+'"'
+          +(isDir ? ' data-fe-dir="1"' : '')
+          +(e.textual || isTextExtClient(e.ext, e.name) ? ' data-fe-text="1"' : '')
+          +' title="'+esc(e.path)+'">'
+          +'<span class="fe-c-name">'
+            +'<span class="fe-name-ico" aria-hidden="true">'+filesRowIco(e)+'</span>'
+            +'<span class="fe-name-text">'+esc(e.name)+'</span>'
+            +(e.link_target ? ('<span class="fe-alias ghost">→ '+esc(e.link_target)+'</span>') : '')
+          +'</span>'
+          +'<span class="fe-c-kind">'+esc(e.kind||'—')+'</span>'
+          +'<span class="fe-c-ext mono">'+(e.ext ? esc(e.ext) : '—')+'</span>'
+          +'<span class="fe-c-size mono">'+(e.type==='file' ? esc(filesFmtBytes(e.size)) : '—')+'</span>'
+          +'<span class="fe-c-date">'+esc(filesFmtWhen(e.modified_ms))+'</span>'
+          +filesRowActions(e)
+        +'</div>';
+    }).join('');
+    return ''
+      +'<div class="fe-table" role="table" aria-label="Folder contents">'
+        +'<div class="fe-thead" role="row">'
+          +'<span class="fe-c-name" role="columnheader">Name</span>'
+          +'<span class="fe-c-kind" role="columnheader">Kind</span>'
+          +'<span class="fe-c-ext" role="columnheader">Ext</span>'
+          +'<span class="fe-c-size" role="columnheader">Size</span>'
+          +'<span class="fe-c-date" role="columnheader">Date Modified</span>'
+          +'<span class="fe-c-actions" role="columnheader">Actions</span>'
+        +'</div>'
+        +'<div class="fe-tbody" role="rowgroup">'+rows+'</div>'
+      +'</div>';
+  }
+
+  function filesPreviewHTML() {
+    if (!filesPreview && !filesPreviewLoading) return '';
+    var body = '';
+    if (filesPreviewLoading) {
+      body = '<div class="fe-preview-empty"><div class="nav-spinner" aria-hidden="true"></div><p>Loading preview…</p></div>';
+    } else if (filesPreview && filesPreview.error && !filesPreview.text) {
+      body = '<div class="fe-preview-empty"><strong>'+esc(filesPreview.binary ? 'Binary file' : 'Preview unavailable')+'</strong><p class="ghost">'+esc(filesPreview.error)+'</p></div>';
+    } else if (filesPreview) {
+      body = ''
+        +'<pre class="fe-preview-code">'+esc(filesPreview.text || '')+'</pre>'
+        +(filesPreview.truncated ? '<div class="fe-preview-note">Preview truncated</div>' : '');
+    }
+    var title = (filesPreview && filesPreview.name) || 'Preview';
+    var meta = (filesPreview && filesPreview.size_human) ? filesPreview.size_human : '';
+    return ''
+      +'<aside class="fe-preview" aria-label="File preview">'
+        +'<header class="fe-preview-head">'
+          +'<div class="fe-preview-title">'
+            +'<strong>'+esc(title)+'</strong>'
+            +(meta ? '<span class="ghost">'+esc(meta)+'</span>' : '')
+          +'</div>'
+          +'<button type="button" class="btn btn-quiet btn-compact btn-icon" data-action="files:preview-close" title="Close" aria-label="Close preview">'+ico('close')+'</button>'
+        +'</header>'
+        +'<div class="fe-preview-body">'+body+'</div>'
+      +'</aside>';
+  }
+
+  function filesExplorerView() {
+    var list = filesListing;
+    var path = (list && list.path) || filesPath || FILES_HOME;
+    var canUp = filesCanUp(path);
+    var clipLabel = filesClip ? ((filesClip.op === 'cut' ? 'Move' : 'Paste') + ' “' + filesClip.name + '”') : '';
+    return ''
+      +'<div class="nav-page" data-view="files">'
+        +'<div class="rack">'
+          +'<section class="panel panel-files'+(filesPreview || filesPreviewLoading ? ' has-preview' : '')+'">'
+            +'<div class="fe-main">'
+              +'<header class="fe-head">'
+                +'<div class="fe-title-block">'
+                  +'<h2><span class="ws-title-ico" aria-hidden="true">'+filesRowIco({type:'dir'})+'</span> Files</h2>'
+                  +'<p class="ghost">Home starts at '+esc(FILES_HOME)+'</p>'
+                +'</div>'
+                +'<div class="fe-toolbar">'
+                  +'<div class="fe-nav-btns">'
+                    +'<button type="button" class="btn btn-quiet btn-compact btn-icon" data-action="files:up" '+(canUp?'':'disabled')+' title="Enclosing folder" aria-label="Up">'+ico('back')+'</button>'
+                    +'<button type="button" class="btn btn-quiet btn-compact" data-action="files:go" data-path="'+esc(FILES_HOME)+'" title="'+esc(FILES_HOME)+'">Home</button>'
+                    +'<button type="button" class="btn btn-quiet btn-compact" data-action="files:go" data-path="/" title="/">System</button>'
+                    +'<button type="button" class="btn btn-quiet btn-compact has-ico" data-action="files:refresh" '+(filesLoading?'disabled':'')+'>'+ico('refresh')+'<span>Refresh</span></button>'
+                    +(filesClip
+                      ? '<button type="button" class="btn primary btn-compact" data-action="files:paste" title="'+esc(clipLabel)+'">Paste</button>'
+                        +'<button type="button" class="btn btn-quiet btn-compact" data-action="files:clip-clear" title="Clear clipboard">Clear</button>'
+                      : '')
+                  +'</div>'
+                  +'<label class="fe-search">'
+                    +'<span class="fe-search-ico" aria-hidden="true">'+ico('spark')+'</span>'
+                    +'<input type="search" name="files-q" value="'+esc(filesQuery)+'" placeholder="Filter" autocomplete="off" spellcheck="false">'
+                  +'</label>'
+                  +'<label class="fe-check"><input type="checkbox" data-files-hidden '+(filesShowHidden?'checked':'')+'> Hidden</label>'
+                +'</div>'
+              +'</header>'
+              +'<div class="fe-pathbar" aria-label="Path">'+filesBreadcrumbs(path)+'</div>'
+              +filesSummaryHTML(list, filesVisibleEntries(list))
+              +'<div class="fe-body'+(filesLoading?' is-loading':'')+'">'
+                +filesTableHTML(list)
+              +'</div>'
+            +'</div>'
+            +filesPreviewHTML()
+          +'</section>'
+        +'</div>'
+      +'</div>';
+  }
+
+  function loadFiles(path, opts) {
+    opts = opts || {};
+    path = path || filesPath || FILES_HOME;
+    filesPath = path;
+    filesSelected = null;
+    var id = ++filesReq;
+    filesLoading = true;
+    filesError = null;
+    if (opts.render !== false) render({ animate: false });
+    return api('/api/files?path=' + encodeURIComponent(path))
+      .then(function(data){
+        if (id !== filesReq) return;
+        filesListing = data;
+        filesPath = (data && data.path) || path;
+        filesLoading = false;
+        filesError = null;
+        render({ animate: false });
+        syncRouteFromState(true);
+      })
+      .catch(function(e){
+        if (id !== filesReq) return;
+        filesLoading = false;
+        filesError = (e && e.message) || 'Failed to list folder';
+        render({ animate: false });
+      });
+  }
+
+  function filesOp(body) {
+    return api('/api/files', { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  function openFilesPreview(path) {
+    filesPreviewLoading = true;
+    filesPreview = { path: path, name: path.split('/').pop() };
+    render({ animate: false });
+    return api('/api/files/preview?path=' + encodeURIComponent(path))
+      .then(function(data){
+        filesPreviewLoading = false;
+        filesPreview = data;
+        render({ animate: false });
+      })
+      .catch(function(e){
+        filesPreviewLoading = false;
+        filesPreview = { path: path, name: path.split('/').pop(), error: (e && e.message) || 'Preview failed' };
+        render({ animate: false });
+      });
+  }
+
+  function closeFilesPreview() {
+    filesPreview = null;
+    filesPreviewLoading = false;
+    render({ animate: false });
+  }
+
   /* === 07-wizard.js === */
   /** Shared modal chrome for Add Go / Add Postgres (and type picker). */
   function wizardShell(opts) {
@@ -2720,6 +3289,11 @@
             +'<span class="type-copy"><strong>Postgres</strong><span>Shared database — apps get DB_* + DATABASE_URL</span></span>'
             +'<span class="type-chev" aria-hidden="true"></span>'
           +'</button>'
+          +'<button type="button" class="type-opt" data-action="wizard:type:bucket">'
+            +'<span class="type-icon go">S3</span>'
+            +'<span class="type-copy"><strong>Bucket</strong><span>Object storage on SD — apps get BUCKET_URL</span></span>'
+            +'<span class="type-chev" aria-hidden="true"></span>'
+          +'</button>'
         +'</div>';
     } else if (step === 'go') {
       var repoOptions = (repos || []).map(function(r){
@@ -2757,10 +3331,16 @@
         }
       }
       var dbs = (deployed || []).filter(function(x){ return x.type === 'postgres'; });
+      var buckets = (deployed || []).filter(function(x){ return x.type === 'bucket'; });
       var autoDb = wizard.linked_database != null ? wizard.linked_database : (dbs.length === 1 ? dbs[0].slug : '');
       if (wizard.linked_database == null && dbs.length === 1) wizard.linked_database = autoDb;
+      var autoBucket = wizard.linked_bucket != null ? wizard.linked_bucket : (buckets.length === 1 ? buckets[0].slug : '');
+      if (wizard.linked_bucket == null && buckets.length === 1) wizard.linked_bucket = autoBucket;
       var dbOptions = [{value: '', label: 'No database', meta: 'attach later'}].concat(dbs.map(function(d){
         return {value: d.slug, label: d.name || d.slug, meta: 'Postgres'};
+      }));
+      var bucketOptions = [{value: '', label: 'No bucket', meta: 'attach later'}].concat(buckets.map(function(d){
+        return {value: d.slug, label: d.name || d.slug, meta: 'Bucket'};
       }));
       var cap0 = piCapacity();
       var wizMem = wizard.memory_mb || Math.min(512, cap0.maxMem);
@@ -2787,6 +3367,7 @@
       var advSummary = wizMem + ' MB · ' + wizCpu + ' CPU · go ' + goTc + (wizard.build_cmd ? ' · custom' : '');
       var mode = wizard.env_mode || 'text';
       var link = autoDb || '';
+      var blink = autoBucket || '';
       var envText = wizard.env != null ? wizard.env : '';
       // PORT is auto-assigned — keep it out of the custom editor.
       if (envText && typeof stripReservedDBEnv === 'function') {
@@ -2798,16 +3379,21 @@
         }
       }
       var envCount = countEnvKeys(envText);
-      var envSummaryTxt = link
-        ? ((envCount ? envCount + ' custom' : 'linked') + ' · ' + link)
+      var envSummaryTxt = (link || blink)
+        ? ((envCount ? envCount + ' custom' : 'linked') + (link ? (' · DB ' + link) : '') + (blink ? (' · bucket ' + blink) : ''))
         : (envCount ? (envCount + ' key' + (envCount === 1 ? '' : 's')) : 'Optional');
       var conflictHits = link ? findReservedEnvConflicts(envText) : [];
       var dups = findDuplicateEnvKeys(envText);
       var warnMsg = formatEnvConflictWarn(conflictHits, dups, link);
       var conflictKeys = reservedConflictKeys(conflictHits);
       var linkedMap = linkedEnvMapFromSources(wizard.db_env || {}, envText);
+      var bucketMap = linkedBucketMapFromEnv(envText);
+      if (wizard.bucket_env) {
+        BUCKET_ENV_KEYS.forEach(function(k){ if (wizard.bucket_env[k]) bucketMap[k] = wizard.bucket_env[k]; });
+      }
       var envBody = ''
         +(link ? wizAutoDBEnvHTML(link, linkedMap, conflictKeys, { reveal: !!wizEnvReveal, revealAction: 'wizenvreveal' }) : '')
+        +(blink ? wizAutoBucketEnvHTML(blink, bucketMap, { reveal: !!wizEnvReveal, revealAction: 'wizenvreveal' }) : '')
         +'<div class="wiz-custom-env">'
           +'<div class="wiz-custom-head">'
             +'<span>Your variables</span>'
@@ -2847,6 +3433,11 @@
             label: 'Database',
             meta: 'link',
             control: cselectHTML('db', autoDb || '', 'No database', dbOptions, false, {searchable: dbs.length > 4, searchPlaceholder:'Filter databases…'})
+          })
+          +uiField({
+            label: 'Bucket',
+            meta: 'link',
+            control: cselectHTML('bucket', autoBucket || '', 'No bucket', bucketOptions, false, {searchable: buckets.length > 4, searchPlaceholder:'Filter buckets…'})
           })
           +uiField({
             label: 'Port',
@@ -2903,6 +3494,20 @@
           })
           +uiHint('Shared on this Pi')
       });
+    } else if (step === 'bucket') {
+      body = wizardShell({
+        title: 'Add Bucket',
+        submitAction: 'wizard:create-bucket',
+        submitLabel: 'Create',
+        busy: !!busy.deploy,
+        body: ''
+          +uiField({
+            label: 'Name',
+            tip: 'S3 bucket on this Pi',
+            control: uiInput({ id: 'wiz-bucket-name', placeholder: 'uploads', value: wizard.name || '', autofocus: true })
+          })
+          +uiHint('Stored on this Pi · link a Go app for BUCKET_URL')
+      });
     }
     var size = (step === 'go') ? ' modal-md' : (step === 'type' ? ' modal-sm' : '');
     var submit = '';
@@ -2910,6 +3515,7 @@
     else if (step === 'group') submit = 'wizard:group-create';
     else if (step === 'go') submit = 'wizard:deploy';
     else if (step === 'postgres') submit = 'wizard:create-pg';
+    else if (step === 'bucket') submit = 'wizard:create-bucket';
     return '<div class="modal-backdrop" data-action="wizard:backdrop"><div class="modal'+size+'" data-stop="1"'+(submit ? ' data-submit-action="'+esc(submit)+'"' : '')+'>'+body+'</div></div>';
   }
 
@@ -2969,6 +3575,11 @@
         var svcMatch = (deployed || []).filter(function(x){ return x.slug === slug; })[0];
         linked = svcMatch ? (svcMatch.linked_database || '') : '';
       }
+      var linkedBucket = prev.linked_bucket;
+      if (linkedBucket == null) {
+        var svcMatchB = (deployed || []).filter(function(x){ return x.slug === slug; })[0];
+        linkedBucket = svcMatchB ? (svcMatchB.linked_bucket || '') : '';
+      }
       var envEl = box.querySelector('textarea[name=env]');
       var typedEnv = envEl ? envEl.value : '';
       var keepEnv = typedEnv;
@@ -2977,6 +3588,7 @@
       }
       var svcNow = (deployed || []).filter(function(x){ return x.slug === slug; })[0];
       if (!linked && svcNow && svcNow.linked_database) linked = svcNow.linked_database;
+      if (!linkedBucket && svcNow && svcNow.linked_bucket) linkedBucket = svcNow.linked_bucket;
       // Textarea shows custom keys only when DB is linked — merge DB_* back in.
       if (linked) {
         var linkedSrc = linkedEnvMapFromSources(null, prev.env || '');
@@ -2985,10 +3597,18 @@
         }
         keepEnv = mergeLinkedPreviewEnv(keepEnv, linkedSrc);
       }
+      if (linkedBucket) {
+        var bucketSrc = linkedBucketMapFromEnv(prev.env || '');
+        if (!BUCKET_ENV_KEYS.some(function(k){ return bucketSrc[k]; }) && svcNow) {
+          bucketSrc = linkedBucketMapFromEnv(keepEnv);
+        }
+        keepEnv = mergeLinkedPreviewEnv(keepEnv, bucketSrc);
+      }
       settingsDraft[slug] = {
         name: val('input[name=name]'),
         branch: val('input[name=branch]'),
         linked_database: linked,
+        linked_bucket: linkedBucket,
         root_dir: val('input[name=root_dir]'),
         env: keepEnv,
         build_cmd: val('input[name=build_cmd]'),
@@ -3173,7 +3793,12 @@
 
   function routePath() {
     if (navView === 'overview') return '/overview';
-    if (navView === 'activity') return '/activity';
+    if (navView === 'files' || navView === 'activity') {
+      var home = (typeof FILES_HOME !== 'undefined' ? FILES_HOME : '/home/andiq');
+      var fp = filesPath || home;
+      if (fp === home) return '/files';
+      return '/files' + fp.split('/').map(function(p){ return p ? encodeURIComponent(p) : ''; }).join('/');
+    }
     if (navView === 'settings') {
       return '/settings';
     }
@@ -3192,7 +3817,15 @@
   function parseRoute(path) {
     var p = String(path || '/').replace(/\/+$/, '') || '/';
     if (p === '/' || p === '/overview') return { navView: 'overview' };
-    if (p === '/activity') return { navView: 'activity' };
+    if (p === '/activity' || p === '/files' || p.indexOf('/files/') === 0) {
+      var home = (typeof FILES_HOME !== 'undefined' ? FILES_HOME : '/home/andiq');
+      var fp = home;
+      if (p.indexOf('/files/') === 0) {
+        try { fp = decodeURIComponent(p.slice('/files'.length)) || home; } catch (e) { fp = home; }
+        if (fp.charAt(0) !== '/') fp = '/' + fp;
+      }
+      return { navView: 'files', filesPath: fp };
+    }
     if (p === '/settings' || p === '/settings/storage') return { navView: 'settings', settingsTab: 'storage', settingsFocus: (p === '/settings/storage' ? 'storage' : 'github') };
     if (p === '/projects') return { navView: 'projects' };
     var m = p.match(/^\/projects\/([^/]+)(?:\/([^/]+))?$/);
@@ -3208,6 +3841,10 @@
     opts = opts || {};
     route = route || {};
     navView = route.navView || 'overview';
+    if (route.navView === 'files' || route.navView === 'activity') {
+      navView = 'files';
+      if (route.filesPath) filesPath = route.filesPath;
+    }
     if (route.navView === 'settings') {
       activeGroup = null;
       settingsSlug = null;
@@ -3231,7 +3868,7 @@
       settingsSlug = null;
       manageTab = 'services';
       dockerOpen = false;
-    } else if (navView === 'activity') {
+    } else if (navView === 'files' || navView === 'activity') {
       activeGroup = null;
       settingsSlug = null;
       manageTab = 'services';
@@ -3254,9 +3891,8 @@
       return;
     }
     render(opts);
-    if (navView === 'activity') {
-      activity.userCollapsed = false;
-      openActivityConsole({ forceExpand: true });
+    if (navView === 'files') {
+      loadFiles(filesPath || (typeof FILES_HOME !== 'undefined' ? FILES_HOME : '/home/andiq'), { render: true });
     }
     if (navView === 'overview') refreshConfig(true);
   }
@@ -3275,7 +3911,7 @@
 
   function navKey() {
     if (navView === 'overview') return 'overview';
-    if (navView === 'activity') return 'activity';
+    if (navView === 'files' || navView === 'activity') return 'files:' + (filesPath || '/');
     if (navView === 'settings') return 'settings:' + (settingsTab || 'github');
     if (activeGroup) return 'group:' + activeGroup;
     return 'projects';
@@ -3341,7 +3977,7 @@
       var b = 0;
       (s.deployments || []).forEach(function(d){ if (d && (d.status === 'building' || d.status === 'queued')) b++; });
       bits.push([
-        s.slug, s.status || '', s.running ? 1 : 0, s.linked_database || '', s.public_url || '',
+        s.slug, s.status || '', s.running ? 1 : 0, s.linked_database || '', s.linked_bucket || '', s.public_url || '',
         s.active_deploy_id || '', s.deploy_id || '', b,
         (settingsDraft[s.slug] && countEnvKeys(settingsDraft[s.slug].env || '')) || 0,
         envReveal[s.slug] ? 1 : 0,
@@ -3351,6 +3987,9 @@
     });
     bits.push('busy:' + Object.keys(busy || {}).sort().join(','));
     bits.push('err:' + String(servicesError || '') + ':' + String(groupsError || '') + ':' + (navLoading ? 1 : 0));
+    if (navView === 'files') {
+      bits.push('files:' + (filesPath || '/') + ':' + (filesLoading ? 1 : 0) + ':' + ((filesListing && filesListing.summary && filesListing.summary.entry_count) || 0) + ':' + (filesShowHidden ? 1 : 0) + '|' + String(filesQuery || ''));
+    }
     if (navView === 'settings') {
       var engRun = (engineView && engineView.postgres_running) ? 1 : 0;
       var engBusy = (busy['engine:start'] || busy['engine:stop'] || busy['engine:save']) ? 1 : 0;
@@ -3390,7 +4029,7 @@
     var icons = {
       overview: '<svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
       projects: '<svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>',
-      activity: '<svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
+      files: '<svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><path d="M3 11h18"/></svg>',
       settings: '<svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>'
     };
     return ''
@@ -3398,7 +4037,7 @@
       +'<div class="rail-nav">'
         +item('overview', 'Overview', icons.overview)
         +item('projects', 'Projects', icons.projects)
-        +item('activity', 'Activity', icons.activity)
+        +item('files', 'Files', icons.files)
         +item('settings', 'Settings', icons.settings)
       +'</div>';
   }
@@ -3561,8 +4200,8 @@
     if (navView === 'settings') {
       return '<div class="layout layout-main layout-settings">' + services(s) + '</div>';
     }
-    if (navView === 'activity') {
-      return '<div class="layout layout-main layout-activity">' + services(s) + '</div>';
+    if (navView === 'files' || navView === 'activity') {
+      return '<div class="layout layout-main layout-files">' + services(s) + '</div>';
     }
     return '<div class="layout layout-empty"></div>';
   }
@@ -3575,38 +4214,222 @@
     renderServices(opts || { animate: true });
     syncRouteFromState();
   }
+  var CANVAS_CARD_W = 236;
+  var CANVAS_CARD_H = 148;
+  var CANVAS_GAP_X = 48;
+  var CANVAS_GAP_Y = 36;
+  var CANVAS_PAD = 28;
+  var _layoutSaveTimer = null;
+
+  function ensureCanvasPositions(list) {
+    if (!canvasLayout) canvasLayout = { nodes: {} };
+    if (!canvasLayout.nodes) canvasLayout.nodes = {};
+    var missing = [];
+    (list || []).forEach(function(svc){
+      if (!svc || !svc.slug) return;
+      var n = canvasLayout.nodes[svc.slug];
+      if (!n || n.x == null || n.y == null) missing.push(svc);
+    });
+    if (!missing.length) return;
+    var arranged = autoArrangePositions(list);
+    missing.forEach(function(svc){
+      if (arranged[svc.slug]) canvasLayout.nodes[svc.slug] = arranged[svc.slug];
+    });
+    saveCanvasLayout(false);
+  }
+
+  function autoArrangePositions(list) {
+    // Simple 2-column grid: storage (DB/bucket) left, apps right.
+    var storage = [], apps = [], other = [];
+    (list || []).forEach(function(s){
+      if (!s || !s.slug) return;
+      if (s.type === 'postgres' || s.type === 'bucket') storage.push(s);
+      else if (s.type === 'go') apps.push(s);
+      else other.push(s);
+    });
+    function byName(a, b){ return String(a.name||a.slug).localeCompare(String(b.name||b.slug)); }
+    storage.sort(byName); apps.sort(byName); other.sort(byName);
+    var nodes = {};
+    function place(items, col) {
+      items.forEach(function(svc, i){
+        nodes[svc.slug] = {
+          x: CANVAS_PAD + col * (CANVAS_CARD_W + CANVAS_GAP_X),
+          y: CANVAS_PAD + i * (CANVAS_CARD_H + CANVAS_GAP_Y)
+        };
+      });
+    }
+    place(storage, 0);
+    place(apps.concat(other), 1);
+    return nodes;
+  }
+
+  function applyAutoArrange() {
+    if (!activeGroup) return;
+    var nodes = autoArrangePositions(deployed || []);
+    canvasLayout = { nodes: nodes };
+    applyCanvasPositionsDOM();
+    drawRwLinks();
+    saveCanvasLayout(true);
+    showToast('Canvas arranged');
+  }
+
+  function applyCanvasPositionsDOM() {
+    var board = document.querySelector('.panel-group-detail .rw-board');
+    if (!board || !canvasLayout || !canvasLayout.nodes) return;
+    var maxX = 0, maxY = 0;
+    board.querySelectorAll('.rw-node-wrap[data-node]').forEach(function(wrap){
+      var slug = wrap.getAttribute('data-node');
+      var n = canvasLayout.nodes[slug];
+      if (!n) return;
+      wrap.style.left = Math.round(n.x) + 'px';
+      wrap.style.top = Math.round(n.y) + 'px';
+      maxX = Math.max(maxX, n.x + CANVAS_CARD_W);
+      maxY = Math.max(maxY, n.y + CANVAS_CARD_H);
+    });
+    board.style.minWidth = Math.max(640, Math.round(maxX + CANVAS_PAD)) + 'px';
+    board.style.minHeight = Math.max(360, Math.round(maxY + CANVAS_PAD)) + 'px';
+  }
+
+  function saveCanvasLayout(immediate) {
+    if (!activeGroup || !canvasLayout) return;
+    var run = function(){
+      api('/api/groups/' + encodeURIComponent(activeGroup) + '/layout', {
+        method: 'PUT',
+        body: JSON.stringify({ nodes: canvasLayout.nodes || {} })
+      }).catch(function(){});
+    };
+    if (immediate) {
+      if (_layoutSaveTimer) clearTimeout(_layoutSaveTimer);
+      _layoutSaveTimer = null;
+      run();
+      return;
+    }
+    if (_layoutSaveTimer) clearTimeout(_layoutSaveTimer);
+    _layoutSaveTimer = setTimeout(run, 280);
+  }
+
+  function loadCanvasLayout() {
+    if (!activeGroup) {
+      canvasLayout = { nodes: {} };
+      return Promise.resolve();
+    }
+    return api('/api/groups/' + encodeURIComponent(activeGroup) + '/layout')
+      .then(function(lay){
+        canvasLayout = { nodes: (lay && lay.nodes) || {} };
+      })
+      .catch(function(){
+        canvasLayout = canvasLayout || { nodes: {} };
+      });
+  }
+
+  function bindCanvasDrag() {
+    var canvas = document.querySelector('.panel-group-detail .rw-canvas.is-free');
+    if (!canvas || canvas._dragBound) return;
+    canvas._dragBound = true;
+
+    function nodeFromEvent(e) {
+      var t = e.target;
+      if (!t || !t.closest) return null;
+      if (t.closest('[data-stop], button, a, input, textarea, select, .cselect')) return null;
+      return t.closest('.rw-node-wrap[data-node]');
+    }
+
+    canvas.addEventListener('pointerdown', function(e){
+      if (e.button != null && e.button !== 0) return;
+      var wrap = nodeFromEvent(e);
+      if (!wrap) return;
+      var slug = wrap.getAttribute('data-node');
+      if (!slug) return;
+      if (!canvasLayout.nodes) canvasLayout.nodes = {};
+      _canvasDrag = {
+        slug: slug,
+        wrap: wrap,
+        startX: e.clientX,
+        startY: e.clientY,
+        origX: (canvasLayout.nodes[slug] && canvasLayout.nodes[slug].x) || 0,
+        origY: (canvasLayout.nodes[slug] && canvasLayout.nodes[slug].y) || 0,
+        moved: false,
+        pointerId: e.pointerId
+      };
+      try { wrap.setPointerCapture(e.pointerId); } catch (err) {}
+      wrap.classList.add('is-dragging');
+      canvas.classList.add('is-dragging');
+    });
+
+    canvas.addEventListener('pointermove', function(e){
+      if (!_canvasDrag || _canvasDrag.pointerId !== e.pointerId) return;
+      var dx = e.clientX - _canvasDrag.startX;
+      var dy = e.clientY - _canvasDrag.startY;
+      if (!_canvasDrag.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) _canvasDrag.moved = true;
+      if (!_canvasDrag.moved) return;
+      e.preventDefault();
+      var nx = Math.max(0, _canvasDrag.origX + dx);
+      var ny = Math.max(0, _canvasDrag.origY + dy);
+      canvasLayout.nodes[_canvasDrag.slug] = { x: nx, y: ny };
+      _canvasDrag.wrap.style.left = Math.round(nx) + 'px';
+      _canvasDrag.wrap.style.top = Math.round(ny) + 'px';
+      drawRwLinks();
+    });
+
+    function endDrag(e) {
+      if (!_canvasDrag || (e && _canvasDrag.pointerId !== e.pointerId)) return;
+      var d = _canvasDrag;
+      _canvasDrag = null;
+      d.wrap.classList.remove('is-dragging');
+      canvas.classList.remove('is-dragging');
+      try { d.wrap.releasePointerCapture(d.pointerId); } catch (err) {}
+      if (d.moved) {
+        d.wrap.setAttribute('data-skip-click', '1');
+        setTimeout(function(){ d.wrap.removeAttribute('data-skip-click'); }, 0);
+        applyCanvasPositionsDOM();
+        saveCanvasLayout(false);
+      }
+    }
+    canvas.addEventListener('pointerup', endDrag);
+    canvas.addEventListener('pointercancel', endDrag);
+  }
+
   function drawRwLinks() {
     var canvas = document.querySelector('.panel-group-detail .rw-canvas');
     if (!canvas) return;
     var svg = canvas.querySelector('.rw-links-g');
     if (!svg) return;
-    var reduced = false;
-    try { reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
     var cRect = canvas.getBoundingClientRect();
     var paths = [];
-    canvas.querySelectorAll('.svc-node[data-linked]').forEach(function(appEl){
-      var dbSlug = appEl.getAttribute('data-linked');
-      if (!dbSlug) return;
-      var dbEl = canvas.querySelector('.svc-node[data-slug="'+dbSlug+'"]');
-      if (!dbEl) return;
-      var a = appEl.getBoundingClientRect();
-      var b = dbEl.getBoundingClientRect();
-      var x1 = a.left + a.width / 2 - cRect.left;
-      var y1 = a.top - cRect.top;
-      var x2 = b.left + b.width / 2 - cRect.left;
-      var y2 = b.bottom - cRect.top;
-      var midY = (y1 + y2) / 2;
-      paths.push('M'+x1+' '+y1+' L'+x1+' '+midY+' L'+x2+' '+midY+' L'+x2+' '+y2);
+    function addLink(fromEl, toSlug, cls) {
+      if (!toSlug) return;
+      var toEl = canvas.querySelector('.svc-node[data-slug="'+toSlug+'"]');
+      if (!toEl) return;
+      var a = fromEl.getBoundingClientRect();
+      var b = toEl.getBoundingClientRect();
+      var x1 = a.left + a.width / 2 - cRect.left + canvas.scrollLeft;
+      var y1 = a.top + a.height / 2 - cRect.top + canvas.scrollTop;
+      var x2 = b.left + b.width / 2 - cRect.left + canvas.scrollLeft;
+      var y2 = b.top + b.height / 2 - cRect.top + canvas.scrollTop;
+      var dx = Math.max(40, Math.abs(x2 - x1) * 0.35);
+      var c1x = x1 - dx, c2x = x2 + dx;
+      if (x2 > x1) { c1x = x1 + dx; c2x = x2 - dx; }
+      paths.push({ d: 'M'+x1+' '+y1+' C'+c1x+' '+y1+' '+c2x+' '+y2+' '+x2+' '+y2, cls: cls || 'rw-link-db' });
+    }
+    canvas.querySelectorAll('.svc-node[data-linked]').forEach(function(el){
+      addLink(el, el.getAttribute('data-linked'), 'rw-link-db');
     });
-    svg.innerHTML = paths.map(function(d){
-      return '<path class="rw-link-path" d="'+d+'" fill="none" stroke="rgba(139,92,246,.45)" stroke-width="1.5" stroke-dasharray="5 4"/>';
+    canvas.querySelectorAll('.svc-node[data-linked-bucket]').forEach(function(el){
+      addLink(el, el.getAttribute('data-linked-bucket'), 'rw-link-bucket');
+    });
+    svg.innerHTML = paths.map(function(p){
+      return '<path class="rw-link-path '+p.cls+'" d="'+p.d+'" fill="none"/>';
     }).join('');
     var linksSvg = canvas.querySelector('.rw-links');
+    var board = canvas.querySelector('.rw-board');
+    var w = Math.max(canvas.scrollWidth, cRect.width, board ? board.scrollWidth : 0);
+    var h = Math.max(canvas.scrollHeight, cRect.height, board ? board.scrollHeight : 0);
     if (linksSvg) {
-      linksSvg.setAttribute('width', String(Math.max(canvas.scrollWidth, cRect.width)));
-      linksSvg.setAttribute('height', String(Math.max(canvas.scrollHeight, cRect.height)));
+      linksSvg.setAttribute('width', String(w));
+      linksSvg.setAttribute('height', String(h));
     }
   }
+
   function renderServices(opts) {
     opts = opts || {};
     captureWizardDraft();
@@ -3686,7 +4509,7 @@
 
     document.querySelectorAll('[data-res-panel]').forEach(syncResLabels);
     placeOpenCselect();
-    drawRwLinks();
+    applyCanvasPositionsDOM(); bindCanvasDrag(); drawRwLinks();
     if (settingsSlug) {
       var sel = document.querySelector('.svc-node[data-slug="'+settingsSlug+'"]');
       if (sel) sel.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
@@ -3943,7 +4766,11 @@
     return Promise.all([
       api("/api/groups").then(function(r){ groups = r.groups || []; groupsError = null; }).catch(function(e){ groupsError = (e && e.message) || "Could not load groups"; }),
       activeGroup
-        ? api("/api/groups/" + encodeURIComponent(activeGroup) + "/services").then(function(r){
+        ? Promise.all([
+            api("/api/groups/" + encodeURIComponent(activeGroup) + "/services"),
+            loadCanvasLayout()
+          ]).then(function(pair){
+            var r = pair[0] || {};
             var prevStats = {};
             (deployed || []).forEach(function(s){ if (s && s.slug && s.stats) prevStats[s.slug] = s.stats; });
             deployed = r.services || [];
@@ -3953,7 +4780,7 @@
             });
             servicesError = null;
           }).catch(function(e){ servicesError = (e && e.message) || "Could not load services"; deployed = []; })
-        : Promise.resolve().then(function(){ deployed = []; servicesError = null; })
+        : Promise.resolve().then(function(){ deployed = []; servicesError = null; canvasLayout = { nodes: {} }; })
     ]).then(function(){
       navLoading = false;
       ensureStatsPoll();
@@ -4148,9 +4975,32 @@
         return;
       }
       if (pid === 'root' && wizard) { wizard.root_dir = val; renderModal(); return; }
+      if (pid === 'bucket' && wizard) {
+        captureWizardDraft();
+        wizard.linked_bucket = val;
+        wizard.bucket_env = null;
+        folds['wiz:env'] = true;
+        renderModal();
+        if (val) {
+          api('/api/groups/' + encodeURIComponent(activeGroup) + '/services/' + encodeURIComponent(val) + '/env')
+            .then(function(r){
+              if (!wizard || wizard.linked_bucket !== val) return;
+              wizard.bucket_env = parseEnvMapClient(r.env || r.env_json || '');
+              renderModal();
+            })
+            .catch(function(){});
+        }
+        return;
+      }
       if (pid === 'link' && settingsSlug) {
         if (!settingsDraft[settingsSlug]) settingsDraft[settingsSlug] = {};
         settingsDraft[settingsSlug].linked_database = val;
+        renderServices({soft:true});
+        return;
+      }
+      if (pid === 'link-bucket' && settingsSlug) {
+        if (!settingsDraft[settingsSlug]) settingsDraft[settingsSlug] = {};
+        settingsDraft[settingsSlug].linked_bucket = val;
         renderServices({soft:true});
         return;
       }
@@ -4183,6 +5033,104 @@
       render();
       return;
     }
+    
+    if (id === 'files:go') {
+      var pth = el.getAttribute('data-path') || (typeof FILES_HOME !== 'undefined' ? FILES_HOME : '/home/andiq');
+      closeFilesPreview();
+      loadFiles(pth, { render: true });
+      return;
+    }
+    if (id === 'files:up') {
+      var home = (typeof FILES_HOME !== 'undefined' ? FILES_HOME : '/home/andiq');
+      var cur = (filesListing && filesListing.parent != null && filesListing.parent !== '')
+        ? filesListing.parent
+        : filesParentOf(filesPath || home);
+      if (!filesCanUp(filesPath || home)) return;
+      if (filesIsUnder(filesPath || home, home) && !filesIsUnder(cur, home) && cur !== home) {
+        cur = home;
+      }
+      closeFilesPreview();
+      loadFiles(cur || home, { render: true });
+      return;
+    }
+    if (id === 'files:refresh') {
+      loadFiles(filesPath || (typeof FILES_HOME !== 'undefined' ? FILES_HOME : '/home/andiq'), { render: true });
+      return;
+    }
+    if (id === 'files:preview') {
+      openFilesPreview(el.getAttribute('data-path') || '');
+      return;
+    }
+    if (id === 'files:preview-close') {
+      closeFilesPreview();
+      return;
+    }
+    if (id === 'files:copy' || id === 'files:cut') {
+      filesClip = {
+        op: id === 'files:cut' ? 'cut' : 'copy',
+        path: el.getAttribute('data-path') || '',
+        name: el.getAttribute('data-name') || '',
+        type: el.getAttribute('data-type') || ''
+      };
+      showToast((filesClip.op === 'cut' ? 'Cut' : 'Copied') + ' · ' + filesClip.name);
+      render({ animate: false });
+      return;
+    }
+    if (id === 'files:clip-clear') {
+      filesClip = null;
+      render({ animate: false });
+      return;
+    }
+    if (id === 'files:paste') {
+      if (!filesClip || !filesClip.path) return;
+      var destDir = filesPath || (typeof FILES_HOME !== 'undefined' ? FILES_HOME : '/home/andiq');
+      var op = filesClip.op === 'cut' ? 'move' : 'copy';
+      setActionBusy(id, true);
+      filesOp({ op: op, path: filesClip.path, to: destDir })
+        .then(function(){
+          showToast((op === 'move' ? 'Moved' : 'Copied') + ' · ' + filesClip.name);
+          if (op === 'move') filesClip = null;
+          return loadFiles(destDir, { render: true });
+        })
+        .catch(function(e){ showToast((e && e.message) || 'Paste failed'); })
+        .finally(function(){ setActionBusy(id, false); });
+      return;
+    }
+    if (id === 'files:rename') {
+      var from = el.getAttribute('data-path') || '';
+      var oldName = el.getAttribute('data-name') || '';
+      var next = window.prompt('Rename to', oldName);
+      if (next == null) return;
+      next = String(next).trim();
+      if (!next || next === oldName) return;
+      setActionBusy(id, true);
+      filesOp({ op: 'rename', path: from, name: next })
+        .then(function(){
+          showToast('Renamed · ' + next);
+          if (filesPreview && filesPreview.path === from) closeFilesPreview();
+          return loadFiles(filesPath, { render: true });
+        })
+        .catch(function(e){ showToast((e && e.message) || 'Rename failed'); })
+        .finally(function(){ setActionBusy(id, false); });
+      return;
+    }
+    if (id === 'files:delete') {
+      var delPath = el.getAttribute('data-path') || '';
+      var delName = el.getAttribute('data-name') || delPath;
+      if (!window.confirm('Delete “' + delName + '”?\n\nThis cannot be undone.')) return;
+      setActionBusy(id, true);
+      filesOp({ op: 'delete', path: delPath })
+        .then(function(){
+          showToast('Deleted · ' + delName);
+          if (filesPreview && filesPreview.path === delPath) closeFilesPreview();
+          if (filesClip && filesClip.path === delPath) filesClip = null;
+          return loadFiles(filesPath, { render: true });
+        })
+        .catch(function(e){ showToast((e && e.message) || 'Delete failed'); })
+        .finally(function(){ setActionBusy(id, false); });
+      return;
+    }
+
     if (id.indexOf('hotspot:') === 0) {
       var cmd = id.split(':')[1];
       runAction(id, function(){ return api('/api/hotspot/' + cmd, {method:'POST'}); }, 'Hotspot ' + cmd);
@@ -4199,7 +5147,10 @@
     }
     else if (id === 'wizard:github') { openWizard({step:'github'}); }
     else if (id === 'wizard:group') { openWizard({step:'group'}); }
-    else if (id === 'wizard:open') {
+    else if (id === 'canvas:arrange') {
+      applyAutoArrange();
+      return;
+    } else if (id === 'wizard:open') {
       if (!activeGroup) { openWizard({step:'group'}); return; }
       openWizard({step:'type'});
     } else if (id === 'wizard:github-save') {
@@ -4278,6 +5229,11 @@
       var pgSpec = {step:'postgres', name:'', pg_version:'latest'};
       if (wizard) { wizard = pgSpec; renderModal(); }
       else openWizard(pgSpec);
+    } else if (id === 'wizard:type:bucket') {
+      if (!activeGroup) { showToast('Open a group first'); return; }
+      var bSpec = {step:'bucket', name:''};
+      if (wizard) { wizard = bSpec; renderModal(); }
+      else openWizard(bSpec);
     } else if (id.indexOf('wizenvmode:') === 0) {
       captureWizardDraft();
       if (!wizard) return;
@@ -4328,6 +5284,7 @@
         branch: (wizard && wizard.branch) || 'main',
         name: (wizard && wizard.name) || (repoVal ? repoVal.split('/')[1] : ''),
         linked_database: (wizard && wizard.linked_database) || '',
+        linked_bucket: (wizard && wizard.linked_bucket) || '',
         root_dir: (wizard && wizard.root_dir) || '',
         memory_mb: (wizard && wizard.memory_mb) || 512,
         cpus: (wizard && wizard.cpus) || 1,
@@ -4371,7 +5328,7 @@
             memory_mb: payload.memory_mb, cpus: payload.cpus,
             port: assignedPort || 0,
             url: assignedPort ? ('http://rasp.local:' + assignedPort) : '',
-            linked_database: payload.linked_database || '', has_clone: !!(prior && prior.has_clone),
+            linked_database: payload.linked_database || '', linked_bucket: payload.linked_bucket || '', has_clone: !!(prior && prior.has_clone),
             deploy_id: 'dpl_…',
             deployments: (prior && prior.deployments ? prior.deployments.slice() : []).filter(function(d){ return d.status !== 'building'; })
           };
@@ -4383,6 +5340,7 @@
             name: payload.name || optSlug,
             branch: payload.branch || 'main',
             linked_database: payload.linked_database || '',
+            linked_bucket: payload.linked_bucket || '',
             root_dir: payload.root_dir || '',
             env: linkedPreview || payload.env || '',
             build_cmd: payload.build_cmd || '',
@@ -4447,21 +5405,50 @@
           showToast('Database ready · ' + ((svc && (svc.name || svc.slug)) || name));
         }
       });
+    } else if (id === 'wizard:create-bucket') {
+      if (!activeGroup) { showToast('Open a group first'); return; }
+      if (busy.deploy || busy['wizard:create-bucket']) return;
+      var bNameEl = document.getElementById('wiz-bucket-name');
+      var bname = bNameEl ? bNameEl.value.trim() : ((wizard && wizard.name) || '');
+      if (wizard) wizard.name = bname;
+      if (!bname) { showToast('Name required'); return; }
+      var bSlug = slugifyClient(bname);
+      runServiceJob({
+        closeWizard: true,
+        appear: true,
+        busyKey: 'wizard:create-bucket',
+        consoleTitle: 'Create bucket · ' + bname,
+        scope: activeGroup + '/' + bSlug,
+        contextKey: 'live:' + activeGroup + '/' + bSlug,
+        toast: 'Creating bucket · ' + bname,
+        failToast: 'Create failed',
+        waitActivity: true,
+        beforeRequest: function(){},
+        request: function(){
+          return api('/api/groups/' + encodeURIComponent(activeGroup) + '/services', {
+            method:'POST',
+            body: JSON.stringify({ type:'bucket', name: bname })
+          });
+        },
+        onSuccess: function(svc){
+          settingsSlug = (svc && svc.slug) || settingsSlug;
+          showToast('Bucket ready · ' + ((svc && (svc.name || svc.slug)) || bname));
+        }
+      });
     } else if (id.indexOf('nav:view:') === 0) {
       var view = id.slice('nav:view:'.length);
-      if (view === 'activity') {
+      if (view === 'files' || view === 'activity') {
         if (settingsSlug) {
           clearScopeFolds(settingsSlug);
           settingsSlug = null;
           renderDrawerPortal();
         }
         var prevAct = navView;
-        navView = 'activity';
-        _navDir = (prevAct === 'activity') ? _navDir : 'forward';
-        activity.userCollapsed = false;
-        openActivityConsole({ forceExpand: true });
+        navView = 'files';
+        _navDir = (prevAct === 'files') ? _navDir : 'forward';
         render({ animate: true, dir: _navDir });
         syncRouteFromState();
+        loadFiles(filesPath || (typeof FILES_HOME !== 'undefined' ? FILES_HOME : '/home/andiq'), { render: true });
         return;
       }
       if (view === navView) return;
@@ -4633,6 +5620,30 @@
           delete busy[id];
           if (onSettingsStoragePage()) renderServices({ soft: true });
         });
+    } else if (id === 'minio:start' || id === 'minio:stop') {
+      if (busy['minio:start'] || busy['minio:stop'] || busy.deploy) return;
+      var mStart = id === 'minio:start';
+      if (!mStart && !confirm('Stop the shared MinIO engine?\n\nApps using buckets will fail until it is started again.')) return;
+      busy[id] = true;
+      activity.userCollapsed = false;
+      openActivityConsole({
+        forceExpand: true, clearPin: true, reset: true, active: true,
+        title: mStart ? 'Start MinIO engine' : 'Stop MinIO engine',
+        scope: 'engine/minio',
+        contextKey: 'live:engine/minio'
+      });
+      if (onSettingsStoragePage()) renderServices({ soft: true });
+      api('/api/engine', { method:'POST', body: JSON.stringify({ action: mStart ? 'minio_start' : 'minio_stop' }) })
+        .then(function(v){
+          engineView = v;
+          showToast(mStart ? 'MinIO engine running' : 'MinIO engine stopped');
+          return refreshManage();
+        })
+        .catch(function(e){ showToast(e.message || 'MinIO action failed'); })
+        .finally(function(){
+          delete busy[id];
+          if (onSettingsStoragePage()) renderServices({ soft: true });
+        });
     } else if (id === 'engine:save') {
       var ev = engineView || { settings: {} };
       var nextPg = (engineDraft && engineDraft.postgres_version) || (ev.settings && ev.settings.postgres_version) || '16';
@@ -4723,7 +5734,7 @@
     } else if (id === 'group:back') {
       if (settingsSlug) clearScopeFolds(settingsSlug);
       clearServiceListFolds(deployed);
-      activeGroup = null; settingsSlug = null; deployed = []; groupDraft = {};
+      activeGroup = null; settingsSlug = null; deployed = []; canvasLayout = { nodes: {} }; groupDraft = {};
       manageTab = 'services'; dockerOpen = false;
       ensureStatsPoll();
       navView = 'projects';
@@ -4845,6 +5856,8 @@
       closeSettingsDrawer({ animate: true });
       return;
     } else if (id.indexOf('svc:settings:') === 0) {
+      var skipNode = e.target && e.target.closest && e.target.closest('.rw-node-wrap[data-skip-click]');
+      if (skipNode) return;
       var sslug = id.split(':').slice(2).join(':');
       if (settingsSlug === sslug) {
         settingsSlug = null;
@@ -4887,7 +5900,7 @@
       var saveBody = (saveSvc && saveSvc.type === 'postgres')
         ? { name: d.name }
         : {
-            name: d.name, branch: d.branch, linked_database: d.linked_database, root_dir: d.root_dir || '', env: d.env,
+            name: d.name, branch: d.branch, linked_database: d.linked_database, linked_bucket: d.linked_bucket, root_dir: d.root_dir || '', env: d.env,
             build_cmd: d.build_cmd, memory_mb: parseInt(d.memory_mb, 10) || 512, cpus: parseFloat(d.cpus) || 1,
             auto_deploy: !!d.auto_deploy
           };
@@ -5849,6 +6862,15 @@
       return;
     }
     if (e.target.closest && e.target.closest('#config-form')) formDirty = true;
+    if (e.target.name === 'files-q') {
+      filesQuery = e.target.value || '';
+      if (navView === 'files' || navView === 'activity') {
+        var body = document.querySelector('.fe-body');
+        if (body && filesListing) body.innerHTML = filesTableHTML(filesListing);
+        else render({ animate: false });
+      }
+      return;
+    }
   }
   document.getElementById('app').addEventListener('input', onUiInput);
   var _modalRootInput = document.getElementById('modal-root');
@@ -5862,7 +6884,21 @@
     }
   }
   if (_drawerRootInput) _drawerRootInput.addEventListener('change', onUiChange);
-  document.getElementById('app').addEventListener('change', onUiChange);
+  document.getElementById('app').addEventListener('change', function(e){
+    if (e.target && e.target.hasAttribute && e.target.hasAttribute('data-files-hidden')) {
+      filesShowHidden = !!e.target.checked;
+      if (navView === 'files' || navView === 'activity') {
+        var body = document.querySelector('.fe-body');
+        var sum = document.querySelector('.fe-summary');
+        if (body && filesListing) {
+          body.innerHTML = filesTableHTML(filesListing);
+          if (sum) sum.outerHTML = filesSummaryHTML(filesListing, filesVisibleEntries(filesListing));
+        } else render({ animate: false });
+      }
+      return;
+    }
+    onUiChange(e);
+  });
   document.getElementById("app").addEventListener("keydown", onSvcCardKey);
   if (_drawerRootInput) _drawerRootInput.addEventListener("keydown", onSvcCardKey);
 
@@ -6009,9 +7045,8 @@
   history.replaceState({ fw: 1, path: routePath() }, '', routePath());
   _routeSync = false;
   render({animate:true});
-  if (navView === 'activity') {
-    activity.userCollapsed = false;
-    openActivityConsole({ forceExpand: true });
+  if (navView === 'files') {
+    loadFiles(filesPath || (typeof FILES_HOME !== 'undefined' ? FILES_HOME : '/home/andiq'), { render: true });
   }
   if (navView === 'settings') {
     manageLoading = true;
@@ -6023,6 +7058,36 @@
   watchActivity();
   document.querySelectorAll('[data-res-panel]').forEach(syncResLabels);
   setInterval(function(){ if (!wizard && !picker) refreshServices(); }, 8000);
+
+
+  document.getElementById('app').addEventListener('click', function(e){
+    if (!e.target || !e.target.closest) return;
+    if (e.target.closest('[data-action]')) return;
+    var row = e.target.closest('.fe-row[data-fe-path]');
+    if (!row) return;
+    filesSelected = row.getAttribute('data-fe-path');
+    document.querySelectorAll('.fe-row.is-selected').forEach(function(n){ n.classList.remove('is-selected'); });
+    row.classList.add('is-selected');
+  }, true);
+
+  document.getElementById('app').addEventListener('dblclick', function(e){
+    if (!e.target || !e.target.closest) return;
+    if (e.target.closest('[data-action]')) return;
+    var row = e.target.closest('.fe-row[data-fe-path]');
+    if (!row) return;
+    e.preventDefault();
+    var path = row.getAttribute('data-fe-path');
+    if (row.getAttribute('data-fe-dir') === '1') {
+      closeFilesPreview();
+      loadFiles(path, { render: true });
+      return;
+    }
+    if (row.getAttribute('data-fe-text') === '1') {
+      openFilesPreview(path);
+      return;
+    }
+    showToast('No text preview for this file');
+  }, true);
 
   window.addEventListener('popstate', function() {
     _routeSync = true;

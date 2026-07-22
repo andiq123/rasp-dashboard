@@ -78,19 +78,14 @@
   }
 
   function activityMainView() {
-    return ''
-      +'<div class="nav-page" data-view="activity">'
-        +'<div class="activity-main-placeholder page-hint">'
-          +'<h2>Activity</h2>'
-          +'<p class="ghost">Deploy and engine logs stream in the console at the bottom of the screen.</p>'
-        +'</div>'
-      +'</div>';
+    // Legacy stub — Activity page is now Files explorer.
+    return filesExplorerView();
   }
 
   function services(s) {
     var gh = github || {};
     if (navView === 'settings') return settingsWorkspaceView(s);
-    if (navView === 'activity') return activityMainView();
+    if (navView === 'files' || navView === 'activity') return filesExplorerView();
     if (navView !== 'projects') return '';
     if (manageTab === 'network') manageTab = 'services';
     return projectsWorkspaceView(s, gh);
@@ -174,9 +169,6 @@
     var g = (groups || []).filter(function(x){ return x.slug === activeGroup; })[0] || { slug: activeGroup, name: activeGroup };
     var list = deployed || [];
     var dbs = list.filter(function(x){ return x.type === 'postgres'; });
-    var apps = list.filter(function(x){ return x.type !== 'postgres'; });
-    var dbCards = dbs.map(function(svc){ return serviceCard(svc, dbs); }).join('');
-    var appCards = apps.map(function(svc){ return serviceCard(svc, dbs); }).join('');
     var draftName = (groupDraft && groupDraft.name != null) ? groupDraft.name : (g.name || g.slug);
     var savedName = g.name || g.slug;
     var nameDirty = String(draftName).trim() !== String(savedName).trim();
@@ -188,35 +180,37 @@
         +'<div class="gd-empty">'
           +'<div class="gd-empty-ill" aria-hidden="true">'+ico('plus')+'</div>'
           +'<strong>Nothing here yet</strong>'
-          +'<p>Add a database first, then an app — link them so the app gets <code>DB_*</code> automatically.</p>'
-          +'<button type="button" class="btn primary has-ico" data-action="wizard:open">'+ico('plus')+'<span>Add service</span></button>'
+          +'<p>Add a service — Go app, Postgres, or Bucket — then link them in settings.</p>'
         +'</div>');
-    function lane(opts) {
-      return ''
-        +'<div class="svc-lane kind-'+opts.kind+'">'
-          +'<div class="svc-lane-head">'
-            +'<div class="svc-lane-title">'+ico(opts.ico)+'<h3>'+esc(opts.title)+'</h3><span class="gd-count">'+opts.count+'</span></div>'
-            +(opts.action || '')
-          +'</div>'
-          +'<div class="svc-list svc-grid'+(navLoading?' is-loading':'')+'">'+(opts.body || '')+'</div>'
-        +'</div>';
+    var nodes = (canvasLayout && canvasLayout.nodes) || {};
+    var board = '';
+    if (list.length) {
+      ensureCanvasPositions(list);
+      nodes = (canvasLayout && canvasLayout.nodes) || {};
+      board = list.map(function(svc){
+        var pos = nodes[svc.slug] || { x: 24, y: 24 };
+        return ''
+          +'<div class="rw-node-wrap" data-node="'+esc(svc.slug)+'" style="left:'+Math.round(pos.x)+'px;top:'+Math.round(pos.y)+'px">'
+            + serviceCard(svc, dbs)
+          +'</div>';
+      }).join('');
     }
-    var canvasInner;
-    if (!list.length) {
-      canvasInner = empty;
-    } else {
-      canvasInner = ''
-        +(dbs.length || true
-          ? lane({ kind: 'db', ico: 'db', title: 'Databases', count: dbs.length,
-              body: dbCards || '<div class="svc-lane-empty">No database — add one to store app data.</div>',
-              action: '<button type="button" class="rw-add-btn" data-action="wizard:type:postgres">'+ico('plus')+' Database</button>' })
-          : '')
-        +lane({ kind: 'app', ico: 'app', title: 'Apps', count: apps.length,
-            body: appCards || '<div class="svc-lane-empty">No app yet — deploy a Go service and link a database.</div>',
-            action: '<button type="button" class="rw-add-btn rw-add-primary" data-action="wizard:type:go">'+ico('plus')+' App</button>' });
-    }
+    var canvasInner = list.length
+      ? ('<div class="rw-board" data-board="1">'+board+'</div>')
+      : empty;
+    var toolbar = ''
+      +'<div class="rw-canvas-toolbar" data-stop="1">'
+        +'<span class="rw-canvas-count ghost">'+esc(String(list.length))+' service'+(list.length===1?'':'s')+'</span>'
+        +'<div class="rw-canvas-tools">'
+          +(list.length
+            ? '<button type="button" class="btn btn-quiet btn-compact has-ico" data-action="canvas:arrange" title="Auto arrange">'+ico('arrange')+'<span>Auto arrange</span></button>'
+            : '')
+          +'<button type="button" class="btn primary btn-compact has-ico" data-action="wizard:open">'+ico('plus')+'<span>Add service</span></button>'
+        +'</div>'
+      +'</div>';
     var body = ''
-      +'<div class="rw-canvas'+(settingsSlug?' drawer-open':'')+(!list.length?' is-empty':'')+(navLoading?' is-loading':'')+'" data-canvas="1">'
+      + toolbar
+      +'<div class="rw-canvas is-free'+(settingsSlug?' drawer-open':'')+(!list.length?' is-empty':'')+(navLoading?' is-loading':'')+'" data-canvas="1">'
         +'<svg class="rw-links" aria-hidden="true"><g class="rw-links-g"></g></svg>'
         +canvasInner
       +'</div>';
@@ -241,7 +235,6 @@
       +'</div>';
   }
 
-
   function systemSyncroxInner(s) {
     return ''
       +'<div class="system-row">'
@@ -263,11 +256,14 @@
     if (svc && svc.type === 'postgres') {
       return { kind: 'db', label: 'Database', ico: 'db' };
     }
+    if (svc && svc.type === 'bucket') {
+      return { kind: 'db', label: 'Bucket', ico: 'storage' };
+    }
     return { kind: 'app', label: 'App', ico: 'app' };
   }
 
   function statusMeta(svc, building, failed, isUp) {
-    if (svc && svc.type === 'postgres') {
+    if (svc && (svc.type === 'postgres' || svc.type === 'bucket')) {
       return isUp
         ? { cls: 'ok', label: 'Ready' }
         : { cls: 'off', label: 'Offline' };
@@ -289,14 +285,30 @@
   }
 
 
+  function maskBucketURLDisplay(raw) {
+    raw = String(raw || '');
+    if (!raw) return '';
+    try {
+      var u = new URL(raw);
+      if (u.username || u.password) {
+        u.username = '••••';
+        u.password = '';
+      }
+      return u.toString().replace(/••••:@/, '••••@').replace(/\/@/, '/');
+    } catch (e) {
+      return raw.replace(/:\/\/[^@\s]+@/, '://••••@');
+    }
+  }
   function accessURL(svc) {
     if (!svc) return '';
-    if (svc.type === 'postgres') return rewriteHost(svc.connection_url || '');
+    if (svc.type === 'postgres' || svc.type === 'bucket') return rewriteHost(svc.connection_url || '');
     var raw = svc.url || (svc.port ? ('http://rasp.local:' + svc.port) : '');
     return rewriteHost(raw);
   }
   function accessLabel(svc) {
-    return svc && svc.type === 'postgres' ? 'DATABASE_URL' : 'App URL';
+    if (svc && svc.type === 'postgres') return 'DATABASE_URL';
+    if (svc && svc.type === 'bucket') return 'BUCKET_URL';
+    return 'App URL';
   }
   function publicURL(svc) {
     return (svc && svc.public_url) ? String(svc.public_url) : '';
@@ -305,6 +317,9 @@
     if (!svc) return '—';
     if (svc.type === 'postgres') {
       return svc.database || accessHostSummary(accessURL(svc)) || '—';
+    }
+    if (svc.type === 'bucket') {
+      return svc.bucket || accessHostSummary(accessURL(svc)) || '—';
     }
     var pub = publicURL(svc);
     if (pub) return String(pub).replace(/^https?:\/\//, '');
@@ -318,8 +333,8 @@
     if (!primary) {
       return '<div class="svc-foot empty"><span class="ghost">No endpoint yet</span></div>';
     }
-    var isPg = svc.type === 'postgres';
-    var label = pub ? 'Public' : (isPg ? 'Database URL' : 'App URL');
+    var isPg = svc.type === 'postgres' || svc.type === 'bucket';
+    var label = pub ? 'Public' : (svc.type === 'postgres' ? 'Database URL' : (svc.type === 'bucket' ? 'Bucket URL' : 'App URL'));
     var openBtn = isPg ? '' : (
       '<a class="btn btn-compact svc-act primary" href="'+esc(primary)+'" target="_blank" rel="noopener" data-stop="1" title="Open">'
         +ico('open')+'<span>Open</span></a>'
@@ -328,7 +343,7 @@
       +'<div class="svc-foot'+(pub?' is-public':'')+(isPg?' is-db':' is-app')+'" data-stop="1">'
         +'<div class="svc-foot-main">'
           +'<div class="svc-foot-label"><span>'+esc(label)+'</span></div>'
-          +'<code class="svc-foot-url" id="access-'+esc(svc.slug)+'" data-copy="'+esc(primary)+'" title="'+esc(primary)+'">'+esc(primary)+'</code>'
+          +'<code class="svc-foot-url" id="access-'+esc(svc.slug)+'" data-copy="'+esc(primary)+'" title="'+esc(primary)+'">'+esc(svc.type==='bucket' ? maskBucketURLDisplay(primary) : primary)+'</code>'
         +'</div>'
         +'<div class="svc-foot-acts">'
           +'<button type="button" class="btn btn-compact svc-act" data-action="copy:access:'+esc(svc.slug)+'" title="Copy full URL">'
@@ -347,6 +362,15 @@
           +'<button type="button" class="btn" data-action="copy:access-cfg:'+esc(svc.slug)+'">Copy</button>'
         +'</div>'
         +uiHint('Paste into clients · linked apps get DB_* + DATABASE_URL');
+    }
+    if (svc.type === 'bucket') {
+      if (!local) return uiHint('No endpoint yet — start the MinIO engine');
+      return ''
+        +'<div class="copy-row">'
+          +'<code id="access-cfg-'+esc(svc.slug)+'" data-copy="'+esc(local)+'">'+esc(maskBucketURLDisplay(local))+'</code>'
+          +'<button type="button" class="btn" data-action="copy:access-cfg:'+esc(svc.slug)+'">Copy</button>'
+        +'</div>'
+        +uiHint('Copy BUCKET_URL into your app · or link the service to inject it');
     }
     if (!local) return uiHint('No URL yet — start or redeploy');
     var pub = publicURL(svc);
@@ -456,14 +480,15 @@
 
   function drawerToolbarHTML(svc) {
     var isPg = svc.type === 'postgres';
-    var building = !isPg && (svc.status === 'building' || !!(svc.deployments || []).some(function(d){ return d.status === 'building' || d.status === 'queued'; }));
-    var failed = !isPg && !building && (svc.status === 'failed' || !!svc.last_error);
+    var isBucket = svc.type === 'bucket';
+    var building = !isPg && !isBucket && (svc.status === 'building' || !!(svc.deployments || []).some(function(d){ return d.status === 'building' || d.status === 'queued'; }));
+    var failed = !isPg && !isBucket && !building && (svc.status === 'failed' || !!svc.last_error);
     var isUp = !!svc.running && !failed && !building;
     var startStopBusy = !!(busy['svc:start:'+svc.slug] || busy['svc:stop:'+svc.slug]);
     var restartBusy = !!(busy['svc:restart:'+svc.slug]);
     var toolCls = 'drawer-tool-btn btn-compact';
     var acts = '';
-    if (isPg) {
+    if (isPg || isBucket) {
       if (isUp) {
         acts = btn('Stop', 'svc:stop:'+svc.slug, toolCls + ' danger-soft', startStopBusy, 'stop')
           + btn('Restart', 'svc:restart:'+svc.slug, toolCls, restartBusy, 'refresh');
@@ -613,11 +638,13 @@
       +'</section>';
   }
 
-  function serviceSettingsHTML(svc, dbs) {
+  function serviceSettingsHTML(svc, dbs, buckets) {
+    buckets = buckets || (deployed || []).filter(function(x){ return x.type === 'bucket'; });
     var draft = settingsDraft[svc.slug] || {};
     var isPg = svc.type === 'postgres';
-    var building = !isPg && (svc.status === 'building' || !!(svc.deployments || []).some(function(d){ return d.status === 'building' || d.status === 'queued'; }));
-    var failed = !isPg && !building && (svc.status === 'failed' || !!svc.last_error);
+    var isBucket = svc.type === 'bucket';
+    var building = !isPg && !isBucket && (svc.status === 'building' || !!(svc.deployments || []).some(function(d){ return d.status === 'building' || d.status === 'queued'; }));
+    var failed = !isPg && !isBucket && !building && (svc.status === 'failed' || !!svc.last_error);
     var isUp = !!svc.running && !failed && !building;
     var usageLabel = serviceUsageLabel(svc);
     var mode = envMode[svc.slug] || 'text';
@@ -631,6 +658,9 @@
     var linkVal = (draft.linked_database != null && String(draft.linked_database) !== '')
       ? draft.linked_database
       : (svc.linked_database || '');
+    var bucketVal = (draft.linked_bucket != null && String(draft.linked_bucket) !== '')
+      ? draft.linked_bucket
+      : (svc.linked_bucket || '');
     var envVal = (draft.env != null && String(draft.env).trim() !== '')
       ? draft.env
       : '';
@@ -639,8 +669,13 @@
       var linked = (dbs || []).filter(function(d){ return d.slug === linkVal; })[0];
       linkedName = linked ? (linked.name || linked.slug) : linkVal;
     }
+    var linkedBucketName = '';
+    if (bucketVal) {
+      var lb = (buckets || []).filter(function(d){ return d.slug === bucketVal; })[0];
+      linkedBucketName = lb ? (lb.name || lb.slug) : bucketVal;
+    }
     var scope = svc.slug;
-    var customEnvVal = linkVal ? splitCustomEnv(envVal) : envVal;
+    var customEnvVal = (linkVal || bucketVal) ? splitCustomEnv(envVal) : envVal;
     if (isPg) {
       return ''
         +'<div class="settings settings-drawer settings-pg">'
@@ -664,6 +699,25 @@
           })
         +'</div>';
     }
+    if (isBucket) {
+      return ''
+        +'<div class="settings settings-drawer settings-pg">'
+          +pgEnvBoardHTML(svc, envVal)
+          +'<section class="drawer-section drawer-section-card drawer-section-compact">'
+            +uiField({
+              label: 'Display name',
+              meta: 'label',
+              control: uiInput({ name: 'name', value: nameVal })
+            })
+            +uiHint('Bucket · '+esc(svc.bucket || svc.slug)+' · '+esc(svc.connection_url || 'http://127.0.0.1:9000'))
+          +'</section>'
+          +uiFooter({
+            left: '<span class="ghost">Delete removes this bucket and objects</span>',
+            right: '<button type="button" class="btn danger" data-action="svc:delete:'+esc(svc.slug)+'">Delete</button>'
+              +'<button type="button" class="btn primary" data-action="svc:save:'+svc.slug+'">Save</button>'
+          })
+        +'</div>';
+    }
     var linkLabel = linkedName || 'None';
     var generalSummary = (branchVal || 'main') + (rootVal ? ' · ' + String(rootVal).slice(0,12) : '');
     var linkedMap = linkVal ? linkedEnvMapFromSources(null, envVal) : {};
@@ -674,6 +728,14 @@
     var linkedBlock = !linkVal ? '' : (linkedReady
       ? wizAutoDBEnvHTML(linkLabel, linkedMap, [], { reveal: !!envReveal[svc.slug + ':env'], revealAction: 'envreveal:' + svc.slug + ':env' })
       : '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(linkLabel)+'</span><span class="ghost">linking…</span></div><div class="ghost" style="font-size:11px">DB_* + DATABASE_URL appear after save/deploy</div></div>');
+    var bucketPicker = buckets.length
+      ? cselectHTML('link-bucket', bucketVal, 'No bucket', [{value:'',label:'No bucket'}].concat(buckets.map(function(d){ return {value:d.slug,label:d.name||d.slug,meta:'Bucket'}; })), false, {searchable: (buckets||[]).length > 4, searchPlaceholder:'Filter…'})
+      : uiEmpty({ mini: true, body: 'No bucket in this group yet.' });
+    var bucketMap = bucketVal ? linkedBucketMapFromEnv(envVal) : {};
+    var bucketReady = bucketVal && BUCKET_ENV_KEYS.some(function(k){ return bucketMap[k]; });
+    var bucketBlock = !bucketVal ? '' : (bucketReady
+      ? wizAutoBucketEnvHTML(linkedBucketName || bucketVal, bucketMap, { reveal: !!envReveal[svc.slug + ':bucket'], revealAction: 'envreveal:' + svc.slug + ':bucket' })
+      : '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(linkedBucketName || bucketVal)+'</span><span class="ghost">linking…</span></div><div class="ghost" style="font-size:11px">BUCKET_URL appears after save/deploy</div></div>');
     var envMergedBody = ''
       +'<div class="env-merge">'
         +'<div class="env-merge-block">'
@@ -682,8 +744,13 @@
         +'</div>'
         +linkedBlock
         +'<div class="env-merge-block">'
+          +'<div class="env-merge-label">Bucket</div>'
+          +bucketPicker
+        +'</div>'
+        +bucketBlock
+        +'<div class="env-merge-block">'
           +'<div class="wiz-custom-head">'
-            +'<span>'+(linkVal ? 'Your variables' : 'Variables')+'</span>'
+            +'<span>'+(linkVal || bucketVal ? 'Your variables' : 'Variables')+'</span>'
             +'<div class="seg mini">'
               +'<button type="button" data-action="envmode:'+esc(svc.slug)+':text" class="'+(mode!=='json'?'active':'')+'">KEY=value</button>'
               +'<button type="button" data-action="envmode:'+esc(svc.slug)+':json" class="'+(mode==='json'?'active':'')+'">JSON</button>'
@@ -693,7 +760,8 @@
         +'</div>'
       +'</div>';
     var envSummaryText = (linkVal ? (linkedName || linkVal) : 'No database')
-      + ' · ' + envSummary(linkVal ? customEnvVal : envVal);
+      + ' · ' + (bucketVal ? (linkedBucketName || bucketVal) : 'No bucket')
+      + ' · ' + envSummary((linkVal || bucketVal) ? customEnvVal : envVal);
     return ''
       +'<div class="settings settings-drawer">'
         +'<div class="folds folds-drawer folds-compact">'
@@ -804,8 +872,10 @@
     var selected = settingsSlug === svc.slug;
     var draft = settingsDraft[svc.slug] || {};
     var isPg = svc.type === 'postgres';
-    var building = !isPg && (svc.status === 'building' || !!(svc.deployments || []).some(function(d){ return d.status === 'building' || d.status === 'queued'; }));
-    var failed = !isPg && !building && (svc.status === 'failed' || !!svc.last_error);
+    var isBucket = svc.type === 'bucket';
+    var isEngine = isPg || isBucket;
+    var building = !isEngine && (svc.status === 'building' || !!(svc.deployments || []).some(function(d){ return d.status === 'building' || d.status === 'queued'; }));
+    var failed = !isEngine && !building && (svc.status === 'failed' || !!svc.last_error);
     var isUp = !!svc.running && !failed && !building;
     var diskLabel = svc.disk_bytes ? fmtBytes(svc.disk_bytes) : '';
     var kind = svcKindMeta(svc);
@@ -814,6 +884,9 @@
     if (isPg) {
       if (svc.database) metaBits.push(svc.database);
       if (svc.volume_size) metaBits.push(svc.volume_size);
+      else if (diskLabel) metaBits.push(diskLabel);
+    } else if (isBucket) {
+      if (svc.bucket) metaBits.push(svc.bucket);
       else if (diskLabel) metaBits.push(diskLabel);
     } else {
       if (svc.repo) metaBits.push(svc.repo.split('/').pop() || svc.repo);
@@ -825,11 +898,14 @@
     var linkVal = (draft.linked_database != null && String(draft.linked_database) !== '')
       ? draft.linked_database
       : (svc.linked_database || '');
+    var bucketVal = (draft.linked_bucket != null && String(draft.linked_bucket) !== '')
+      ? draft.linked_bucket
+      : (svc.linked_bucket || '');
     var powerBusy = !!(busy['svc:start:'+svc.slug] || busy['svc:stop:'+svc.slug] || building);
     var pgPowerBusy = !!(busy['svc:start:'+svc.slug] || busy['svc:stop:'+svc.slug] || busy['svc:restart:'+svc.slug]);
     var quickActs = '';
     if (!selected) {
-      if (isPg) {
+      if (isEngine) {
         if (isUp) {
           quickActs = ''
             +actionBtn({ label: 'Restart', action: 'svc:restart:'+svc.slug, icon: 'refresh', busy: pgPowerBusy, title: 'Restart shared engine' })
@@ -854,13 +930,13 @@
       }
     }
     var banner = '';
-    if (!selected && !isPg && failed && svc.last_error) {
+    if (!selected && !isEngine && failed && svc.last_error) {
       banner = ''
         +'<div class="svc-banner fail" data-stop="1">'
           +'<div class="svc-banner-text">'+esc(String(svc.last_error).slice(0,120))+'</div>'
           +'<button type="button" class="btn btn-quiet btn-compact" data-action="svc:logs:'+esc(svc.slug)+'">Logs</button>'
         +'</div>';
-    } else if (!selected && !isPg && building) {
+    } else if (!selected && !isEngine && building) {
       banner = ''
         +'<div class="svc-banner build" data-stop="1">'
           +'<div class="svc-build-track"><span class="svc-build-fill"></span></div>'
@@ -870,7 +946,7 @@
     var accessIcon = '';
     if (!selected && !failed && !building) {
       var primary = publicURL(svc) || accessURL(svc);
-      if (primary && !isPg) {
+      if (primary && !isEngine) {
         accessIcon = ''
           +'<a class="svc-node-link" href="'+esc(primary)+'" target="_blank" rel="noopener" data-stop="1" title="Open '+esc(primary)+'">'
             +ico('open')
@@ -878,7 +954,7 @@
       }
     }
     return ''
-      +'<div class="svc-card svc-widget svc-node kind-'+kind.kind+(selected?' selected':'')+(building?' building':'')+(failed?' failed':'')+(isUp?' is-up':'')+'" data-slug="'+esc(svc.slug)+'" data-kind="'+kind.kind+'"'+(linkVal?' data-linked="'+esc(linkVal)+'"':'')+'>'
+      +'<div class="svc-card svc-widget svc-node kind-'+kind.kind+(selected?' selected':'')+(building?' building':'')+(failed?' failed':'')+(isUp?' is-up':'')+'" data-slug="'+esc(svc.slug)+'" data-kind="'+kind.kind+'"'+(linkVal?' data-linked="'+esc(linkVal)+'"':'')+(bucketVal?' data-linked-bucket="'+esc(bucketVal)+'"':'')+'>'
         +'<div class="svc-widget-face svc-row clickable" data-action="svc:settings:'+esc(svc.slug)+'" role="button" tabindex="0" aria-expanded="'+(selected?'true':'false')+'" aria-haspopup="dialog" title="Configure">'
           +'<div class="svc-widget-hover" data-stop="1">'+quickActs+'</div>'
           +accessIcon

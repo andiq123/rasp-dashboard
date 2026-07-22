@@ -91,6 +91,22 @@ func (s *Server) handleEngine(w http.ResponseWriter, r *http.Request) {
 			}
 			jsonReply(w, view)
 			return
+		case "minio_start":
+			view, err := s.Deploy.StartMinIOEngine(r.Context())
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			jsonReply(w, view)
+			return
+		case "minio_stop":
+			view, err := s.Deploy.StopMinIOEngine(r.Context())
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			jsonReply(w, view)
+			return
 		case "", "update":
 			view, err := s.Deploy.UpdateEngine(r.Context(), deploy.EngineSettings{
 				PostgresVersion: body.PostgresVersion,

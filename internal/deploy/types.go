@@ -17,6 +17,7 @@ var slugRe = regexp.MustCompile(`[^a-z0-9-]+`)
 const (
 	TypeGo       = "go"
 	TypePostgres = "postgres"
+	TypeBucket   = "bucket"
 
 	defaultMemoryMB = 512
 	defaultCPUs   = 1.0
@@ -55,11 +56,13 @@ type Service struct {
 	TunnelActive   bool    `json:"tunnel_active,omitempty"`
 	ConnectionURL  string  `json:"connection_url,omitempty"`
 	Database       string  `json:"database,omitempty"`
+	Bucket         string  `json:"bucket,omitempty"`
 	Volume         string  `json:"volume,omitempty"`
 	VolumeSize     string  `json:"volume_size,omitempty"`
 	VolumeBytes    int64   `json:"volume_bytes,omitempty"`
 	EngineImage    string  `json:"engine_image,omitempty"`
 	LinkedDatabase string  `json:"linked_database,omitempty"`
+	LinkedBucket   string  `json:"linked_bucket,omitempty"`
 	Status         string  `json:"status,omitempty"`
 	LastError      string  `json:"last_error,omitempty"`
 	HasClone       bool    `json:"has_clone,omitempty"`
@@ -99,6 +102,7 @@ type CreateGoRequest struct {
 	Branch         string  `json:"branch"`
 	Name           string  `json:"name"`
 	LinkedDatabase string  `json:"linked_database"`
+	LinkedBucket   string  `json:"linked_bucket"`
 	RootDir        string  `json:"root_dir"`
 	BuildCmd       string  `json:"build_cmd"`
 	GoToolchain    string  `json:"go_toolchain"`
@@ -118,6 +122,7 @@ type SettingsUpdate struct {
 	Name           *string  `json:"name"`
 	Branch         *string  `json:"branch"`
 	LinkedDatabase *string  `json:"linked_database"`
+	LinkedBucket   *string  `json:"linked_bucket"`
 	RootDir        *string  `json:"root_dir"`
 	Env            *string  `json:"env"`
 	BuildCmd       *string  `json:"build_cmd"`

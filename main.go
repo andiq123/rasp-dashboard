@@ -24,7 +24,8 @@ func main() {
 		"PORT="+envOr("SYNCROX_PORT", "5090"),
 	)
 	pg := infra.NewPostgres(baseDir)
-	dep := deploy.NewManager(baseDir, homeDir, pg)
+	mn := infra.NewMinIO(baseDir)
+	dep := deploy.NewManager(baseDir, homeDir, pg, mn)
 	dep.RecoverInterruptedDeploys(nil)
 
 	srv := server.New(

@@ -78,6 +78,8 @@
 
 
   var DB_ENV_KEYS = ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_SSLMODE', 'DATABASE_URL'];
+  var BUCKET_ENV_KEYS = ['BUCKET_URL'];
+  var LEGACY_BUCKET_ENV_KEYS = ['BUCKET','BUCKET_NAME','BUCKET_ENDPOINT','BUCKET_ACCESS_KEY_ID','BUCKET_SECRET_ACCESS_KEY','BUCKET_REGION','BUCKET_FORCE_PATH_STYLE','AWS_ENDPOINT_URL','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_REGION','AWS_S3_FORCE_PATH_STYLE'];
 
   function clearScopeFolds(scope) {
     if (!scope) return;
@@ -176,6 +178,8 @@
   function stripReservedDBEnv(text) {
     var map = parseEnvMapClient(text);
     RESERVED_DB_KEYS.forEach(function(k){ delete map[k]; });
+    BUCKET_ENV_KEYS.forEach(function(k){ delete map[k]; });
+    LEGACY_BUCKET_ENV_KEYS.forEach(function(k){ delete map[k]; });
     // Also strip POSTGRES_* if pasted
     Object.keys(map).forEach(function(k){
       if (/^POSTGRES_/.test(k)) delete map[k];
@@ -264,7 +268,7 @@
 
   function isSecretEnvKey(k) {
     k = String(k || '');
-    return k === 'DB_PASSWORD' || k === 'DATABASE_URL' || /PASSWORD|SECRET|TOKEN|KEY$/i.test(k);
+    return k === 'DB_PASSWORD' || k === 'DATABASE_URL' || k === 'BUCKET_URL' || k === 'BUCKET_SECRET_ACCESS_KEY' || k === 'AWS_SECRET_ACCESS_KEY' || /PASSWORD|SECRET|TOKEN|KEY$/i.test(k);
   }
 
   /** Split user env text into custom-only (no reserved DB keys). */
@@ -273,6 +277,8 @@
     var custom = {};
     Object.keys(map).forEach(function(k){
       if (RESERVED_DB_KEYS.indexOf(k) >= 0) return;
+      if (BUCKET_ENV_KEYS.indexOf(k) >= 0) return;
+      if (LEGACY_BUCKET_ENV_KEYS.indexOf(k) >= 0) return;
       if (/^POSTGRES_/.test(k)) return;
       custom[k] = map[k];
     });
@@ -300,6 +306,38 @@
     });
     Object.keys(custom).forEach(function(k){ merged[k] = custom[k]; });
     return envMapToDotenv(merged);
+  }
+
+
+  function wizAutoBucketEnvHTML(link, bucketMap, opts) {
+    if (!link) return '';
+    opts = opts || {};
+    bucketMap = bucketMap || {};
+    var keys = BUCKET_ENV_KEYS.filter(function(k){ return bucketMap[k]; });
+    if (!keys.length) {
+      return '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(link)+'</span><span class="ghost">linking…</span></div><div class="ghost" style="font-size:11px">BUCKET_URL appears after save/deploy</div></div>';
+    }
+    var reveal = !!opts.reveal;
+    var rows = keys.map(function(k){
+      var val = String(bucketMap[k] || '');
+      var secret = (k === 'BUCKET_URL') || /SECRET|PASSWORD|TOKEN/i.test(k) || /_KEY$/i.test(k);
+      var shown = (secret && !reveal) ? '••••••••' : val;
+      return '<div class="wiz-auto-row"><code>'+esc(k)+'</code><span class="mono">'+esc(shown)+'</span></div>';
+    }).join('');
+    return ''
+      +'<div class="wiz-auto-env">'
+        +'<div class="wiz-auto-head"><span>From '+esc(link)+'</span>'
+          +(opts.revealAction ? '<button type="button" class="btn btn-quiet btn-compact" data-action="'+esc(opts.revealAction)+'">'+(reveal?'Hide':'Reveal')+'</button>' : '')
+        +'</div>'
+        +rows
+      +'</div>';
+  }
+
+  function linkedBucketMapFromEnv(envText) {
+    var mp = parseEnvMapClient(envText || '');
+    var out = {};
+    BUCKET_ENV_KEYS.forEach(function(k){ if (mp[k]) out[k] = mp[k]; });
+    return out;
   }
 
   function wizAutoDBEnvHTML(link, dbMap, conflictKeys, opts) {

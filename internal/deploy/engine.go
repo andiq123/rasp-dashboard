@@ -35,6 +35,9 @@ type EngineView struct {
 	GoOptions        []VersionOption `json:"go_options"`
 	PostgresImage    string          `json:"postgres_image"`
 	PostgresRunning  bool            `json:"postgres_running"`
+	MinIOImage       string          `json:"minio_image"`
+	MinIORunning     bool            `json:"minio_running"`
+	MinIOEndpoint    string          `json:"minio_endpoint"`
 	GoResolvedHint   string          `json:"go_resolved_hint"`
 }
 
@@ -215,6 +218,16 @@ func (m *Manager) EngineView(ctx context.Context) EngineView {
 			v.PostgresImage = st.Image
 		}
 	}
+	if m.MinIO != nil {
+		st := m.MinIO.Status(ctx)
+		v.MinIORunning = st.Running
+		v.MinIOEndpoint = st.Endpoint
+		if st.Image != "" {
+			v.MinIOImage = st.Image
+		} else {
+			v.MinIOImage = m.MinIO.Image()
+		}
+	}
 	return v
 }
 
@@ -326,5 +339,49 @@ func (m *Manager) StopPostgresEngine(ctx context.Context) (EngineView, error) {
 	}
 	m.logf("ok", "Postgres engine stopped")
 	m.releaseJob(true, "Postgres engine stopped")
+	return m.EngineView(ctx), nil
+}
+
+// StartMinIOEngine starts the shared compose MinIO with Activity logging.
+func (m *Manager) StartMinIOEngine(ctx context.Context) (EngineView, error) {
+	if m.MinIO == nil {
+		return EngineView{}, fmt.Errorf("minio engine not configured")
+	}
+	if err := m.acquireJob("Start MinIO engine", "engine/minio"); err != nil {
+		return EngineView{}, err
+	}
+	m.startProgress([]ProgressStep{
+		{ID: "start", Label: "Start engine", Weight: 70, Status: "pending"},
+		{ID: "ready", Label: "Wait for port", Weight: 30, Status: "pending"},
+	})
+	m.stepProgress("start")
+	img := m.MinIO.Image()
+	m.logf("info", "Image %s", img)
+	m.logf("step", "docker compose up -d minio")
+	if err := m.MinIO.Start(ctx); err != nil {
+		m.releaseJob(false, err.Error())
+		return m.EngineView(ctx), err
+	}
+	m.stepProgress("ready")
+	m.logf("ok", "Listening on 127.0.0.1:9000")
+	m.releaseJob(true, "MinIO engine running")
+	return m.EngineView(ctx), nil
+}
+
+// StopMinIOEngine stops the shared compose MinIO with Activity logging.
+func (m *Manager) StopMinIOEngine(ctx context.Context) (EngineView, error) {
+	if m.MinIO == nil {
+		return EngineView{}, fmt.Errorf("minio engine not configured")
+	}
+	if err := m.acquireJob("Stop MinIO engine", "engine/minio"); err != nil {
+		return EngineView{}, err
+	}
+	m.logf("step", "docker compose stop minio")
+	if err := m.MinIO.Stop(ctx); err != nil {
+		m.releaseJob(false, err.Error())
+		return m.EngineView(ctx), err
+	}
+	m.logf("ok", "MinIO engine stopped")
+	m.releaseJob(true, "MinIO engine stopped")
 	return m.EngineView(ctx), nil
 }

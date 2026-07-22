@@ -79,6 +79,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/", s.handlePage)
 	mux.HandleFunc("/api/state", s.handleAPIState)
 	mux.HandleFunc("/api/activity", s.handleAPIActivity)
+	mux.HandleFunc("/api/files", s.handleAPIFiles)
+	mux.HandleFunc("/api/files/preview", s.handleAPIFilesPreview)
 	mux.HandleFunc("/api/events", s.handleAPIEvents)
 	mux.HandleFunc("/api/mode", s.handleAPIMode)
 	mux.HandleFunc("/api/hotspot/start", s.handleHotspot)
@@ -203,13 +205,16 @@ func (s *Server) handleAPIEvents(w http.ResponseWriter, r *http.Request) {
 
 func isDashboardPath(path string) bool {
 	switch path {
-	case "/", "/overview", "/projects", "/settings", "/activity":
+	case "/", "/overview", "/projects", "/settings", "/activity", "/files":
 		return true
 	}
 	if strings.HasPrefix(path, "/projects/") {
 		return true
 	}
 	if strings.HasPrefix(path, "/settings/") {
+		return true
+	}
+	if strings.HasPrefix(path, "/files/") {
 		return true
 	}
 	return false

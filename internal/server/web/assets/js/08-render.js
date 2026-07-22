@@ -53,6 +53,11 @@
         var svcMatch = (deployed || []).filter(function(x){ return x.slug === slug; })[0];
         linked = svcMatch ? (svcMatch.linked_database || '') : '';
       }
+      var linkedBucket = prev.linked_bucket;
+      if (linkedBucket == null) {
+        var svcMatchB = (deployed || []).filter(function(x){ return x.slug === slug; })[0];
+        linkedBucket = svcMatchB ? (svcMatchB.linked_bucket || '') : '';
+      }
       var envEl = box.querySelector('textarea[name=env]');
       var typedEnv = envEl ? envEl.value : '';
       var keepEnv = typedEnv;
@@ -61,6 +66,7 @@
       }
       var svcNow = (deployed || []).filter(function(x){ return x.slug === slug; })[0];
       if (!linked && svcNow && svcNow.linked_database) linked = svcNow.linked_database;
+      if (!linkedBucket && svcNow && svcNow.linked_bucket) linkedBucket = svcNow.linked_bucket;
       // Textarea shows custom keys only when DB is linked — merge DB_* back in.
       if (linked) {
         var linkedSrc = linkedEnvMapFromSources(null, prev.env || '');
@@ -69,10 +75,18 @@
         }
         keepEnv = mergeLinkedPreviewEnv(keepEnv, linkedSrc);
       }
+      if (linkedBucket) {
+        var bucketSrc = linkedBucketMapFromEnv(prev.env || '');
+        if (!BUCKET_ENV_KEYS.some(function(k){ return bucketSrc[k]; }) && svcNow) {
+          bucketSrc = linkedBucketMapFromEnv(keepEnv);
+        }
+        keepEnv = mergeLinkedPreviewEnv(keepEnv, bucketSrc);
+      }
       settingsDraft[slug] = {
         name: val('input[name=name]'),
         branch: val('input[name=branch]'),
         linked_database: linked,
+        linked_bucket: linkedBucket,
         root_dir: val('input[name=root_dir]'),
         env: keepEnv,
         build_cmd: val('input[name=build_cmd]'),
@@ -257,7 +271,12 @@
 
   function routePath() {
     if (navView === 'overview') return '/overview';
-    if (navView === 'activity') return '/activity';
+    if (navView === 'files' || navView === 'activity') {
+      var home = (typeof FILES_HOME !== 'undefined' ? FILES_HOME : '/home/andiq');
+      var fp = filesPath || home;
+      if (fp === home) return '/files';
+      return '/files' + fp.split('/').map(function(p){ return p ? encodeURIComponent(p) : ''; }).join('/');
+    }
     if (navView === 'settings') {
       return '/settings';
     }
@@ -276,7 +295,15 @@
   function parseRoute(path) {
     var p = String(path || '/').replace(/\/+$/, '') || '/';
     if (p === '/' || p === '/overview') return { navView: 'overview' };
-    if (p === '/activity') return { navView: 'activity' };
+    if (p === '/activity' || p === '/files' || p.indexOf('/files/') === 0) {
+      var home = (typeof FILES_HOME !== 'undefined' ? FILES_HOME : '/home/andiq');
+      var fp = home;
+      if (p.indexOf('/files/') === 0) {
+        try { fp = decodeURIComponent(p.slice('/files'.length)) || home; } catch (e) { fp = home; }
+        if (fp.charAt(0) !== '/') fp = '/' + fp;
+      }
+      return { navView: 'files', filesPath: fp };
+    }
     if (p === '/settings' || p === '/settings/storage') return { navView: 'settings', settingsTab: 'storage', settingsFocus: (p === '/settings/storage' ? 'storage' : 'github') };
     if (p === '/projects') return { navView: 'projects' };
     var m = p.match(/^\/projects\/([^/]+)(?:\/([^/]+))?$/);
@@ -292,6 +319,10 @@
     opts = opts || {};
     route = route || {};
     navView = route.navView || 'overview';
+    if (route.navView === 'files' || route.navView === 'activity') {
+      navView = 'files';
+      if (route.filesPath) filesPath = route.filesPath;
+    }
     if (route.navView === 'settings') {
       activeGroup = null;
       settingsSlug = null;
@@ -315,7 +346,7 @@
       settingsSlug = null;
       manageTab = 'services';
       dockerOpen = false;
-    } else if (navView === 'activity') {
+    } else if (navView === 'files' || navView === 'activity') {
       activeGroup = null;
       settingsSlug = null;
       manageTab = 'services';
@@ -338,9 +369,8 @@
       return;
     }
     render(opts);
-    if (navView === 'activity') {
-      activity.userCollapsed = false;
-      openActivityConsole({ forceExpand: true });
+    if (navView === 'files') {
+      loadFiles(filesPath || (typeof FILES_HOME !== 'undefined' ? FILES_HOME : '/home/andiq'), { render: true });
     }
     if (navView === 'overview') refreshConfig(true);
   }
@@ -359,7 +389,7 @@
 
   function navKey() {
     if (navView === 'overview') return 'overview';
-    if (navView === 'activity') return 'activity';
+    if (navView === 'files' || navView === 'activity') return 'files:' + (filesPath || '/');
     if (navView === 'settings') return 'settings:' + (settingsTab || 'github');
     if (activeGroup) return 'group:' + activeGroup;
     return 'projects';
@@ -425,7 +455,7 @@
       var b = 0;
       (s.deployments || []).forEach(function(d){ if (d && (d.status === 'building' || d.status === 'queued')) b++; });
       bits.push([
-        s.slug, s.status || '', s.running ? 1 : 0, s.linked_database || '', s.public_url || '',
+        s.slug, s.status || '', s.running ? 1 : 0, s.linked_database || '', s.linked_bucket || '', s.public_url || '',
         s.active_deploy_id || '', s.deploy_id || '', b,
         (settingsDraft[s.slug] && countEnvKeys(settingsDraft[s.slug].env || '')) || 0,
         envReveal[s.slug] ? 1 : 0,
@@ -435,6 +465,9 @@
     });
     bits.push('busy:' + Object.keys(busy || {}).sort().join(','));
     bits.push('err:' + String(servicesError || '') + ':' + String(groupsError || '') + ':' + (navLoading ? 1 : 0));
+    if (navView === 'files') {
+      bits.push('files:' + (filesPath || '/') + ':' + (filesLoading ? 1 : 0) + ':' + ((filesListing && filesListing.summary && filesListing.summary.entry_count) || 0) + ':' + (filesShowHidden ? 1 : 0) + '|' + String(filesQuery || ''));
+    }
     if (navView === 'settings') {
       var engRun = (engineView && engineView.postgres_running) ? 1 : 0;
       var engBusy = (busy['engine:start'] || busy['engine:stop'] || busy['engine:save']) ? 1 : 0;
@@ -474,7 +507,7 @@
     var icons = {
       overview: '<svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
       projects: '<svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>',
-      activity: '<svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
+      files: '<svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><path d="M3 11h18"/></svg>',
       settings: '<svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>'
     };
     return ''
@@ -482,7 +515,7 @@
       +'<div class="rail-nav">'
         +item('overview', 'Overview', icons.overview)
         +item('projects', 'Projects', icons.projects)
-        +item('activity', 'Activity', icons.activity)
+        +item('files', 'Files', icons.files)
         +item('settings', 'Settings', icons.settings)
       +'</div>';
   }
@@ -645,8 +678,8 @@
     if (navView === 'settings') {
       return '<div class="layout layout-main layout-settings">' + services(s) + '</div>';
     }
-    if (navView === 'activity') {
-      return '<div class="layout layout-main layout-activity">' + services(s) + '</div>';
+    if (navView === 'files' || navView === 'activity') {
+      return '<div class="layout layout-main layout-files">' + services(s) + '</div>';
     }
     return '<div class="layout layout-empty"></div>';
   }
@@ -659,38 +692,222 @@
     renderServices(opts || { animate: true });
     syncRouteFromState();
   }
+  var CANVAS_CARD_W = 236;
+  var CANVAS_CARD_H = 148;
+  var CANVAS_GAP_X = 48;
+  var CANVAS_GAP_Y = 36;
+  var CANVAS_PAD = 28;
+  var _layoutSaveTimer = null;
+
+  function ensureCanvasPositions(list) {
+    if (!canvasLayout) canvasLayout = { nodes: {} };
+    if (!canvasLayout.nodes) canvasLayout.nodes = {};
+    var missing = [];
+    (list || []).forEach(function(svc){
+      if (!svc || !svc.slug) return;
+      var n = canvasLayout.nodes[svc.slug];
+      if (!n || n.x == null || n.y == null) missing.push(svc);
+    });
+    if (!missing.length) return;
+    var arranged = autoArrangePositions(list);
+    missing.forEach(function(svc){
+      if (arranged[svc.slug]) canvasLayout.nodes[svc.slug] = arranged[svc.slug];
+    });
+    saveCanvasLayout(false);
+  }
+
+  function autoArrangePositions(list) {
+    // Simple 2-column grid: storage (DB/bucket) left, apps right.
+    var storage = [], apps = [], other = [];
+    (list || []).forEach(function(s){
+      if (!s || !s.slug) return;
+      if (s.type === 'postgres' || s.type === 'bucket') storage.push(s);
+      else if (s.type === 'go') apps.push(s);
+      else other.push(s);
+    });
+    function byName(a, b){ return String(a.name||a.slug).localeCompare(String(b.name||b.slug)); }
+    storage.sort(byName); apps.sort(byName); other.sort(byName);
+    var nodes = {};
+    function place(items, col) {
+      items.forEach(function(svc, i){
+        nodes[svc.slug] = {
+          x: CANVAS_PAD + col * (CANVAS_CARD_W + CANVAS_GAP_X),
+          y: CANVAS_PAD + i * (CANVAS_CARD_H + CANVAS_GAP_Y)
+        };
+      });
+    }
+    place(storage, 0);
+    place(apps.concat(other), 1);
+    return nodes;
+  }
+
+  function applyAutoArrange() {
+    if (!activeGroup) return;
+    var nodes = autoArrangePositions(deployed || []);
+    canvasLayout = { nodes: nodes };
+    applyCanvasPositionsDOM();
+    drawRwLinks();
+    saveCanvasLayout(true);
+    showToast('Canvas arranged');
+  }
+
+  function applyCanvasPositionsDOM() {
+    var board = document.querySelector('.panel-group-detail .rw-board');
+    if (!board || !canvasLayout || !canvasLayout.nodes) return;
+    var maxX = 0, maxY = 0;
+    board.querySelectorAll('.rw-node-wrap[data-node]').forEach(function(wrap){
+      var slug = wrap.getAttribute('data-node');
+      var n = canvasLayout.nodes[slug];
+      if (!n) return;
+      wrap.style.left = Math.round(n.x) + 'px';
+      wrap.style.top = Math.round(n.y) + 'px';
+      maxX = Math.max(maxX, n.x + CANVAS_CARD_W);
+      maxY = Math.max(maxY, n.y + CANVAS_CARD_H);
+    });
+    board.style.minWidth = Math.max(640, Math.round(maxX + CANVAS_PAD)) + 'px';
+    board.style.minHeight = Math.max(360, Math.round(maxY + CANVAS_PAD)) + 'px';
+  }
+
+  function saveCanvasLayout(immediate) {
+    if (!activeGroup || !canvasLayout) return;
+    var run = function(){
+      api('/api/groups/' + encodeURIComponent(activeGroup) + '/layout', {
+        method: 'PUT',
+        body: JSON.stringify({ nodes: canvasLayout.nodes || {} })
+      }).catch(function(){});
+    };
+    if (immediate) {
+      if (_layoutSaveTimer) clearTimeout(_layoutSaveTimer);
+      _layoutSaveTimer = null;
+      run();
+      return;
+    }
+    if (_layoutSaveTimer) clearTimeout(_layoutSaveTimer);
+    _layoutSaveTimer = setTimeout(run, 280);
+  }
+
+  function loadCanvasLayout() {
+    if (!activeGroup) {
+      canvasLayout = { nodes: {} };
+      return Promise.resolve();
+    }
+    return api('/api/groups/' + encodeURIComponent(activeGroup) + '/layout')
+      .then(function(lay){
+        canvasLayout = { nodes: (lay && lay.nodes) || {} };
+      })
+      .catch(function(){
+        canvasLayout = canvasLayout || { nodes: {} };
+      });
+  }
+
+  function bindCanvasDrag() {
+    var canvas = document.querySelector('.panel-group-detail .rw-canvas.is-free');
+    if (!canvas || canvas._dragBound) return;
+    canvas._dragBound = true;
+
+    function nodeFromEvent(e) {
+      var t = e.target;
+      if (!t || !t.closest) return null;
+      if (t.closest('[data-stop], button, a, input, textarea, select, .cselect')) return null;
+      return t.closest('.rw-node-wrap[data-node]');
+    }
+
+    canvas.addEventListener('pointerdown', function(e){
+      if (e.button != null && e.button !== 0) return;
+      var wrap = nodeFromEvent(e);
+      if (!wrap) return;
+      var slug = wrap.getAttribute('data-node');
+      if (!slug) return;
+      if (!canvasLayout.nodes) canvasLayout.nodes = {};
+      _canvasDrag = {
+        slug: slug,
+        wrap: wrap,
+        startX: e.clientX,
+        startY: e.clientY,
+        origX: (canvasLayout.nodes[slug] && canvasLayout.nodes[slug].x) || 0,
+        origY: (canvasLayout.nodes[slug] && canvasLayout.nodes[slug].y) || 0,
+        moved: false,
+        pointerId: e.pointerId
+      };
+      try { wrap.setPointerCapture(e.pointerId); } catch (err) {}
+      wrap.classList.add('is-dragging');
+      canvas.classList.add('is-dragging');
+    });
+
+    canvas.addEventListener('pointermove', function(e){
+      if (!_canvasDrag || _canvasDrag.pointerId !== e.pointerId) return;
+      var dx = e.clientX - _canvasDrag.startX;
+      var dy = e.clientY - _canvasDrag.startY;
+      if (!_canvasDrag.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) _canvasDrag.moved = true;
+      if (!_canvasDrag.moved) return;
+      e.preventDefault();
+      var nx = Math.max(0, _canvasDrag.origX + dx);
+      var ny = Math.max(0, _canvasDrag.origY + dy);
+      canvasLayout.nodes[_canvasDrag.slug] = { x: nx, y: ny };
+      _canvasDrag.wrap.style.left = Math.round(nx) + 'px';
+      _canvasDrag.wrap.style.top = Math.round(ny) + 'px';
+      drawRwLinks();
+    });
+
+    function endDrag(e) {
+      if (!_canvasDrag || (e && _canvasDrag.pointerId !== e.pointerId)) return;
+      var d = _canvasDrag;
+      _canvasDrag = null;
+      d.wrap.classList.remove('is-dragging');
+      canvas.classList.remove('is-dragging');
+      try { d.wrap.releasePointerCapture(d.pointerId); } catch (err) {}
+      if (d.moved) {
+        d.wrap.setAttribute('data-skip-click', '1');
+        setTimeout(function(){ d.wrap.removeAttribute('data-skip-click'); }, 0);
+        applyCanvasPositionsDOM();
+        saveCanvasLayout(false);
+      }
+    }
+    canvas.addEventListener('pointerup', endDrag);
+    canvas.addEventListener('pointercancel', endDrag);
+  }
+
   function drawRwLinks() {
     var canvas = document.querySelector('.panel-group-detail .rw-canvas');
     if (!canvas) return;
     var svg = canvas.querySelector('.rw-links-g');
     if (!svg) return;
-    var reduced = false;
-    try { reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
     var cRect = canvas.getBoundingClientRect();
     var paths = [];
-    canvas.querySelectorAll('.svc-node[data-linked]').forEach(function(appEl){
-      var dbSlug = appEl.getAttribute('data-linked');
-      if (!dbSlug) return;
-      var dbEl = canvas.querySelector('.svc-node[data-slug="'+dbSlug+'"]');
-      if (!dbEl) return;
-      var a = appEl.getBoundingClientRect();
-      var b = dbEl.getBoundingClientRect();
-      var x1 = a.left + a.width / 2 - cRect.left;
-      var y1 = a.top - cRect.top;
-      var x2 = b.left + b.width / 2 - cRect.left;
-      var y2 = b.bottom - cRect.top;
-      var midY = (y1 + y2) / 2;
-      paths.push('M'+x1+' '+y1+' L'+x1+' '+midY+' L'+x2+' '+midY+' L'+x2+' '+y2);
+    function addLink(fromEl, toSlug, cls) {
+      if (!toSlug) return;
+      var toEl = canvas.querySelector('.svc-node[data-slug="'+toSlug+'"]');
+      if (!toEl) return;
+      var a = fromEl.getBoundingClientRect();
+      var b = toEl.getBoundingClientRect();
+      var x1 = a.left + a.width / 2 - cRect.left + canvas.scrollLeft;
+      var y1 = a.top + a.height / 2 - cRect.top + canvas.scrollTop;
+      var x2 = b.left + b.width / 2 - cRect.left + canvas.scrollLeft;
+      var y2 = b.top + b.height / 2 - cRect.top + canvas.scrollTop;
+      var dx = Math.max(40, Math.abs(x2 - x1) * 0.35);
+      var c1x = x1 - dx, c2x = x2 + dx;
+      if (x2 > x1) { c1x = x1 + dx; c2x = x2 - dx; }
+      paths.push({ d: 'M'+x1+' '+y1+' C'+c1x+' '+y1+' '+c2x+' '+y2+' '+x2+' '+y2, cls: cls || 'rw-link-db' });
+    }
+    canvas.querySelectorAll('.svc-node[data-linked]').forEach(function(el){
+      addLink(el, el.getAttribute('data-linked'), 'rw-link-db');
     });
-    svg.innerHTML = paths.map(function(d){
-      return '<path class="rw-link-path" d="'+d+'" fill="none" stroke="rgba(139,92,246,.45)" stroke-width="1.5" stroke-dasharray="5 4"/>';
+    canvas.querySelectorAll('.svc-node[data-linked-bucket]').forEach(function(el){
+      addLink(el, el.getAttribute('data-linked-bucket'), 'rw-link-bucket');
+    });
+    svg.innerHTML = paths.map(function(p){
+      return '<path class="rw-link-path '+p.cls+'" d="'+p.d+'" fill="none"/>';
     }).join('');
     var linksSvg = canvas.querySelector('.rw-links');
+    var board = canvas.querySelector('.rw-board');
+    var w = Math.max(canvas.scrollWidth, cRect.width, board ? board.scrollWidth : 0);
+    var h = Math.max(canvas.scrollHeight, cRect.height, board ? board.scrollHeight : 0);
     if (linksSvg) {
-      linksSvg.setAttribute('width', String(Math.max(canvas.scrollWidth, cRect.width)));
-      linksSvg.setAttribute('height', String(Math.max(canvas.scrollHeight, cRect.height)));
+      linksSvg.setAttribute('width', String(w));
+      linksSvg.setAttribute('height', String(h));
     }
   }
+
   function renderServices(opts) {
     opts = opts || {};
     captureWizardDraft();
@@ -770,7 +987,7 @@
 
     document.querySelectorAll('[data-res-panel]').forEach(syncResLabels);
     placeOpenCselect();
-    drawRwLinks();
+    applyCanvasPositionsDOM(); bindCanvasDrag(); drawRwLinks();
     if (settingsSlug) {
       var sel = document.querySelector('.svc-node[data-slug="'+settingsSlug+'"]');
       if (sel) sel.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
@@ -1027,7 +1244,11 @@
     return Promise.all([
       api("/api/groups").then(function(r){ groups = r.groups || []; groupsError = null; }).catch(function(e){ groupsError = (e && e.message) || "Could not load groups"; }),
       activeGroup
-        ? api("/api/groups/" + encodeURIComponent(activeGroup) + "/services").then(function(r){
+        ? Promise.all([
+            api("/api/groups/" + encodeURIComponent(activeGroup) + "/services"),
+            loadCanvasLayout()
+          ]).then(function(pair){
+            var r = pair[0] || {};
             var prevStats = {};
             (deployed || []).forEach(function(s){ if (s && s.slug && s.stats) prevStats[s.slug] = s.stats; });
             deployed = r.services || [];
@@ -1037,7 +1258,7 @@
             });
             servicesError = null;
           }).catch(function(e){ servicesError = (e && e.message) || "Could not load services"; deployed = []; })
-        : Promise.resolve().then(function(){ deployed = []; servicesError = null; })
+        : Promise.resolve().then(function(){ deployed = []; servicesError = null; canvasLayout = { nodes: {} }; })
     ]).then(function(){
       navLoading = false;
       ensureStatsPoll();
@@ -1232,9 +1453,32 @@
         return;
       }
       if (pid === 'root' && wizard) { wizard.root_dir = val; renderModal(); return; }
+      if (pid === 'bucket' && wizard) {
+        captureWizardDraft();
+        wizard.linked_bucket = val;
+        wizard.bucket_env = null;
+        folds['wiz:env'] = true;
+        renderModal();
+        if (val) {
+          api('/api/groups/' + encodeURIComponent(activeGroup) + '/services/' + encodeURIComponent(val) + '/env')
+            .then(function(r){
+              if (!wizard || wizard.linked_bucket !== val) return;
+              wizard.bucket_env = parseEnvMapClient(r.env || r.env_json || '');
+              renderModal();
+            })
+            .catch(function(){});
+        }
+        return;
+      }
       if (pid === 'link' && settingsSlug) {
         if (!settingsDraft[settingsSlug]) settingsDraft[settingsSlug] = {};
         settingsDraft[settingsSlug].linked_database = val;
+        renderServices({soft:true});
+        return;
+      }
+      if (pid === 'link-bucket' && settingsSlug) {
+        if (!settingsDraft[settingsSlug]) settingsDraft[settingsSlug] = {};
+        settingsDraft[settingsSlug].linked_bucket = val;
         renderServices({soft:true});
         return;
       }
@@ -1267,6 +1511,104 @@
       render();
       return;
     }
+    
+    if (id === 'files:go') {
+      var pth = el.getAttribute('data-path') || (typeof FILES_HOME !== 'undefined' ? FILES_HOME : '/home/andiq');
+      closeFilesPreview();
+      loadFiles(pth, { render: true });
+      return;
+    }
+    if (id === 'files:up') {
+      var home = (typeof FILES_HOME !== 'undefined' ? FILES_HOME : '/home/andiq');
+      var cur = (filesListing && filesListing.parent != null && filesListing.parent !== '')
+        ? filesListing.parent
+        : filesParentOf(filesPath || home);
+      if (!filesCanUp(filesPath || home)) return;
+      if (filesIsUnder(filesPath || home, home) && !filesIsUnder(cur, home) && cur !== home) {
+        cur = home;
+      }
+      closeFilesPreview();
+      loadFiles(cur || home, { render: true });
+      return;
+    }
+    if (id === 'files:refresh') {
+      loadFiles(filesPath || (typeof FILES_HOME !== 'undefined' ? FILES_HOME : '/home/andiq'), { render: true });
+      return;
+    }
+    if (id === 'files:preview') {
+      openFilesPreview(el.getAttribute('data-path') || '');
+      return;
+    }
+    if (id === 'files:preview-close') {
+      closeFilesPreview();
+      return;
+    }
+    if (id === 'files:copy' || id === 'files:cut') {
+      filesClip = {
+        op: id === 'files:cut' ? 'cut' : 'copy',
+        path: el.getAttribute('data-path') || '',
+        name: el.getAttribute('data-name') || '',
+        type: el.getAttribute('data-type') || ''
+      };
+      showToast((filesClip.op === 'cut' ? 'Cut' : 'Copied') + ' · ' + filesClip.name);
+      render({ animate: false });
+      return;
+    }
+    if (id === 'files:clip-clear') {
+      filesClip = null;
+      render({ animate: false });
+      return;
+    }
+    if (id === 'files:paste') {
+      if (!filesClip || !filesClip.path) return;
+      var destDir = filesPath || (typeof FILES_HOME !== 'undefined' ? FILES_HOME : '/home/andiq');
+      var op = filesClip.op === 'cut' ? 'move' : 'copy';
+      setActionBusy(id, true);
+      filesOp({ op: op, path: filesClip.path, to: destDir })
+        .then(function(){
+          showToast((op === 'move' ? 'Moved' : 'Copied') + ' · ' + filesClip.name);
+          if (op === 'move') filesClip = null;
+          return loadFiles(destDir, { render: true });
+        })
+        .catch(function(e){ showToast((e && e.message) || 'Paste failed'); })
+        .finally(function(){ setActionBusy(id, false); });
+      return;
+    }
+    if (id === 'files:rename') {
+      var from = el.getAttribute('data-path') || '';
+      var oldName = el.getAttribute('data-name') || '';
+      var next = window.prompt('Rename to', oldName);
+      if (next == null) return;
+      next = String(next).trim();
+      if (!next || next === oldName) return;
+      setActionBusy(id, true);
+      filesOp({ op: 'rename', path: from, name: next })
+        .then(function(){
+          showToast('Renamed · ' + next);
+          if (filesPreview && filesPreview.path === from) closeFilesPreview();
+          return loadFiles(filesPath, { render: true });
+        })
+        .catch(function(e){ showToast((e && e.message) || 'Rename failed'); })
+        .finally(function(){ setActionBusy(id, false); });
+      return;
+    }
+    if (id === 'files:delete') {
+      var delPath = el.getAttribute('data-path') || '';
+      var delName = el.getAttribute('data-name') || delPath;
+      if (!window.confirm('Delete “' + delName + '”?\n\nThis cannot be undone.')) return;
+      setActionBusy(id, true);
+      filesOp({ op: 'delete', path: delPath })
+        .then(function(){
+          showToast('Deleted · ' + delName);
+          if (filesPreview && filesPreview.path === delPath) closeFilesPreview();
+          if (filesClip && filesClip.path === delPath) filesClip = null;
+          return loadFiles(filesPath, { render: true });
+        })
+        .catch(function(e){ showToast((e && e.message) || 'Delete failed'); })
+        .finally(function(){ setActionBusy(id, false); });
+      return;
+    }
+
     if (id.indexOf('hotspot:') === 0) {
       var cmd = id.split(':')[1];
       runAction(id, function(){ return api('/api/hotspot/' + cmd, {method:'POST'}); }, 'Hotspot ' + cmd);
@@ -1283,7 +1625,10 @@
     }
     else if (id === 'wizard:github') { openWizard({step:'github'}); }
     else if (id === 'wizard:group') { openWizard({step:'group'}); }
-    else if (id === 'wizard:open') {
+    else if (id === 'canvas:arrange') {
+      applyAutoArrange();
+      return;
+    } else if (id === 'wizard:open') {
       if (!activeGroup) { openWizard({step:'group'}); return; }
       openWizard({step:'type'});
     } else if (id === 'wizard:github-save') {
@@ -1362,6 +1707,11 @@
       var pgSpec = {step:'postgres', name:'', pg_version:'latest'};
       if (wizard) { wizard = pgSpec; renderModal(); }
       else openWizard(pgSpec);
+    } else if (id === 'wizard:type:bucket') {
+      if (!activeGroup) { showToast('Open a group first'); return; }
+      var bSpec = {step:'bucket', name:''};
+      if (wizard) { wizard = bSpec; renderModal(); }
+      else openWizard(bSpec);
     } else if (id.indexOf('wizenvmode:') === 0) {
       captureWizardDraft();
       if (!wizard) return;
@@ -1412,6 +1762,7 @@
         branch: (wizard && wizard.branch) || 'main',
         name: (wizard && wizard.name) || (repoVal ? repoVal.split('/')[1] : ''),
         linked_database: (wizard && wizard.linked_database) || '',
+        linked_bucket: (wizard && wizard.linked_bucket) || '',
         root_dir: (wizard && wizard.root_dir) || '',
         memory_mb: (wizard && wizard.memory_mb) || 512,
         cpus: (wizard && wizard.cpus) || 1,
@@ -1455,7 +1806,7 @@
             memory_mb: payload.memory_mb, cpus: payload.cpus,
             port: assignedPort || 0,
             url: assignedPort ? ('http://rasp.local:' + assignedPort) : '',
-            linked_database: payload.linked_database || '', has_clone: !!(prior && prior.has_clone),
+            linked_database: payload.linked_database || '', linked_bucket: payload.linked_bucket || '', has_clone: !!(prior && prior.has_clone),
             deploy_id: 'dpl_…',
             deployments: (prior && prior.deployments ? prior.deployments.slice() : []).filter(function(d){ return d.status !== 'building'; })
           };
@@ -1467,6 +1818,7 @@
             name: payload.name || optSlug,
             branch: payload.branch || 'main',
             linked_database: payload.linked_database || '',
+            linked_bucket: payload.linked_bucket || '',
             root_dir: payload.root_dir || '',
             env: linkedPreview || payload.env || '',
             build_cmd: payload.build_cmd || '',
@@ -1531,21 +1883,50 @@
           showToast('Database ready · ' + ((svc && (svc.name || svc.slug)) || name));
         }
       });
+    } else if (id === 'wizard:create-bucket') {
+      if (!activeGroup) { showToast('Open a group first'); return; }
+      if (busy.deploy || busy['wizard:create-bucket']) return;
+      var bNameEl = document.getElementById('wiz-bucket-name');
+      var bname = bNameEl ? bNameEl.value.trim() : ((wizard && wizard.name) || '');
+      if (wizard) wizard.name = bname;
+      if (!bname) { showToast('Name required'); return; }
+      var bSlug = slugifyClient(bname);
+      runServiceJob({
+        closeWizard: true,
+        appear: true,
+        busyKey: 'wizard:create-bucket',
+        consoleTitle: 'Create bucket · ' + bname,
+        scope: activeGroup + '/' + bSlug,
+        contextKey: 'live:' + activeGroup + '/' + bSlug,
+        toast: 'Creating bucket · ' + bname,
+        failToast: 'Create failed',
+        waitActivity: true,
+        beforeRequest: function(){},
+        request: function(){
+          return api('/api/groups/' + encodeURIComponent(activeGroup) + '/services', {
+            method:'POST',
+            body: JSON.stringify({ type:'bucket', name: bname })
+          });
+        },
+        onSuccess: function(svc){
+          settingsSlug = (svc && svc.slug) || settingsSlug;
+          showToast('Bucket ready · ' + ((svc && (svc.name || svc.slug)) || bname));
+        }
+      });
     } else if (id.indexOf('nav:view:') === 0) {
       var view = id.slice('nav:view:'.length);
-      if (view === 'activity') {
+      if (view === 'files' || view === 'activity') {
         if (settingsSlug) {
           clearScopeFolds(settingsSlug);
           settingsSlug = null;
           renderDrawerPortal();
         }
         var prevAct = navView;
-        navView = 'activity';
-        _navDir = (prevAct === 'activity') ? _navDir : 'forward';
-        activity.userCollapsed = false;
-        openActivityConsole({ forceExpand: true });
+        navView = 'files';
+        _navDir = (prevAct === 'files') ? _navDir : 'forward';
         render({ animate: true, dir: _navDir });
         syncRouteFromState();
+        loadFiles(filesPath || (typeof FILES_HOME !== 'undefined' ? FILES_HOME : '/home/andiq'), { render: true });
         return;
       }
       if (view === navView) return;
@@ -1717,6 +2098,30 @@
           delete busy[id];
           if (onSettingsStoragePage()) renderServices({ soft: true });
         });
+    } else if (id === 'minio:start' || id === 'minio:stop') {
+      if (busy['minio:start'] || busy['minio:stop'] || busy.deploy) return;
+      var mStart = id === 'minio:start';
+      if (!mStart && !confirm('Stop the shared MinIO engine?\n\nApps using buckets will fail until it is started again.')) return;
+      busy[id] = true;
+      activity.userCollapsed = false;
+      openActivityConsole({
+        forceExpand: true, clearPin: true, reset: true, active: true,
+        title: mStart ? 'Start MinIO engine' : 'Stop MinIO engine',
+        scope: 'engine/minio',
+        contextKey: 'live:engine/minio'
+      });
+      if (onSettingsStoragePage()) renderServices({ soft: true });
+      api('/api/engine', { method:'POST', body: JSON.stringify({ action: mStart ? 'minio_start' : 'minio_stop' }) })
+        .then(function(v){
+          engineView = v;
+          showToast(mStart ? 'MinIO engine running' : 'MinIO engine stopped');
+          return refreshManage();
+        })
+        .catch(function(e){ showToast(e.message || 'MinIO action failed'); })
+        .finally(function(){
+          delete busy[id];
+          if (onSettingsStoragePage()) renderServices({ soft: true });
+        });
     } else if (id === 'engine:save') {
       var ev = engineView || { settings: {} };
       var nextPg = (engineDraft && engineDraft.postgres_version) || (ev.settings && ev.settings.postgres_version) || '16';
@@ -1807,7 +2212,7 @@
     } else if (id === 'group:back') {
       if (settingsSlug) clearScopeFolds(settingsSlug);
       clearServiceListFolds(deployed);
-      activeGroup = null; settingsSlug = null; deployed = []; groupDraft = {};
+      activeGroup = null; settingsSlug = null; deployed = []; canvasLayout = { nodes: {} }; groupDraft = {};
       manageTab = 'services'; dockerOpen = false;
       ensureStatsPoll();
       navView = 'projects';
@@ -1929,6 +2334,8 @@
       closeSettingsDrawer({ animate: true });
       return;
     } else if (id.indexOf('svc:settings:') === 0) {
+      var skipNode = e.target && e.target.closest && e.target.closest('.rw-node-wrap[data-skip-click]');
+      if (skipNode) return;
       var sslug = id.split(':').slice(2).join(':');
       if (settingsSlug === sslug) {
         settingsSlug = null;
@@ -1971,7 +2378,7 @@
       var saveBody = (saveSvc && saveSvc.type === 'postgres')
         ? { name: d.name }
         : {
-            name: d.name, branch: d.branch, linked_database: d.linked_database, root_dir: d.root_dir || '', env: d.env,
+            name: d.name, branch: d.branch, linked_database: d.linked_database, linked_bucket: d.linked_bucket, root_dir: d.root_dir || '', env: d.env,
             build_cmd: d.build_cmd, memory_mb: parseInt(d.memory_mb, 10) || 512, cpus: parseFloat(d.cpus) || 1,
             auto_deploy: !!d.auto_deploy
           };

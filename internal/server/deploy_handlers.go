@@ -195,6 +195,33 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if parts[1] == "layout" && len(parts) == 2 {
+		switch r.Method {
+		case http.MethodGet:
+			lay, err := s.Deploy.GetCanvasLayout(group)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			jsonReply(w, lay)
+		case http.MethodPut, http.MethodPost:
+			var body deploy.CanvasLayout
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, "bad json", http.StatusBadRequest)
+				return
+			}
+			lay, err := s.Deploy.SaveCanvasLayout(group, body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			jsonReply(w, lay)
+		default:
+			methodNotAllowed(w)
+		}
+		return
+	}
+
 	if parts[1] == "env" && len(parts) == 2 {
 		switch r.Method {
 		case http.MethodGet:
@@ -246,6 +273,7 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 				Repo           string  `json:"repo"`
 				Branch         string  `json:"branch"`
 				LinkedDatabase string  `json:"linked_database"`
+				LinkedBucket   string  `json:"linked_bucket"`
 				RootDir        string  `json:"root_dir"`
 				BuildCmd       string  `json:"build_cmd"`
 				GoToolchain    string  `json:"go_toolchain"`
@@ -266,10 +294,18 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				jsonReply(w, svc)
+			case deploy.TypeBucket:
+				svc, err := s.Deploy.CreateBucket(r.Context(), group, body.Name)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				jsonReply(w, svc)
 			case deploy.TypeGo, "":
 				svc, err := s.Deploy.CreateGo(r.Context(), group, deploy.CreateGoRequest{
 					Repo: body.Repo, Branch: body.Branch, Name: body.Name,
-					LinkedDatabase: body.LinkedDatabase, RootDir: body.RootDir, BuildCmd: body.BuildCmd,
+					LinkedDatabase: body.LinkedDatabase, LinkedBucket: body.LinkedBucket,
+					RootDir: body.RootDir, BuildCmd: body.BuildCmd,
 					GoToolchain: body.GoToolchain, MemoryMB: body.MemoryMB, CPUs: body.CPUs,
 					Env: body.Env,
 				})
@@ -279,7 +315,7 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 				}
 				jsonReply(w, svc)
 			default:
-				http.Error(w, "type must be go or postgres", http.StatusBadRequest)
+				http.Error(w, "type must be go, postgres, or bucket", http.StatusBadRequest)
 			}
 		default:
 			methodNotAllowed(w)
