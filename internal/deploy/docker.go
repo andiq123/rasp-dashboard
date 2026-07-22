@@ -103,6 +103,8 @@ func (m *Manager) stopContainer(ctx context.Context, name string) {
 }
 
 func (m *Manager) writeRuntimeEnv(group, slug, body string) (string, error) {
+	body, _ = materializeSecrets(normalizeEnv(body))
+	body = m.resolveEnvRefs(group, body)
 	path := filepath.Join(m.serviceDir(group, slug), "runtime.env")
 	if err := os.WriteFile(path, []byte(normalizeEnv(body)), 0o600); err != nil {
 		return "", err
@@ -791,7 +793,7 @@ func (m *Manager) runGoContainer(ctx context.Context, svc Service) error {
 		before := merged
 		merged = m.injectLinkedDatabase(merged, svc.Group, svc.LinkedDatabase)
 		if strings.TrimSpace(parseEnvMap(merged)["DATABASE_URL"]) != "" {
-			m.logf("info", "Injected DB_* + DATABASE_URL from %s", svc.LinkedDatabase)
+			m.logf("info", "Injected DB/Postgres refs from %s", svc.LinkedDatabase)
 		} else if before == merged {
 			m.logf("warn", "Linked database %s has no connection env", svc.LinkedDatabase)
 		} else {
@@ -801,8 +803,8 @@ func (m *Manager) runGoContainer(ctx context.Context, svc Service) error {
 	if svc.LinkedBucket != "" {
 		beforeB := merged
 		merged = m.injectLinkedBucket(merged, svc.Group, svc.LinkedBucket)
-		if strings.TrimSpace(parseEnvMap(merged)["BUCKET_URL"]) != "" {
-			m.logf("info", "Injected BUCKET_URL from %s", svc.LinkedBucket)
+		if strings.TrimSpace(parseEnvMap(merged)["BUCKET"]) != "" {
+			m.logf("info", "Injected bucket refs from %s", svc.LinkedBucket)
 		} else if beforeB == merged {
 			m.logf("warn", "Linked bucket %s has no connection env", svc.LinkedBucket)
 		} else {

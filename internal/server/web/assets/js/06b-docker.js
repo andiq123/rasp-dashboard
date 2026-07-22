@@ -333,7 +333,7 @@
             +btn(powerLabel, powerAction, powerCls, busyEng || checking, on ? 'stop' : 'play')
           +'</div>'
         +'</div>'
-        +'<p class="engine-help">Object storage on this Pi’s SD card. Link a Go app to get one env: BUCKET_URL.</p>'
+        +'<p class="engine-help">Object storage on this Pi’s SD card. Link a Go app for BUCKET / ENDPOINT / keys.</p>'
         +'<p class="engine-meta mono">'+hostLine+'</p>'
         +'<p class="engine-depend ghost">'+esc(depend)+'</p>'
       +'</div>';

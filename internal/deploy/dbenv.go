@@ -7,7 +7,8 @@ import (
 	"strings"
 )
 
-// Linked DB env keys injected into Go apps (and stored on Postgres services).
+// Linked DB env keys injected into Go apps (and cleaned on unlink).
+// Railway-style POSTGRES_* plus our DB_* helpers and DATABASE_URL.
 var linkedDBKeys = []string{
 	"DATABASE_URL",
 	"DB_HOST",
@@ -16,6 +17,11 @@ var linkedDBKeys = []string{
 	"DB_USER",
 	"DB_PASSWORD",
 	"DB_SSLMODE",
+	"POSTGRES_HOST",
+	"POSTGRES_PORT",
+	"POSTGRES_DB",
+	"POSTGRES_USER",
+	"POSTGRES_PASSWORD",
 }
 
 func removeLinkedDBEnv(body string) string {
@@ -50,7 +56,7 @@ func parsePostgresURL(raw string) (host, port, user, pass, name, sslmode string)
 	return host, port, user, pass, name, sslmode
 }
 
-// injectDatabaseURL sets DATABASE_URL plus discrete DB_* vars apps commonly expect.
+// injectDatabaseURL sets DATABASE_URL plus discrete DB_* vars (concrete values).
 func injectDatabaseURL(body, dbURL string) string {
 	dbURL = strings.TrimSpace(dbURL)
 	if dbURL == "" {
@@ -83,13 +89,14 @@ func injectDatabaseURL(body, dbURL string) string {
 func postgresServiceEnv(dbURL, dbName, dbUser, dbPass string) string {
 	body := ""
 	body = injectDatabaseURL(body, dbURL)
-	// Keep explicit values (avoid URL-encoding surprises for password).
 	body = upsertEnv(body, "DB_HOST", "127.0.0.1")
 	body = upsertEnv(body, "DB_PORT", "5432")
 	body = upsertEnv(body, "DB_NAME", dbName)
 	body = upsertEnv(body, "DB_USER", dbUser)
 	body = upsertEnv(body, "DB_PASSWORD", dbPass)
 	body = upsertEnv(body, "DB_SSLMODE", "disable")
+	body = upsertEnv(body, "POSTGRES_HOST", "127.0.0.1")
+	body = upsertEnv(body, "POSTGRES_PORT", "5432")
 	body = upsertEnv(body, "POSTGRES_DB", dbName)
 	body = upsertEnv(body, "POSTGRES_USER", dbUser)
 	body = upsertEnv(body, "POSTGRES_PASSWORD", dbPass)
@@ -100,7 +107,20 @@ func envGet(mp map[string]string, key string) string {
 	return strings.TrimSpace(mp[key])
 }
 
-// injectLinkedDatabase copies connection vars from a group Postgres service into a Go app env.
+func dbServiceHasCreds(mp map[string]string) bool {
+	return envGet(mp, "DATABASE_URL") != "" ||
+		envGet(mp, "DB_HOST") != "" ||
+		envGet(mp, "POSTGRES_DB") != "" ||
+		envGet(mp, "DB_NAME") != ""
+}
+
+// injectLinkedDatabase writes Railway-style references into a Go app env:
+//
+//	DATABASE_URL=${{Postgres.DATABASE_URL}}
+//	POSTGRES_HOST=${{Postgres.POSTGRES_HOST}}
+//	DB_HOST=${{Postgres.DB_HOST}}
+//
+// Resolved into runtime.env on deploy.
 func (m *Manager) injectLinkedDatabase(body, group, dbSlug string) string {
 	dbSlug = strings.TrimSpace(dbSlug)
 	if group == "" || dbSlug == "" {
@@ -112,41 +132,49 @@ func (m *Manager) injectLinkedDatabase(body, group, dbSlug string) string {
 		src = string(b)
 	}
 	mp := parseEnvMap(src)
-	dbURL := envGet(mp, "DATABASE_URL")
-	if dbURL == "" {
-		dbURL = m.readServiceDATABASEURL(group, dbSlug)
-	}
-	if dbURL != "" {
-		body = injectDatabaseURL(body, dbURL)
-	}
-	// Prefer explicit keys stored on the database service (correct password encoding).
-	for _, k := range []string{"DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD", "DB_SSLMODE"} {
-		if v := envGet(mp, k); v != "" {
-			body = upsertEnv(body, k, v)
+	if envGet(mp, "DATABASE_URL") == "" {
+		if u := m.readServiceDATABASEURL(group, dbSlug); u != "" {
+			mp["DATABASE_URL"] = u
 		}
 	}
+	if !dbServiceHasCreds(mp) {
+		return body
+	}
+	body = removeLinkedDBEnv(body)
+
+	type pair struct{ app, prefer, fallback string }
+	for _, p := range []pair{
+		{"DATABASE_URL", "DATABASE_URL", ""},
+		{"DB_HOST", "DB_HOST", "POSTGRES_HOST"},
+		{"DB_PORT", "DB_PORT", "POSTGRES_PORT"},
+		{"DB_NAME", "DB_NAME", "POSTGRES_DB"},
+		{"DB_USER", "DB_USER", "POSTGRES_USER"},
+		{"DB_PASSWORD", "DB_PASSWORD", "POSTGRES_PASSWORD"},
+		{"DB_SSLMODE", "DB_SSLMODE", ""},
+		{"POSTGRES_HOST", "POSTGRES_HOST", "DB_HOST"},
+		{"POSTGRES_PORT", "POSTGRES_PORT", "DB_PORT"},
+		{"POSTGRES_DB", "POSTGRES_DB", "DB_NAME"},
+		{"POSTGRES_USER", "POSTGRES_USER", "DB_USER"},
+		{"POSTGRES_PASSWORD", "POSTGRES_PASSWORD", "DB_PASSWORD"},
+	} {
+		srcKey := p.prefer
+		if envGet(mp, srcKey) == "" && p.fallback != "" {
+			srcKey = p.fallback
+		}
+		if envGet(mp, srcKey) == "" {
+			continue
+		}
+		body = upsertEnv(body, p.app, refExpr(dbSlug, srcKey))
+	}
+
 	out := parseEnvMap(body)
-	if envGet(out, "DB_NAME") == "" {
-		if v := envGet(mp, "POSTGRES_DB"); v != "" {
-			body = upsertEnv(body, "DB_NAME", v)
-		}
-	}
-	if envGet(out, "DB_USER") == "" {
-		if v := envGet(mp, "POSTGRES_USER"); v != "" {
-			body = upsertEnv(body, "DB_USER", v)
-		}
-	}
-	if envGet(out, "DB_PASSWORD") == "" {
-		if v := envGet(mp, "POSTGRES_PASSWORD"); v != "" {
-			body = upsertEnv(body, "DB_PASSWORD", v)
-		}
-	}
-	out = parseEnvMap(body)
-	if envGet(out, "DB_HOST") == "" {
+	if envGet(out, "DB_HOST") == "" && envGet(out, "POSTGRES_HOST") == "" {
 		body = upsertEnv(body, "DB_HOST", "127.0.0.1")
+		body = upsertEnv(body, "POSTGRES_HOST", "127.0.0.1")
 	}
-	if envGet(out, "DB_PORT") == "" {
+	if envGet(out, "DB_PORT") == "" && envGet(out, "POSTGRES_PORT") == "" {
 		body = upsertEnv(body, "DB_PORT", "5432")
+		body = upsertEnv(body, "POSTGRES_PORT", "5432")
 	}
 	if envGet(out, "DB_SSLMODE") == "" {
 		body = upsertEnv(body, "DB_SSLMODE", "disable")

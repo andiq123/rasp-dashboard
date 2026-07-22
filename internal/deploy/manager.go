@@ -368,7 +368,9 @@ func (m *Manager) UpdateGroup(ctx context.Context, group string, in GroupSetting
 			m.mu.Unlock()
 			return Group{}, err
 		}
-		if err := os.WriteFile(path, []byte(normalizeEnv(*in.Env)), 0o600); err != nil {
+		body := normalizeEnv(*in.Env)
+		body, _ = materializeSecrets(body)
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			m.mu.Unlock()
 			return Group{}, err
 		}
@@ -709,6 +711,21 @@ func (m *Manager) createGo(ctx context.Context, group string, in CreateGoRequest
 	if err != nil {
 		return Service{}, "", err
 	}
+	// Empty root + no go.mod at repo root → scan for monorepo module (e.g. backend/).
+	if rootDir == "" {
+		if _, serr := os.Stat(filepath.Join(repoDir, "go.mod")); serr != nil {
+			sug, reason := suggestLocalGoRoot(repoDir)
+			if sug != "" {
+				buildDir, rootDir, err = resolveRootDir(repoDir, sug)
+				if err != nil {
+					return Service{}, "", err
+				}
+				m.logf("info", "Auto root /%s · %s", rootDir, reason)
+			} else if reason != "" {
+				m.logf("warn", "%s", reason)
+			}
+		}
+	}
 	if rootDir != "" {
 		m.logf("info", "Using root directory /%s", rootDir)
 	}
@@ -819,6 +836,7 @@ func (m *Manager) createGo(ctx context.Context, group string, in CreateGoRequest
 	if blink != "" {
 		envBody = m.injectLinkedBucket(envBody, group, blink)
 	}
+	envBody, _ = materializeSecrets(envBody)
 	envBody = ensureProductionEnv(envBody)
 	_ = os.WriteFile(envPath, []byte(normalizeEnv(envBody)), 0o600)
 	m.logf("info", "Port %d · %dMB · %.1f CPU%s", port, mem, cpus, func() string {
@@ -1019,7 +1037,7 @@ func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in Set
 			envPath := filepath.Join(m.serviceDir(group, slug), "env")
 			cur, _ := os.ReadFile(envPath)
 			body := m.injectLinkedBucket(string(cur), group, link)
-			if strings.TrimSpace(parseEnvMap(body)["BUCKET_URL"]) == "" {
+			if strings.TrimSpace(parseEnvMap(body)["BUCKET"]) == "" {
 				m.mu.Unlock()
 				return Service{}, fmt.Errorf("linked bucket has no credentials")
 			}
@@ -1035,6 +1053,7 @@ func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in Set
 	if in.Env != nil {
 		path := filepath.Join(m.serviceDir(group, slug), "env")
 		body := normalizeEnv(*in.Env)
+		body, _ = materializeSecrets(body)
 		cur, _ := os.ReadFile(path)
 		curNorm := normalizeEnv(string(cur))
 		// Ignore blank env payloads when an env file already exists — prevents

@@ -21,7 +21,7 @@ func (m *Manager) CreateBucket(ctx context.Context, group, name string) (Service
 		m.releaseJob(false, err.Error())
 		return Service{}, err
 	}
-	m.logf("ok", "Ready · link a Go app to get BUCKET_URL")
+	m.logf("ok", "Ready · link a Go app for ${{bucket.*}} vars")
 	m.releaseJob(true, "Bucket ready · "+svc.Slug)
 	return svc, nil
 }
@@ -64,9 +64,9 @@ func (m *Manager) createBucket(ctx context.Context, group, name string) (Service
 	}
 	m.logf("ok", "Engine healthy · 127.0.0.1:9000")
 
-	phys := strings.ReplaceAll(group+"-"+slug, "_", "-")
-	if len(phys) > 60 {
-		phys = phys[:60]
+	phys := physicalBucketName(group, slug)
+	if phys == "" {
+		return Service{}, fmt.Errorf("invalid bucket name")
 	}
 	m.stepProgress("bucket")
 	m.detailProgress(phys)
@@ -85,7 +85,7 @@ func (m *Manager) createBucket(ctx context.Context, group, name string) (Service
 		_ = m.MinIO.DeleteBucket(ctx, info.Name)
 		return Service{}, err
 	}
-	envBody := ensureProductionEnv(bucketServiceEnv(info.Name, info.Endpoint, info.AccessKey, info.SecretKey))
+	envBody := bucketServiceEnv(info.Name, info.Endpoint, info.AccessKey, info.SecretKey)
 	if err := os.WriteFile(filepath.Join(dir, "env"), []byte(envBody), 0o600); err != nil {
 		_ = m.MinIO.DeleteBucket(ctx, info.Name)
 		return Service{}, err

@@ -2,26 +2,52 @@ package deploy
 
 import "testing"
 
+func TestPhysicalBucketName(t *testing.T) {
+	cases := []struct{ group, slug, want string }{
+		{"driver-logs", "uploads", "driver-logs-uploads"},
+		{"driver-logs", "driver-logs", "driver-logs"},
+		{"driver-logs", "driver-logs-files", "driver-logs-files"},
+		{"find-vibe", "media", "find-vibe-media"},
+		{"", "uploads", "uploads"},
+	}
+	for _, c := range cases {
+		got := physicalBucketName(c.group, c.slug)
+		if got != c.want {
+			t.Fatalf("physicalBucketName(%q,%q)=%q want %q", c.group, c.slug, got, c.want)
+		}
+	}
+}
+
 func TestBucketEnvInjectRemove(t *testing.T) {
 	body := bucketServiceEnv("demo-bucket", "http://127.0.0.1:9000", "key", "secret")
 	mp := parseEnvMap(body)
-	want := "http://key:secret@127.0.0.1:9000/demo-bucket"
-	if mp["BUCKET_URL"] != want {
-		t.Fatalf("BUCKET_URL = %q, want %q", mp["BUCKET_URL"], want)
+	want := map[string]string{
+		"BUCKET":            "demo-bucket",
+		"ENDPOINT":          "http://127.0.0.1:9000",
+		"ACCESS_KEY_ID":     "key",
+		"SECRET_ACCESS_KEY": "secret",
 	}
-	if len(mp) != 1 {
-		t.Fatalf("expected only BUCKET_URL, got %#v", mp)
+	for k, v := range want {
+		if mp[k] != v {
+			t.Fatalf("%s = %q, want %q", k, mp[k], v)
+		}
+	}
+	if mp["REGION"] != "" || mp["FORCE_PATH_STYLE"] != "" || mp["BUCKET_URL"] != "" {
+		t.Fatalf("unexpected extras %#v", mp)
 	}
 	cleared := removeLinkedBucketEnv(body)
-	if parseEnvMap(cleared)["BUCKET_URL"] != "" {
-		t.Fatal("BUCKET_URL not removed")
+	cm := parseEnvMap(cleared)
+	for _, k := range []string{"BUCKET", "ENDPOINT", "ACCESS_KEY_ID"} {
+		if cm[k] != "" {
+			t.Fatalf("%s not removed", k)
+		}
 	}
 }
 
 func TestInjectBucketPreservesOtherKeys(t *testing.T) {
-	body := injectBucketCreds("FOO=bar\nPORT=5100\n", "b1", "http://127.0.0.1:9000", "a", "s", "")
+	body := injectBucketCreds("FOO=bar\n", "b1", "http://127.0.0.1:9000", "a", "s", "")
 	mp := parseEnvMap(body)
-	if mp["FOO"] != "bar" || mp["PORT"] != "5100" || mp["BUCKET_URL"] == "" {
+	if mp["FOO"] != "bar" || mp["BUCKET"] != "b1" {
 		t.Fatalf("%#v", mp)
 	}
 }
@@ -30,26 +56,6 @@ func TestParseBuildBucketURL(t *testing.T) {
 	raw := buildBucketURL("http://127.0.0.1:9000", "ak", "sk/with=special", "my-bucket")
 	ep, ak, sk, b := parseBucketURL(raw)
 	if ep != "http://127.0.0.1:9000" || ak != "ak" || sk != "sk/with=special" || b != "my-bucket" {
-		t.Fatalf("roundtrip: ep=%q ak=%q sk=%q b=%q raw=%q", ep, ak, sk, b, raw)
-	}
-}
-
-func TestBucketURLFromLegacyMap(t *testing.T) {
-	u := bucketURLFromEnvMap(map[string]string{
-		"BUCKET":                   "b",
-		"BUCKET_ENDPOINT":          "http://127.0.0.1:9000",
-		"BUCKET_ACCESS_KEY_ID":     "a",
-		"BUCKET_SECRET_ACCESS_KEY": "s",
-	})
-	if u != "http://a:s@127.0.0.1:9000/b" {
-		t.Fatalf("got %q", u)
-	}
-}
-
-func TestRemoveLegacyBucketKeys(t *testing.T) {
-	body := "FOO=1\nBUCKET=old\nAWS_REGION=us-east-1\nBUCKET_URL=http://a:b@127.0.0.1:9000/x\n"
-	mp := parseEnvMap(removeLinkedBucketEnv(body))
-	if mp["FOO"] != "1" || mp["BUCKET"] != "" || mp["BUCKET_URL"] != "" {
-		t.Fatalf("%#v", mp)
+		t.Fatalf("roundtrip failed raw=%q", raw)
 	}
 }

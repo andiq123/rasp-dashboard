@@ -63,12 +63,24 @@ func (s *Server) handleGitHub(w http.ResponseWriter, r *http.Request) {
 		}
 		jsonReply(w, map[string]interface{}{"branches": branches})
 	case r.URL.Path == "/api/github/dirs" && r.Method == http.MethodGet:
-		dirs, err := s.Deploy.ListDirs(r.Context(), r.URL.Query().Get("repo"), r.URL.Query().Get("branch"), r.URL.Query().Get("path"))
+		repo := r.URL.Query().Get("repo")
+		branch := r.URL.Query().Get("branch")
+		dirs, err := s.Deploy.ListDirs(r.Context(), repo, branch, r.URL.Query().Get("path"))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		jsonReply(w, map[string]interface{}{"dirs": dirs})
+		out := map[string]interface{}{"dirs": dirs}
+		// Top-level listing only — attach go.mod detection for Root picker.
+		if strings.TrimSpace(r.URL.Query().Get("path")) == "" {
+			if det, derr := s.Deploy.DetectGoModuleRoots(r.Context(), repo, branch); derr == nil {
+				out["go_modules"] = det.Modules
+				out["root_has_go_mod"] = det.RootHasGoMod
+				out["suggested_root"] = det.SuggestedRoot
+				out["suggest_reason"] = det.SuggestReason
+			}
+		}
+		jsonReply(w, out)
 	case r.URL.Path == "/api/github/token" && r.Method == http.MethodPost:
 		var body struct {
 			Token string `json:"token"`

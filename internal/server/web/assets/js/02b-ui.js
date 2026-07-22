@@ -144,6 +144,32 @@
     return 'fw-' + group + '-' + slug;
   }
 
+  /** Ghost prefix for bucket names: driver-logs → driver-logs- */
+  function bucketIdentPrefix(group) {
+    group = String(group || '').trim();
+    if (!group) return '';
+    return group.replace(/_/g, '-') + '-';
+  }
+
+  /**
+   * Physical MinIO bucket name. Keep in sync with deploy.physicalBucketName.
+   * Avoids group-group when the label equals the group.
+   */
+  function bucketPhysicalName(group, name) {
+    var slug = slugifyClient(name);
+    if (!slug) return '';
+    var g = String(group || '').trim().replace(/_/g, '-');
+    if (!g) return slug.slice(0, 60);
+    var phys = (slug === g || slug.indexOf(g + '-') === 0) ? slug : (g + '-' + slug);
+    return phys.slice(0, 60);
+  }
+
+  function uiBucketNamePreview(group, name) {
+    var b = bucketPhysicalName(group, name);
+    if (!b) return '';
+    return 'Creates bucket <code>'+esc(b)+'</code> on MinIO';
+  }
+
   /**
    * Input with a non-editable ghost prefix (shows what the backend will prepend).
    * opts: { prefix, previewHtml, compose, id, name, value, placeholder, autofocus }
@@ -204,6 +230,8 @@
     if (!preview) return;
     if (kind === 'pg') {
       preview.innerHTML = uiPgNamePreview(activeGroup, input.value);
+    } else if (kind === 'bucket') {
+      preview.innerHTML = uiBucketNamePreview(activeGroup, input.value);
     }
   }
 

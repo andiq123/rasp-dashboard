@@ -195,22 +195,30 @@
           +'</div>';
       }).join('');
     }
+    var z = canvasZoom || 1;
+    var zPct = Math.round(z * 100);
     var canvasInner = list.length
-      ? ('<div class="rw-board" data-board="1">'+board+'</div>')
+      ? ('<div class="rw-board-scale" style="transform:scale('+z+')"><div class="rw-board" data-board="1">'+board+'</div></div>')
       : empty;
     var toolbar = ''
       +'<div class="rw-canvas-toolbar" data-stop="1">'
         +'<span class="rw-canvas-count ghost">'+esc(String(list.length))+' service'+(list.length===1?'':'s')+'</span>'
         +'<div class="rw-canvas-tools">'
-          +(list.length
-            ? '<button type="button" class="btn btn-quiet btn-compact has-ico" data-action="canvas:arrange" title="Auto arrange">'+ico('arrange')+'<span>Auto arrange</span></button>'
-            : '')
+          +(list.length ? (''
+            +'<div class="rw-zoom" role="group" aria-label="Zoom">'
+              +'<button type="button" class="btn btn-quiet btn-compact btn-icon" data-action="canvas:zoom-out" title="Zoom out">'+ico('zoomout')+'</button>'
+              +'<button type="button" class="btn btn-quiet btn-compact rw-zoom-pct" data-action="canvas:zoom-reset" title="Reset zoom">'+esc(String(zPct))+'%</button>'
+              +'<button type="button" class="btn btn-quiet btn-compact btn-icon" data-action="canvas:zoom-in" title="Zoom in">'+ico('zoomin')+'</button>'
+            +'</div>'
+            +'<button type="button" class="btn btn-quiet btn-compact has-ico" data-action="canvas:arrange" title="Auto arrange">'+ico('arrange')+'<span>Auto arrange</span></button>'
+          ) : '')
           +'<button type="button" class="btn primary btn-compact has-ico" data-action="wizard:open">'+ico('plus')+'<span>Add service</span></button>'
         +'</div>'
       +'</div>';
     var body = ''
       + toolbar
-      +'<div class="rw-canvas is-free'+(settingsSlug?' drawer-open':'')+(!list.length?' is-empty':'')+(navLoading?' is-loading':'')+'" data-canvas="1">'
+      +'<div class="rw-canvas is-free'+(settingsSlug?' drawer-open':'')+(!list.length?' is-empty':'')+(navLoading?' is-loading':'')+'" data-canvas="1" style="--rw-grid:'+(24*z)+'px">'
+        +'<div class="rw-canvas-grid" aria-hidden="true"></div>'
         +'<svg class="rw-links" aria-hidden="true"><g class="rw-links-g"></g></svg>'
         +canvasInner
       +'</div>';
@@ -307,7 +315,7 @@
   }
   function accessLabel(svc) {
     if (svc && svc.type === 'postgres') return 'DATABASE_URL';
-    if (svc && svc.type === 'bucket') return 'BUCKET_URL';
+    if (svc && svc.type === 'bucket') return 'BUCKET';
     return 'App URL';
   }
   function publicURL(svc) {
@@ -370,7 +378,7 @@
           +'<code id="access-cfg-'+esc(svc.slug)+'" data-copy="'+esc(local)+'">'+esc(maskBucketURLDisplay(local))+'</code>'
           +'<button type="button" class="btn" data-action="copy:access-cfg:'+esc(svc.slug)+'">Copy</button>'
         +'</div>'
-        +uiHint('Copy BUCKET_URL into your app · or link the service to inject it');
+        +uiHint('Apps get BUCKET / ENDPOINT / key refs when linked');
     }
     if (!local) return uiHint('No URL yet — start or redeploy');
     var pub = publicURL(svc);
@@ -599,11 +607,14 @@
   }
 
   function pgEnvBoardHTML(svc, envText) {
-    var map = dbEnvMapForService(svc, envText);
+    var isBucket = svc && svc.type === 'bucket';
+    var keys = isBucket ? BUCKET_ENV_KEYS : DB_ENV_KEYS;
+    var map = isBucket ? bucketEnvMapForService(svc, envText) : dbEnvMapForService(svc, envText);
     var reveal = !!envReveal[svc.slug];
-    var rows = DB_ENV_KEYS.map(function(k){
+    var primaryKey = isBucket ? 'BUCKET' : 'DATABASE_URL';
+    var rows = keys.map(function(k){
       var val = map[k] || '';
-      if (!val && k !== 'DATABASE_URL') return '';
+      if (!val && k !== primaryKey) return '';
       var shown = reveal ? val : maskEnvValue(val);
       return ''
         +'<div class="env-row" role="row">'
@@ -615,14 +626,14 @@
         +'</div>';
     }).join('');
     if (!rows.trim()) {
-      rows = '<div class="empty dock-empty compact"><p>Connection vars appear after the database is ready</p></div>';
+      rows = '<div class="empty dock-empty compact"><p>Connection vars appear after the '+(isBucket?'bucket':'database')+' is ready</p></div>';
     }
     return ''
       +'<section class="drawer-section drawer-section-card env-board" aria-labelledby="pg-env-'+esc(svc.slug)+'">'
         +'<header class="env-board-head drawer-section-head">'
           +'<div class="drawer-section-head-main">'
             +'<h3 id="pg-env-'+esc(svc.slug)+'" class="drawer-section-title">Environment</h3>'
-            +'<span class="ghost drawer-section-sub">For Go apps · os.Getenv / JSON</span>'
+            +'<span class="ghost drawer-section-sub">'+(isBucket ? 'MinIO on this Pi' : 'For Go apps · os.Getenv / JSON')+'</span>'
           +'</div>'
           +'<div class="env-board-tools" data-stop="1">'
             +'<button type="button" class="btn btn-quiet btn-compact drawer-tool-btn" data-action="envreveal:'+esc(svc.slug)+'">'+(reveal?'Hide':'Show')+'</button>'
@@ -727,15 +738,22 @@
       : uiEmpty({ mini: true, body: 'No database in this group yet.' });
     var linkedBlock = !linkVal ? '' : (linkedReady
       ? wizAutoDBEnvHTML(linkLabel, linkedMap, [], { reveal: !!envReveal[svc.slug + ':env'], revealAction: 'envreveal:' + svc.slug + ':env' })
-      : '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(linkLabel)+'</span><span class="ghost">linking…</span></div><div class="ghost" style="font-size:11px">DB_* + DATABASE_URL appear after save/deploy</div></div>');
+      : '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(linkLabel)+'</span><span class="ghost">linking…</span></div><div class="ghost" style="font-size:11px">DB_* / POSTGRES_* / DATABASE_URL refs appear after save</div></div>');
     var bucketPicker = buckets.length
       ? cselectHTML('link-bucket', bucketVal, 'No bucket', [{value:'',label:'No bucket'}].concat(buckets.map(function(d){ return {value:d.slug,label:d.name||d.slug,meta:'Bucket'}; })), false, {searchable: (buckets||[]).length > 4, searchPlaceholder:'Filter…'})
       : uiEmpty({ mini: true, body: 'No bucket in this group yet.' });
-    var bucketMap = bucketVal ? linkedBucketMapFromEnv(envVal) : {};
-    var bucketReady = bucketVal && BUCKET_ENV_KEYS.some(function(k){ return bucketMap[k]; });
+    var bucketBoard = bucketVal
+      ? bucketLinkBoardMap(bucketVal, envVal, (draft && draft.bucket_env) || null)
+      : { map: {}, ready: false, preview: false };
+    var bucketMap = bucketBoard.map || {};
+    var bucketReady = !!(bucketVal && bucketBoard.ready);
     var bucketBlock = !bucketVal ? '' : (bucketReady
-      ? wizAutoBucketEnvHTML(linkedBucketName || bucketVal, bucketMap, { reveal: !!envReveal[svc.slug + ':bucket'], revealAction: 'envreveal:' + svc.slug + ':bucket' })
-      : '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(linkedBucketName || bucketVal)+'</span><span class="ghost">linking…</span></div><div class="ghost" style="font-size:11px">BUCKET_URL appears after save/deploy</div></div>');
+      ? wizAutoBucketEnvHTML(linkedBucketName || bucketVal, bucketMap, {
+          reveal: !!envReveal[svc.slug + ':bucket'],
+          revealAction: 'envreveal:' + svc.slug + ':bucket',
+          preview: !!bucketBoard.preview
+        })
+      : '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(linkedBucketName || bucketVal)+'</span><span class="ghost">loading…</span></div><div class="ghost" style="font-size:11px">Fetching BUCKET · ENDPOINT · keys</div></div>');
     var envMergedBody = ''
       +'<div class="env-merge">'
         +'<div class="env-merge-block">'

@@ -63,7 +63,7 @@
       return;
     }
     if (e.target && e.target.getAttribute && e.target.getAttribute('data-name-compose')) {
-      if (wizard && e.target.id === 'wiz-pg-name') wizard.name = e.target.value || '';
+      if (wizard && (e.target.id === 'wiz-pg-name' || e.target.id === 'wiz-bucket-name')) wizard.name = e.target.value || '';
       syncNameComposePreview(e.target);
       return;
     }

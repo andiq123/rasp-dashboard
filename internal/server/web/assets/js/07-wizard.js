@@ -71,7 +71,7 @@
           +'</button>'
           +'<button type="button" class="type-opt" data-action="wizard:type:bucket">'
             +'<span class="type-icon go">S3</span>'
-            +'<span class="type-copy"><strong>Bucket</strong><span>Object storage on SD — apps get BUCKET_URL</span></span>'
+            +'<span class="type-copy"><strong>Bucket</strong><span>Object storage on SD — BUCKET / ENDPOINT / keys</span></span>'
             +'<span class="type-chev" aria-hidden="true"></span>'
           +'</button>'
         +'</div>';
@@ -98,24 +98,43 @@
           branchOptions = [{value: wizard.branch || 'main', label: wizard.branch || 'main'}];
         }
       }
-      var rootOptions = [{value: '', label: 'Repository root', meta: 'go.mod at root'}];
+      var rootOptions = [{
+        value: '',
+        label: 'Repository root',
+        meta: wizard.loadingDirs ? '…' : (wizard.root_has_go_mod ? 'go.mod ✓' : 'no go.mod')
+      }];
       if (wizard.loadingDirs) {
-        rootOptions = [{value: wizard.root_dir || '', label: 'Loading folders…'}];
+        rootOptions = [{value: wizard.root_dir || '', label: 'Scanning go.mod…', meta: ''}];
       } else {
-        (wizard.dirs || []).forEach(function(d){
-          rootOptions.push({value: d.path, label: d.path, meta: 'directory'});
+        var seenPaths = {'': true};
+        (wizard.go_modules || []).forEach(function(m){
+          if (!m || !m.path) return;
+          seenPaths[m.path] = true;
+          rootOptions.push({
+            value: m.path,
+            label: m.path,
+            meta: m.has_go_mod ? 'go.mod · detected' : 'folder'
+          });
         });
-        if (wizard.root_dir) {
-          var seen = rootOptions.some(function(o){ return String(o.value) === String(wizard.root_dir); });
-          if (!seen) rootOptions.push({value: wizard.root_dir, label: wizard.root_dir, meta: 'custom'});
+        (wizard.dirs || []).forEach(function(d){
+          if (!d || !d.path || seenPaths[d.path]) return;
+          seenPaths[d.path] = true;
+          rootOptions.push({value: d.path, label: d.path, meta: 'folder'});
+        });
+        if (wizard.root_dir && !seenPaths[wizard.root_dir]) {
+          rootOptions.push({
+            value: wizard.root_dir,
+            label: wizard.root_dir,
+            meta: 'custom'
+          });
         }
       }
       var dbs = (deployed || []).filter(function(x){ return x.type === 'postgres'; });
       var buckets = (deployed || []).filter(function(x){ return x.type === 'bucket'; });
-      var autoDb = wizard.linked_database != null ? wizard.linked_database : (dbs.length === 1 ? dbs[0].slug : '');
-      if (wizard.linked_database == null && dbs.length === 1) wizard.linked_database = autoDb;
-      var autoBucket = wizard.linked_bucket != null ? wizard.linked_bucket : (buckets.length === 1 ? buckets[0].slug : '');
-      if (wizard.linked_bucket == null && buckets.length === 1) wizard.linked_bucket = autoBucket;
+      // Links are chosen in wizard:type:go (with credential prefetch). Do not
+      // mutate wizard.linked_* during render — that caused "linking…" with no fetch.
+      var autoDb = wizard.linked_database || '';
+      var autoBucket = wizard.linked_bucket || '';
       var dbOptions = [{value: '', label: 'No database', meta: 'attach later'}].concat(dbs.map(function(d){
         return {value: d.slug, label: d.name || d.slug, meta: 'Postgres'};
       }));
@@ -167,13 +186,17 @@
       var warnMsg = formatEnvConflictWarn(conflictHits, dups, link);
       var conflictKeys = reservedConflictKeys(conflictHits);
       var linkedMap = linkedEnvMapFromSources(wizard.db_env || {}, envText);
-      var bucketMap = linkedBucketMapFromEnv(envText);
-      if (wizard.bucket_env) {
-        BUCKET_ENV_KEYS.forEach(function(k){ if (wizard.bucket_env[k]) bucketMap[k] = wizard.bucket_env[k]; });
-      }
+      var bucketBoard = blink
+        ? bucketLinkBoardMap(blink, envText, wizard.bucket_env || null)
+        : { map: {}, ready: false, preview: false };
+      var bucketMap = bucketBoard.map || {};
       var envBody = ''
         +(link ? wizAutoDBEnvHTML(link, linkedMap, conflictKeys, { reveal: !!wizEnvReveal, revealAction: 'wizenvreveal' }) : '')
-        +(blink ? wizAutoBucketEnvHTML(blink, bucketMap, { reveal: !!wizEnvReveal, revealAction: 'wizenvreveal' }) : '')
+        +(blink ? wizAutoBucketEnvHTML(blink, bucketMap, {
+            reveal: !!wizEnvReveal,
+            revealAction: 'wizenvreveal',
+            preview: !!bucketBoard.preview
+          }) : '')
         +'<div class="wiz-custom-env">'
           +'<div class="wiz-custom-head">'
             +'<span>Your variables</span>'
@@ -207,6 +230,9 @@
           +uiField({
             label: 'Root',
             meta: 'Monorepo',
+            tip: (!wizard.repo || wizard.loadingDirs)
+              ? (wizard.repo ? 'Scanning for go.mod…' : '')
+              : (wizard.root_hint || rootHintForSelection(wizard.root_dir || '')),
             control: cselectHTML('root', wizard.root_dir || '', wizard.repo ? 'Repo root or folder…' : 'Pick a repo first', rootOptions, !wizard.repo || !!wizard.loadingDirs, {searchable:true, creatable:true, searchPlaceholder:'Search or type a path…'})
           })
           +uiField({
@@ -283,10 +309,21 @@
         body: ''
           +uiField({
             label: 'Name',
-            tip: 'S3 bucket on this Pi',
-            control: uiInput({ id: 'wiz-bucket-name', placeholder: 'uploads', value: wizard.name || '', autofocus: true })
+            tip: 'Prefix is added automatically',
+            control: (function(){
+              var prefix = bucketIdentPrefix(activeGroup);
+              return uiPrefixedInput({
+                id: 'wiz-bucket-name',
+                prefix: prefix,
+                placeholder: 'uploads',
+                value: wizard.name || '',
+                autofocus: true,
+                compose: 'bucket',
+                previewHtml: uiBucketNamePreview(activeGroup, wizard.name || '')
+              });
+            })()
           })
-          +uiHint('Stored on this Pi · link a Go app for BUCKET_URL')
+          +uiHint('Four vars for apps: BUCKET, ENDPOINT, ACCESS_KEY_ID, SECRET_ACCESS_KEY')
       });
     }
     var size = (step === 'go') ? ' modal-md' : (step === 'type' ? ' modal-sm' : '');

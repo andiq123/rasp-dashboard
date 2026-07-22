@@ -77,9 +77,9 @@
   }
 
 
-  var DB_ENV_KEYS = ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_SSLMODE', 'DATABASE_URL'];
-  var BUCKET_ENV_KEYS = ['BUCKET_URL'];
-  var LEGACY_BUCKET_ENV_KEYS = ['BUCKET','BUCKET_NAME','BUCKET_ENDPOINT','BUCKET_ACCESS_KEY_ID','BUCKET_SECRET_ACCESS_KEY','BUCKET_REGION','BUCKET_FORCE_PATH_STYLE','AWS_ENDPOINT_URL','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_REGION','AWS_S3_FORCE_PATH_STYLE'];
+  var DB_ENV_KEYS = ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_SSLMODE', 'DATABASE_URL', 'POSTGRES_HOST', 'POSTGRES_PORT', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD'];
+  var BUCKET_ENV_KEYS = ['BUCKET', 'ENDPOINT', 'ACCESS_KEY_ID', 'SECRET_ACCESS_KEY'];
+  var LEGACY_BUCKET_ENV_KEYS = ['REGION','FORCE_PATH_STYLE','BUCKET_URL','BUCKET_NAME','BUCKET_ENDPOINT','BUCKET_ACCESS_KEY_ID','BUCKET_SECRET_ACCESS_KEY','BUCKET_REGION','BUCKET_FORCE_PATH_STYLE','AWS_ENDPOINT_URL','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_REGION','AWS_S3_FORCE_PATH_STYLE'];
 
   function clearScopeFolds(scope) {
     if (!scope) return;
@@ -168,6 +168,39 @@
     return map;
   }
 
+
+
+  function parseBucketURLClient(raw) {
+    raw = String(raw || '').trim();
+    if (!raw) return null;
+    try {
+      var u = new URL(raw);
+      var name = (u.pathname || '').replace(/^\//, '').split('/')[0] || '';
+      var endpoint = u.protocol + '//' + u.host;
+      return {
+        BUCKET: name,
+        ENDPOINT: endpoint,
+        ACCESS_KEY_ID: decodeURIComponent(u.username || ''),
+        SECRET_ACCESS_KEY: decodeURIComponent(u.password || '')
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function bucketEnvMapForService(svc, envText) {
+    var map = parseEnvMapClient(envText);
+    // Legacy FireWifi names → Railway names
+    if (!map.BUCKET && map.BUCKET_NAME) map.BUCKET = map.BUCKET_NAME;
+    if (!map.ENDPOINT && (map.BUCKET_ENDPOINT || map.AWS_ENDPOINT_URL)) map.ENDPOINT = map.BUCKET_ENDPOINT || map.AWS_ENDPOINT_URL;
+    if (!map.ACCESS_KEY_ID && (map.BUCKET_ACCESS_KEY_ID || map.AWS_ACCESS_KEY_ID)) map.ACCESS_KEY_ID = map.BUCKET_ACCESS_KEY_ID || map.AWS_ACCESS_KEY_ID;
+    if (!map.SECRET_ACCESS_KEY && (map.BUCKET_SECRET_ACCESS_KEY || map.AWS_SECRET_ACCESS_KEY)) map.SECRET_ACCESS_KEY = map.BUCKET_SECRET_ACCESS_KEY || map.AWS_SECRET_ACCESS_KEY;
+    var fromURL = parseBucketURLClient((svc && (map.BUCKET_URL || svc.connection_url)) || '');
+    BUCKET_ENV_KEYS.forEach(function(k){
+      if (!map[k] && fromURL && fromURL[k]) map[k] = fromURL[k];
+    });
+    return map;
+  }
 
   var RESERVED_DB_KEYS = DB_ENV_KEYS.slice();
 
@@ -268,7 +301,7 @@
 
   function isSecretEnvKey(k) {
     k = String(k || '');
-    return k === 'DB_PASSWORD' || k === 'DATABASE_URL' || k === 'BUCKET_URL' || k === 'BUCKET_SECRET_ACCESS_KEY' || k === 'AWS_SECRET_ACCESS_KEY' || /PASSWORD|SECRET|TOKEN|KEY$/i.test(k);
+    return k === 'DB_PASSWORD' || k === 'DATABASE_URL' || k === 'BUCKET_URL' || k === 'SECRET_ACCESS_KEY' || k === 'BUCKET_SECRET_ACCESS_KEY' || k === 'AWS_SECRET_ACCESS_KEY' || /PASSWORD|SECRET|TOKEN|KEY$/i.test(k);
   }
 
   /** Split user env text into custom-only (no reserved DB keys). */
@@ -296,16 +329,38 @@
     return out;
   }
 
-  function mergeLinkedPreviewEnv(customText, dbMap) {
+  function mergeLinkedPreviewEnv(customText, linkedMap, keyList) {
+    var keys = keyList || RESERVED_DB_KEYS;
     var custom = parseEnvMapClient(customText || '');
-    RESERVED_DB_KEYS.forEach(function(k){ delete custom[k]; });
-    var linked = dbMap || {};
+    keys.forEach(function(k){ delete custom[k]; });
+    var linked = linkedMap || {};
     var merged = {};
-    RESERVED_DB_KEYS.forEach(function(k){
+    keys.forEach(function(k){
       if (linked[k] != null && String(linked[k]) !== '') merged[k] = String(linked[k]);
     });
     Object.keys(custom).forEach(function(k){ merged[k] = custom[k]; });
     return envMapToDotenv(merged);
+  }
+
+  /** Bucket vars for the auto board: app env first, else live preview from bucket service. */
+  function bucketLinkBoardMap(bucketSlug, appEnvText, draftBucketEnv) {
+    var fromApp = linkedBucketMapFromEnv(appEnvText || '');
+    if (BUCKET_ENV_KEYS.some(function(k){ return fromApp[k]; })) {
+      return { map: fromApp, ready: true, preview: false };
+    }
+    var src = draftBucketEnv || {};
+    // Also accept bucketEnvMapForService shape
+    if (!BUCKET_ENV_KEYS.some(function(k){ return src[k]; })) {
+      return { map: {}, ready: false, preview: false };
+    }
+    var out = {};
+    var slug = String(bucketSlug || '').trim();
+    BUCKET_ENV_KEYS.forEach(function(k){
+      if (!src[k]) return;
+      // Show the ref that Save will inject (Railway-style).
+      out[k] = slug ? ('${{' + slug + '.' + k + '}}') : String(src[k]);
+    });
+    return { map: out, ready: BUCKET_ENV_KEYS.some(function(k){ return out[k]; }), preview: true };
   }
 
 
@@ -313,31 +368,39 @@
     if (!link) return '';
     opts = opts || {};
     bucketMap = bucketMap || {};
-    var keys = BUCKET_ENV_KEYS.filter(function(k){ return bucketMap[k]; });
-    if (!keys.length) {
-      return '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(link)+'</span><span class="ghost">linking…</span></div><div class="ghost" style="font-size:11px">BUCKET_URL appears after save/deploy</div></div>';
+    var ready = BUCKET_ENV_KEYS.some(function(k){ return bucketMap[k]; });
+    if (!ready) {
+      return '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(link)+'</span><span class="ghost">loading…</span></div><div class="ghost" style="font-size:11px">Fetching bucket credentials…</div></div>';
     }
     var reveal = !!opts.reveal;
-    var rows = keys.map(function(k){
-      var val = String(bucketMap[k] || '');
-      var secret = (k === 'BUCKET_URL') || /SECRET|PASSWORD|TOKEN/i.test(k) || /_KEY$/i.test(k);
-      var shown = (secret && !reveal) ? '••••••••' : val;
-      return '<div class="wiz-auto-row"><code>'+esc(k)+'</code><span class="mono">'+esc(shown)+'</span></div>';
+    var action = opts.revealAction || 'wizenvreveal';
+    var rows = BUCKET_ENV_KEYS.map(function(k){
+      var val = bucketMap[k];
+      var empty = (val == null || val === '');
+      var secret = isSecretEnvKey(k);
+      var shown = empty ? '—' : ((secret && !reveal) ? maskEnvValue(val) : String(val));
+      return ''
+        +'<div class="wiz-auto-row'+(empty?' is-empty':'')+'" data-env-key="'+esc(k)+'">'
+          +'<span class="wiz-auto-key">'+esc(k)+'</span>'
+          +'<span class="wiz-auto-val'+(secret && !reveal && !empty?' masked':'')+'">'+esc(shown)+'</span>'
+        +'</div>';
     }).join('');
+    var status = opts.preview ? 'Preview · save to apply' : '';
     return ''
-      +'<div class="wiz-auto-env">'
-        +'<div class="wiz-auto-head"><span>From '+esc(link)+'</span>'
-          +(opts.revealAction ? '<button type="button" class="btn btn-quiet btn-compact" data-action="'+esc(opts.revealAction)+'">'+(reveal?'Hide':'Reveal')+'</button>' : '')
+      +'<div class="wiz-auto-env'+(opts.preview?' is-preview':'')+'">'
+        +'<div class="wiz-auto-head">'
+          +'<span>From '+esc(link)+'</span>'
+          +'<div class="wiz-auto-tools" data-stop="1">'
+            +(status ? '<span class="ghost" style="font-size:11px;margin-right:6px">'+esc(status)+'</span>' : '')
+            +'<button type="button" class="btn btn-quiet btn-compact" data-action="'+esc(action)+'">'+(reveal?'Hide':'Show')+'</button>'
+          +'</div>'
         +'</div>'
-        +rows
+        +'<div class="wiz-auto-list">'+rows+'</div>'
       +'</div>';
   }
 
   function linkedBucketMapFromEnv(envText) {
-    var mp = parseEnvMapClient(envText || '');
-    var out = {};
-    BUCKET_ENV_KEYS.forEach(function(k){ if (mp[k]) out[k] = mp[k]; });
-    return out;
+    return bucketEnvMapForService(null, envText || '');
   }
 
   function wizAutoDBEnvHTML(link, dbMap, conflictKeys, opts) {

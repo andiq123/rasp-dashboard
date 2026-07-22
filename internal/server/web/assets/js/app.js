@@ -12,6 +12,7 @@
   var deployed = [];
   var canvasLayout = { nodes: {} }; // group canvas positions {slug:{x,y}}
   var _canvasDrag = null;
+  var canvasZoom = 1; // 0.5 … 1.5
   var repos = [];
   var wizard = null;
   var settingsSlug = null;
@@ -144,6 +145,8 @@
       shield: '<path d="M12 3l8 3v6c0 5-3.4 8.4-8 9-4.6-.6-8-4-8-9V6l8-3z"/>',
       settings: '<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.86 1.01 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
       arrange: '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/>',
+      zoomin: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/>',
+      zoomout: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/>',
       storage: '<path d="M4 7h16v4H4zM4 13h16v4H4z"/><circle cx="8" cy="9" r="1" fill="currentColor" stroke="none"/><circle cx="8" cy="15" r="1" fill="currentColor" stroke="none"/>',
       spark: '<path d="M12 3l1.5 5.5L19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5L12 3z"/>'
     };
@@ -424,6 +427,32 @@
     return 'fw-' + group + '-' + slug;
   }
 
+  /** Ghost prefix for bucket names: driver-logs → driver-logs- */
+  function bucketIdentPrefix(group) {
+    group = String(group || '').trim();
+    if (!group) return '';
+    return group.replace(/_/g, '-') + '-';
+  }
+
+  /**
+   * Physical MinIO bucket name. Keep in sync with deploy.physicalBucketName.
+   * Avoids group-group when the label equals the group.
+   */
+  function bucketPhysicalName(group, name) {
+    var slug = slugifyClient(name);
+    if (!slug) return '';
+    var g = String(group || '').trim().replace(/_/g, '-');
+    if (!g) return slug.slice(0, 60);
+    var phys = (slug === g || slug.indexOf(g + '-') === 0) ? slug : (g + '-' + slug);
+    return phys.slice(0, 60);
+  }
+
+  function uiBucketNamePreview(group, name) {
+    var b = bucketPhysicalName(group, name);
+    if (!b) return '';
+    return 'Creates bucket <code>'+esc(b)+'</code> on MinIO';
+  }
+
   /**
    * Input with a non-editable ghost prefix (shows what the backend will prepend).
    * opts: { prefix, previewHtml, compose, id, name, value, placeholder, autofocus }
@@ -484,6 +513,8 @@
     if (!preview) return;
     if (kind === 'pg') {
       preview.innerHTML = uiPgNamePreview(activeGroup, input.value);
+    } else if (kind === 'bucket') {
+      preview.innerHTML = uiBucketNamePreview(activeGroup, input.value);
     }
   }
 
@@ -891,9 +922,9 @@
   }
 
 
-  var DB_ENV_KEYS = ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_SSLMODE', 'DATABASE_URL'];
-  var BUCKET_ENV_KEYS = ['BUCKET_URL'];
-  var LEGACY_BUCKET_ENV_KEYS = ['BUCKET','BUCKET_NAME','BUCKET_ENDPOINT','BUCKET_ACCESS_KEY_ID','BUCKET_SECRET_ACCESS_KEY','BUCKET_REGION','BUCKET_FORCE_PATH_STYLE','AWS_ENDPOINT_URL','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_REGION','AWS_S3_FORCE_PATH_STYLE'];
+  var DB_ENV_KEYS = ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_SSLMODE', 'DATABASE_URL', 'POSTGRES_HOST', 'POSTGRES_PORT', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD'];
+  var BUCKET_ENV_KEYS = ['BUCKET', 'ENDPOINT', 'ACCESS_KEY_ID', 'SECRET_ACCESS_KEY'];
+  var LEGACY_BUCKET_ENV_KEYS = ['REGION','FORCE_PATH_STYLE','BUCKET_URL','BUCKET_NAME','BUCKET_ENDPOINT','BUCKET_ACCESS_KEY_ID','BUCKET_SECRET_ACCESS_KEY','BUCKET_REGION','BUCKET_FORCE_PATH_STYLE','AWS_ENDPOINT_URL','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_REGION','AWS_S3_FORCE_PATH_STYLE'];
 
   function clearScopeFolds(scope) {
     if (!scope) return;
@@ -982,6 +1013,39 @@
     return map;
   }
 
+
+
+  function parseBucketURLClient(raw) {
+    raw = String(raw || '').trim();
+    if (!raw) return null;
+    try {
+      var u = new URL(raw);
+      var name = (u.pathname || '').replace(/^\//, '').split('/')[0] || '';
+      var endpoint = u.protocol + '//' + u.host;
+      return {
+        BUCKET: name,
+        ENDPOINT: endpoint,
+        ACCESS_KEY_ID: decodeURIComponent(u.username || ''),
+        SECRET_ACCESS_KEY: decodeURIComponent(u.password || '')
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function bucketEnvMapForService(svc, envText) {
+    var map = parseEnvMapClient(envText);
+    // Legacy FireWifi names → Railway names
+    if (!map.BUCKET && map.BUCKET_NAME) map.BUCKET = map.BUCKET_NAME;
+    if (!map.ENDPOINT && (map.BUCKET_ENDPOINT || map.AWS_ENDPOINT_URL)) map.ENDPOINT = map.BUCKET_ENDPOINT || map.AWS_ENDPOINT_URL;
+    if (!map.ACCESS_KEY_ID && (map.BUCKET_ACCESS_KEY_ID || map.AWS_ACCESS_KEY_ID)) map.ACCESS_KEY_ID = map.BUCKET_ACCESS_KEY_ID || map.AWS_ACCESS_KEY_ID;
+    if (!map.SECRET_ACCESS_KEY && (map.BUCKET_SECRET_ACCESS_KEY || map.AWS_SECRET_ACCESS_KEY)) map.SECRET_ACCESS_KEY = map.BUCKET_SECRET_ACCESS_KEY || map.AWS_SECRET_ACCESS_KEY;
+    var fromURL = parseBucketURLClient((svc && (map.BUCKET_URL || svc.connection_url)) || '');
+    BUCKET_ENV_KEYS.forEach(function(k){
+      if (!map[k] && fromURL && fromURL[k]) map[k] = fromURL[k];
+    });
+    return map;
+  }
 
   var RESERVED_DB_KEYS = DB_ENV_KEYS.slice();
 
@@ -1082,7 +1146,7 @@
 
   function isSecretEnvKey(k) {
     k = String(k || '');
-    return k === 'DB_PASSWORD' || k === 'DATABASE_URL' || k === 'BUCKET_URL' || k === 'BUCKET_SECRET_ACCESS_KEY' || k === 'AWS_SECRET_ACCESS_KEY' || /PASSWORD|SECRET|TOKEN|KEY$/i.test(k);
+    return k === 'DB_PASSWORD' || k === 'DATABASE_URL' || k === 'BUCKET_URL' || k === 'SECRET_ACCESS_KEY' || k === 'BUCKET_SECRET_ACCESS_KEY' || k === 'AWS_SECRET_ACCESS_KEY' || /PASSWORD|SECRET|TOKEN|KEY$/i.test(k);
   }
 
   /** Split user env text into custom-only (no reserved DB keys). */
@@ -1110,16 +1174,38 @@
     return out;
   }
 
-  function mergeLinkedPreviewEnv(customText, dbMap) {
+  function mergeLinkedPreviewEnv(customText, linkedMap, keyList) {
+    var keys = keyList || RESERVED_DB_KEYS;
     var custom = parseEnvMapClient(customText || '');
-    RESERVED_DB_KEYS.forEach(function(k){ delete custom[k]; });
-    var linked = dbMap || {};
+    keys.forEach(function(k){ delete custom[k]; });
+    var linked = linkedMap || {};
     var merged = {};
-    RESERVED_DB_KEYS.forEach(function(k){
+    keys.forEach(function(k){
       if (linked[k] != null && String(linked[k]) !== '') merged[k] = String(linked[k]);
     });
     Object.keys(custom).forEach(function(k){ merged[k] = custom[k]; });
     return envMapToDotenv(merged);
+  }
+
+  /** Bucket vars for the auto board: app env first, else live preview from bucket service. */
+  function bucketLinkBoardMap(bucketSlug, appEnvText, draftBucketEnv) {
+    var fromApp = linkedBucketMapFromEnv(appEnvText || '');
+    if (BUCKET_ENV_KEYS.some(function(k){ return fromApp[k]; })) {
+      return { map: fromApp, ready: true, preview: false };
+    }
+    var src = draftBucketEnv || {};
+    // Also accept bucketEnvMapForService shape
+    if (!BUCKET_ENV_KEYS.some(function(k){ return src[k]; })) {
+      return { map: {}, ready: false, preview: false };
+    }
+    var out = {};
+    var slug = String(bucketSlug || '').trim();
+    BUCKET_ENV_KEYS.forEach(function(k){
+      if (!src[k]) return;
+      // Show the ref that Save will inject (Railway-style).
+      out[k] = slug ? ('${{' + slug + '.' + k + '}}') : String(src[k]);
+    });
+    return { map: out, ready: BUCKET_ENV_KEYS.some(function(k){ return out[k]; }), preview: true };
   }
 
 
@@ -1127,31 +1213,39 @@
     if (!link) return '';
     opts = opts || {};
     bucketMap = bucketMap || {};
-    var keys = BUCKET_ENV_KEYS.filter(function(k){ return bucketMap[k]; });
-    if (!keys.length) {
-      return '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(link)+'</span><span class="ghost">linking…</span></div><div class="ghost" style="font-size:11px">BUCKET_URL appears after save/deploy</div></div>';
+    var ready = BUCKET_ENV_KEYS.some(function(k){ return bucketMap[k]; });
+    if (!ready) {
+      return '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(link)+'</span><span class="ghost">loading…</span></div><div class="ghost" style="font-size:11px">Fetching bucket credentials…</div></div>';
     }
     var reveal = !!opts.reveal;
-    var rows = keys.map(function(k){
-      var val = String(bucketMap[k] || '');
-      var secret = (k === 'BUCKET_URL') || /SECRET|PASSWORD|TOKEN/i.test(k) || /_KEY$/i.test(k);
-      var shown = (secret && !reveal) ? '••••••••' : val;
-      return '<div class="wiz-auto-row"><code>'+esc(k)+'</code><span class="mono">'+esc(shown)+'</span></div>';
+    var action = opts.revealAction || 'wizenvreveal';
+    var rows = BUCKET_ENV_KEYS.map(function(k){
+      var val = bucketMap[k];
+      var empty = (val == null || val === '');
+      var secret = isSecretEnvKey(k);
+      var shown = empty ? '—' : ((secret && !reveal) ? maskEnvValue(val) : String(val));
+      return ''
+        +'<div class="wiz-auto-row'+(empty?' is-empty':'')+'" data-env-key="'+esc(k)+'">'
+          +'<span class="wiz-auto-key">'+esc(k)+'</span>'
+          +'<span class="wiz-auto-val'+(secret && !reveal && !empty?' masked':'')+'">'+esc(shown)+'</span>'
+        +'</div>';
     }).join('');
+    var status = opts.preview ? 'Preview · save to apply' : '';
     return ''
-      +'<div class="wiz-auto-env">'
-        +'<div class="wiz-auto-head"><span>From '+esc(link)+'</span>'
-          +(opts.revealAction ? '<button type="button" class="btn btn-quiet btn-compact" data-action="'+esc(opts.revealAction)+'">'+(reveal?'Hide':'Reveal')+'</button>' : '')
+      +'<div class="wiz-auto-env'+(opts.preview?' is-preview':'')+'">'
+        +'<div class="wiz-auto-head">'
+          +'<span>From '+esc(link)+'</span>'
+          +'<div class="wiz-auto-tools" data-stop="1">'
+            +(status ? '<span class="ghost" style="font-size:11px;margin-right:6px">'+esc(status)+'</span>' : '')
+            +'<button type="button" class="btn btn-quiet btn-compact" data-action="'+esc(action)+'">'+(reveal?'Hide':'Show')+'</button>'
+          +'</div>'
         +'</div>'
-        +rows
+        +'<div class="wiz-auto-list">'+rows+'</div>'
       +'</div>';
   }
 
   function linkedBucketMapFromEnv(envText) {
-    var mp = parseEnvMapClient(envText || '');
-    var out = {};
-    BUCKET_ENV_KEYS.forEach(function(k){ if (mp[k]) out[k] = mp[k]; });
-    return out;
+    return bucketEnvMapForService(null, envText || '');
   }
 
   function wizAutoDBEnvHTML(link, dbMap, conflictKeys, opts) {
@@ -1528,22 +1622,30 @@
           +'</div>';
       }).join('');
     }
+    var z = canvasZoom || 1;
+    var zPct = Math.round(z * 100);
     var canvasInner = list.length
-      ? ('<div class="rw-board" data-board="1">'+board+'</div>')
+      ? ('<div class="rw-board-scale" style="transform:scale('+z+')"><div class="rw-board" data-board="1">'+board+'</div></div>')
       : empty;
     var toolbar = ''
       +'<div class="rw-canvas-toolbar" data-stop="1">'
         +'<span class="rw-canvas-count ghost">'+esc(String(list.length))+' service'+(list.length===1?'':'s')+'</span>'
         +'<div class="rw-canvas-tools">'
-          +(list.length
-            ? '<button type="button" class="btn btn-quiet btn-compact has-ico" data-action="canvas:arrange" title="Auto arrange">'+ico('arrange')+'<span>Auto arrange</span></button>'
-            : '')
+          +(list.length ? (''
+            +'<div class="rw-zoom" role="group" aria-label="Zoom">'
+              +'<button type="button" class="btn btn-quiet btn-compact btn-icon" data-action="canvas:zoom-out" title="Zoom out">'+ico('zoomout')+'</button>'
+              +'<button type="button" class="btn btn-quiet btn-compact rw-zoom-pct" data-action="canvas:zoom-reset" title="Reset zoom">'+esc(String(zPct))+'%</button>'
+              +'<button type="button" class="btn btn-quiet btn-compact btn-icon" data-action="canvas:zoom-in" title="Zoom in">'+ico('zoomin')+'</button>'
+            +'</div>'
+            +'<button type="button" class="btn btn-quiet btn-compact has-ico" data-action="canvas:arrange" title="Auto arrange">'+ico('arrange')+'<span>Auto arrange</span></button>'
+          ) : '')
           +'<button type="button" class="btn primary btn-compact has-ico" data-action="wizard:open">'+ico('plus')+'<span>Add service</span></button>'
         +'</div>'
       +'</div>';
     var body = ''
       + toolbar
-      +'<div class="rw-canvas is-free'+(settingsSlug?' drawer-open':'')+(!list.length?' is-empty':'')+(navLoading?' is-loading':'')+'" data-canvas="1">'
+      +'<div class="rw-canvas is-free'+(settingsSlug?' drawer-open':'')+(!list.length?' is-empty':'')+(navLoading?' is-loading':'')+'" data-canvas="1" style="--rw-grid:'+(24*z)+'px">'
+        +'<div class="rw-canvas-grid" aria-hidden="true"></div>'
         +'<svg class="rw-links" aria-hidden="true"><g class="rw-links-g"></g></svg>'
         +canvasInner
       +'</div>';
@@ -1640,7 +1742,7 @@
   }
   function accessLabel(svc) {
     if (svc && svc.type === 'postgres') return 'DATABASE_URL';
-    if (svc && svc.type === 'bucket') return 'BUCKET_URL';
+    if (svc && svc.type === 'bucket') return 'BUCKET';
     return 'App URL';
   }
   function publicURL(svc) {
@@ -1703,7 +1805,7 @@
           +'<code id="access-cfg-'+esc(svc.slug)+'" data-copy="'+esc(local)+'">'+esc(maskBucketURLDisplay(local))+'</code>'
           +'<button type="button" class="btn" data-action="copy:access-cfg:'+esc(svc.slug)+'">Copy</button>'
         +'</div>'
-        +uiHint('Copy BUCKET_URL into your app · or link the service to inject it');
+        +uiHint('Apps get BUCKET / ENDPOINT / key refs when linked');
     }
     if (!local) return uiHint('No URL yet — start or redeploy');
     var pub = publicURL(svc);
@@ -1932,11 +2034,14 @@
   }
 
   function pgEnvBoardHTML(svc, envText) {
-    var map = dbEnvMapForService(svc, envText);
+    var isBucket = svc && svc.type === 'bucket';
+    var keys = isBucket ? BUCKET_ENV_KEYS : DB_ENV_KEYS;
+    var map = isBucket ? bucketEnvMapForService(svc, envText) : dbEnvMapForService(svc, envText);
     var reveal = !!envReveal[svc.slug];
-    var rows = DB_ENV_KEYS.map(function(k){
+    var primaryKey = isBucket ? 'BUCKET' : 'DATABASE_URL';
+    var rows = keys.map(function(k){
       var val = map[k] || '';
-      if (!val && k !== 'DATABASE_URL') return '';
+      if (!val && k !== primaryKey) return '';
       var shown = reveal ? val : maskEnvValue(val);
       return ''
         +'<div class="env-row" role="row">'
@@ -1948,14 +2053,14 @@
         +'</div>';
     }).join('');
     if (!rows.trim()) {
-      rows = '<div class="empty dock-empty compact"><p>Connection vars appear after the database is ready</p></div>';
+      rows = '<div class="empty dock-empty compact"><p>Connection vars appear after the '+(isBucket?'bucket':'database')+' is ready</p></div>';
     }
     return ''
       +'<section class="drawer-section drawer-section-card env-board" aria-labelledby="pg-env-'+esc(svc.slug)+'">'
         +'<header class="env-board-head drawer-section-head">'
           +'<div class="drawer-section-head-main">'
             +'<h3 id="pg-env-'+esc(svc.slug)+'" class="drawer-section-title">Environment</h3>'
-            +'<span class="ghost drawer-section-sub">For Go apps · os.Getenv / JSON</span>'
+            +'<span class="ghost drawer-section-sub">'+(isBucket ? 'MinIO on this Pi' : 'For Go apps · os.Getenv / JSON')+'</span>'
           +'</div>'
           +'<div class="env-board-tools" data-stop="1">'
             +'<button type="button" class="btn btn-quiet btn-compact drawer-tool-btn" data-action="envreveal:'+esc(svc.slug)+'">'+(reveal?'Hide':'Show')+'</button>'
@@ -2060,15 +2165,22 @@
       : uiEmpty({ mini: true, body: 'No database in this group yet.' });
     var linkedBlock = !linkVal ? '' : (linkedReady
       ? wizAutoDBEnvHTML(linkLabel, linkedMap, [], { reveal: !!envReveal[svc.slug + ':env'], revealAction: 'envreveal:' + svc.slug + ':env' })
-      : '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(linkLabel)+'</span><span class="ghost">linking…</span></div><div class="ghost" style="font-size:11px">DB_* + DATABASE_URL appear after save/deploy</div></div>');
+      : '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(linkLabel)+'</span><span class="ghost">linking…</span></div><div class="ghost" style="font-size:11px">DB_* / POSTGRES_* / DATABASE_URL refs appear after save</div></div>');
     var bucketPicker = buckets.length
       ? cselectHTML('link-bucket', bucketVal, 'No bucket', [{value:'',label:'No bucket'}].concat(buckets.map(function(d){ return {value:d.slug,label:d.name||d.slug,meta:'Bucket'}; })), false, {searchable: (buckets||[]).length > 4, searchPlaceholder:'Filter…'})
       : uiEmpty({ mini: true, body: 'No bucket in this group yet.' });
-    var bucketMap = bucketVal ? linkedBucketMapFromEnv(envVal) : {};
-    var bucketReady = bucketVal && BUCKET_ENV_KEYS.some(function(k){ return bucketMap[k]; });
+    var bucketBoard = bucketVal
+      ? bucketLinkBoardMap(bucketVal, envVal, (draft && draft.bucket_env) || null)
+      : { map: {}, ready: false, preview: false };
+    var bucketMap = bucketBoard.map || {};
+    var bucketReady = !!(bucketVal && bucketBoard.ready);
     var bucketBlock = !bucketVal ? '' : (bucketReady
-      ? wizAutoBucketEnvHTML(linkedBucketName || bucketVal, bucketMap, { reveal: !!envReveal[svc.slug + ':bucket'], revealAction: 'envreveal:' + svc.slug + ':bucket' })
-      : '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(linkedBucketName || bucketVal)+'</span><span class="ghost">linking…</span></div><div class="ghost" style="font-size:11px">BUCKET_URL appears after save/deploy</div></div>');
+      ? wizAutoBucketEnvHTML(linkedBucketName || bucketVal, bucketMap, {
+          reveal: !!envReveal[svc.slug + ':bucket'],
+          revealAction: 'envreveal:' + svc.slug + ':bucket',
+          preview: !!bucketBoard.preview
+        })
+      : '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(linkedBucketName || bucketVal)+'</span><span class="ghost">loading…</span></div><div class="ghost" style="font-size:11px">Fetching BUCKET · ENDPOINT · keys</div></div>');
     var envMergedBody = ''
       +'<div class="env-merge">'
         +'<div class="env-merge-block">'
@@ -2645,7 +2757,7 @@
             +btn(powerLabel, powerAction, powerCls, busyEng || checking, on ? 'stop' : 'play')
           +'</div>'
         +'</div>'
-        +'<p class="engine-help">Object storage on this Pi’s SD card. Link a Go app to get one env: BUCKET_URL.</p>'
+        +'<p class="engine-help">Object storage on this Pi’s SD card. Link a Go app for BUCKET / ENDPOINT / keys.</p>'
         +'<p class="engine-meta mono">'+hostLine+'</p>'
         +'<p class="engine-depend ghost">'+esc(depend)+'</p>'
       +'</div>';
@@ -3291,7 +3403,7 @@
           +'</button>'
           +'<button type="button" class="type-opt" data-action="wizard:type:bucket">'
             +'<span class="type-icon go">S3</span>'
-            +'<span class="type-copy"><strong>Bucket</strong><span>Object storage on SD — apps get BUCKET_URL</span></span>'
+            +'<span class="type-copy"><strong>Bucket</strong><span>Object storage on SD — BUCKET / ENDPOINT / keys</span></span>'
             +'<span class="type-chev" aria-hidden="true"></span>'
           +'</button>'
         +'</div>';
@@ -3318,24 +3430,43 @@
           branchOptions = [{value: wizard.branch || 'main', label: wizard.branch || 'main'}];
         }
       }
-      var rootOptions = [{value: '', label: 'Repository root', meta: 'go.mod at root'}];
+      var rootOptions = [{
+        value: '',
+        label: 'Repository root',
+        meta: wizard.loadingDirs ? '…' : (wizard.root_has_go_mod ? 'go.mod ✓' : 'no go.mod')
+      }];
       if (wizard.loadingDirs) {
-        rootOptions = [{value: wizard.root_dir || '', label: 'Loading folders…'}];
+        rootOptions = [{value: wizard.root_dir || '', label: 'Scanning go.mod…', meta: ''}];
       } else {
-        (wizard.dirs || []).forEach(function(d){
-          rootOptions.push({value: d.path, label: d.path, meta: 'directory'});
+        var seenPaths = {'': true};
+        (wizard.go_modules || []).forEach(function(m){
+          if (!m || !m.path) return;
+          seenPaths[m.path] = true;
+          rootOptions.push({
+            value: m.path,
+            label: m.path,
+            meta: m.has_go_mod ? 'go.mod · detected' : 'folder'
+          });
         });
-        if (wizard.root_dir) {
-          var seen = rootOptions.some(function(o){ return String(o.value) === String(wizard.root_dir); });
-          if (!seen) rootOptions.push({value: wizard.root_dir, label: wizard.root_dir, meta: 'custom'});
+        (wizard.dirs || []).forEach(function(d){
+          if (!d || !d.path || seenPaths[d.path]) return;
+          seenPaths[d.path] = true;
+          rootOptions.push({value: d.path, label: d.path, meta: 'folder'});
+        });
+        if (wizard.root_dir && !seenPaths[wizard.root_dir]) {
+          rootOptions.push({
+            value: wizard.root_dir,
+            label: wizard.root_dir,
+            meta: 'custom'
+          });
         }
       }
       var dbs = (deployed || []).filter(function(x){ return x.type === 'postgres'; });
       var buckets = (deployed || []).filter(function(x){ return x.type === 'bucket'; });
-      var autoDb = wizard.linked_database != null ? wizard.linked_database : (dbs.length === 1 ? dbs[0].slug : '');
-      if (wizard.linked_database == null && dbs.length === 1) wizard.linked_database = autoDb;
-      var autoBucket = wizard.linked_bucket != null ? wizard.linked_bucket : (buckets.length === 1 ? buckets[0].slug : '');
-      if (wizard.linked_bucket == null && buckets.length === 1) wizard.linked_bucket = autoBucket;
+      // Links are chosen in wizard:type:go (with credential prefetch). Do not
+      // mutate wizard.linked_* during render — that caused "linking…" with no fetch.
+      var autoDb = wizard.linked_database || '';
+      var autoBucket = wizard.linked_bucket || '';
       var dbOptions = [{value: '', label: 'No database', meta: 'attach later'}].concat(dbs.map(function(d){
         return {value: d.slug, label: d.name || d.slug, meta: 'Postgres'};
       }));
@@ -3387,13 +3518,17 @@
       var warnMsg = formatEnvConflictWarn(conflictHits, dups, link);
       var conflictKeys = reservedConflictKeys(conflictHits);
       var linkedMap = linkedEnvMapFromSources(wizard.db_env || {}, envText);
-      var bucketMap = linkedBucketMapFromEnv(envText);
-      if (wizard.bucket_env) {
-        BUCKET_ENV_KEYS.forEach(function(k){ if (wizard.bucket_env[k]) bucketMap[k] = wizard.bucket_env[k]; });
-      }
+      var bucketBoard = blink
+        ? bucketLinkBoardMap(blink, envText, wizard.bucket_env || null)
+        : { map: {}, ready: false, preview: false };
+      var bucketMap = bucketBoard.map || {};
       var envBody = ''
         +(link ? wizAutoDBEnvHTML(link, linkedMap, conflictKeys, { reveal: !!wizEnvReveal, revealAction: 'wizenvreveal' }) : '')
-        +(blink ? wizAutoBucketEnvHTML(blink, bucketMap, { reveal: !!wizEnvReveal, revealAction: 'wizenvreveal' }) : '')
+        +(blink ? wizAutoBucketEnvHTML(blink, bucketMap, {
+            reveal: !!wizEnvReveal,
+            revealAction: 'wizenvreveal',
+            preview: !!bucketBoard.preview
+          }) : '')
         +'<div class="wiz-custom-env">'
           +'<div class="wiz-custom-head">'
             +'<span>Your variables</span>'
@@ -3427,6 +3562,9 @@
           +uiField({
             label: 'Root',
             meta: 'Monorepo',
+            tip: (!wizard.repo || wizard.loadingDirs)
+              ? (wizard.repo ? 'Scanning for go.mod…' : '')
+              : (wizard.root_hint || rootHintForSelection(wizard.root_dir || '')),
             control: cselectHTML('root', wizard.root_dir || '', wizard.repo ? 'Repo root or folder…' : 'Pick a repo first', rootOptions, !wizard.repo || !!wizard.loadingDirs, {searchable:true, creatable:true, searchPlaceholder:'Search or type a path…'})
           })
           +uiField({
@@ -3503,10 +3641,21 @@
         body: ''
           +uiField({
             label: 'Name',
-            tip: 'S3 bucket on this Pi',
-            control: uiInput({ id: 'wiz-bucket-name', placeholder: 'uploads', value: wizard.name || '', autofocus: true })
+            tip: 'Prefix is added automatically',
+            control: (function(){
+              var prefix = bucketIdentPrefix(activeGroup);
+              return uiPrefixedInput({
+                id: 'wiz-bucket-name',
+                prefix: prefix,
+                placeholder: 'uploads',
+                value: wizard.name || '',
+                autofocus: true,
+                compose: 'bucket',
+                previewHtml: uiBucketNamePreview(activeGroup, wizard.name || '')
+              });
+            })()
           })
-          +uiHint('Stored on this Pi · link a Go app for BUCKET_URL')
+          +uiHint('Four vars for apps: BUCKET, ENDPOINT, ACCESS_KEY_ID, SECRET_ACCESS_KEY')
       });
     }
     var size = (step === 'go') ? ' modal-md' : (step === 'type' ? ' modal-sm' : '');
@@ -3599,16 +3748,20 @@
       }
       if (linkedBucket) {
         var bucketSrc = linkedBucketMapFromEnv(prev.env || '');
-        if (!BUCKET_ENV_KEYS.some(function(k){ return bucketSrc[k]; }) && svcNow) {
+        if (!BUCKET_ENV_KEYS.some(function(k){ return bucketSrc[k]; })) {
           bucketSrc = linkedBucketMapFromEnv(keepEnv);
         }
-        keepEnv = mergeLinkedPreviewEnv(keepEnv, bucketSrc);
+        if (!BUCKET_ENV_KEYS.some(function(k){ return bucketSrc[k]; }) && prev.bucket_env) {
+          bucketSrc = prev.bucket_env;
+        }
+        keepEnv = mergeLinkedPreviewEnv(keepEnv, bucketSrc, BUCKET_ENV_KEYS);
       }
       settingsDraft[slug] = {
         name: val('input[name=name]'),
         branch: val('input[name=branch]'),
         linked_database: linked,
         linked_bucket: linkedBucket,
+        bucket_env: prev.bucket_env || null,
         root_dir: val('input[name=root_dir]'),
         env: keepEnv,
         build_cmd: val('input[name=build_cmd]'),
@@ -3788,6 +3941,10 @@
   var _navDir = null; // 'forward' | 'back'
   var _modalEnterTimer = null;
   var _drawerEnterTimer = null;
+  var _drawerLeaving = false;
+  var _drawerLeaveTimer = null;
+  var _modalLeaving = false;
+  var _modalLeaveTimer = null;
   var _didBoot = false;
   var _routeSync = false;
 
@@ -3959,16 +4116,43 @@
     renderModal();
   }
 
-  function closeWizard() {
-    if (!wizard) return;
-    wizard = null;
-    picker = null;
-    renderModal();
+  function closeWizard(opts) {
+    opts = opts || {};
+    if (!wizard || _modalLeaving) return;
+    var root = document.getElementById('modal-root');
+    var modal = root && root.querySelector('.modal');
+    var back = root && root.querySelector('.modal-backdrop');
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var animate = opts.animate !== false && !reduce && modal && !root.hidden;
+
+    function finish() {
+      _modalLeaving = false;
+      if (_modalLeaveTimer) { clearTimeout(_modalLeaveTimer); _modalLeaveTimer = null; }
+      wizard = null;
+      picker = null;
+      renderModal();
+    }
+
+    if (!animate) {
+      finish();
+      return;
+    }
+    _modalLeaving = true;
+    if (modal) {
+      modal.classList.remove('enter');
+      modal.classList.add('leaving');
+    }
+    if (back) {
+      back.classList.remove('enter');
+      back.classList.add('leaving');
+    }
+    if (_modalLeaveTimer) clearTimeout(_modalLeaveTimer);
+    _modalLeaveTimer = setTimeout(finish, 220);
   }
 
   /** Swap only the services nav-page — keeps VPN/monitoring mounted (fast). */
   function softServicesKey() {
-    var bits = [navView || '', settingsTab || '', activeGroup || '', settingsSlug || '', manageTab || ''];
+    var bits = [navView || '', settingsTab || '', activeGroup || '', settingsSlug || '', manageTab || '', 'z:' + (canvasZoom || 1)];
     try {
       bits.push('folds:' + Object.keys(folds || {}).filter(function(k){ return folds[k]; }).sort().join(','));
     } catch (e) {}
@@ -4169,15 +4353,23 @@
     setDrawerScrollLock(true);
     if (opening || !sameSlug) setDrawerA11y(true);
     var drawer = root.querySelector('.svc-drawer');
+    var backdrop = root.querySelector('.svc-drawer-backdrop');
     if (drawer) {
-      drawer.classList.remove('enter');
+      drawer.classList.remove('enter', 'leaving');
+      if (backdrop) backdrop.classList.remove('leaving');
       if (opening) {
+        if (backdrop) {
+          backdrop.classList.remove('enter');
+          void backdrop.offsetWidth;
+          backdrop.classList.add('enter');
+        }
         drawer.classList.add('enter');
         if (_drawerEnterTimer) clearTimeout(_drawerEnterTimer);
         _drawerEnterTimer = setTimeout(function(){
           if (drawer) drawer.classList.remove('enter');
+          if (backdrop) backdrop.classList.remove('enter');
           _drawerEnterTimer = null;
-        }, 240);
+        }, 320);
       }
     }
     applyDrawerFolds(settingsSlug);
@@ -4205,14 +4397,120 @@
     }
     return '<div class="layout layout-empty"></div>';
   }
-  function closeSettingsDrawer(opts) {
-    if (!settingsSlug) return;
-    var prev = settingsSlug;
-    settingsSlug = null;
-    Object.keys(folds).forEach(function(k){ if (k.indexOf(prev+':')===0) delete folds[k]; });
-    renderDrawerPortal();
-    renderServices(opts || { animate: true });
+
+  function openServiceSettings(sslug) {
+    if (!sslug) return;
+    if (settingsSlug === sslug) {
+      closeSettingsDrawer({ animate: true });
+      return;
+    }
+    if (_drawerLeaving) {
+      // Interrupt leave so a new open can proceed immediately.
+      if (_drawerLeaveTimer) { clearTimeout(_drawerLeaveTimer); _drawerLeaveTimer = null; }
+      _drawerLeaving = false;
+      var prevLeave = settingsSlug;
+      settingsSlug = null;
+      if (prevLeave) {
+        Object.keys(folds).forEach(function(k){ if (k.indexOf(prevLeave+':')===0) delete folds[k]; });
+      }
+      renderDrawerPortal();
+    }
+    if (settingsSlug) {
+      var prev = settingsSlug;
+      Object.keys(folds).forEach(function(k){ if (k.indexOf(prev+':')===0) delete folds[k]; });
+    }
+    settingsSlug = sslug;
+    var svc = (deployed || []).filter(function(x){ return x.slug === sslug; })[0];
+    Object.keys(folds).forEach(function(k){ if (k.indexOf(sslug+':')===0) folds[k] = false; });
+    var openDeploys = !!(svc && svc.type === 'go' && (
+      (svc.deployments && svc.deployments.length) ||
+      svc.status === 'building' ||
+      (svc.deployments || []).some(function(d){ return d.status === 'building' || d.status === 'queued'; })
+    ));
+    folds[sslug + (openDeploys ? ':deploys' : ':access')] = true;
+    settingsDraft[sslug] = {
+      name: svc ? svc.name : '', branch: svc ? svc.branch : 'main',
+      linked_database: svc ? (svc.linked_database || '') : '',
+      linked_bucket: svc ? (svc.linked_bucket || '') : '',
+      bucket_env: (settingsDraft[sslug] && settingsDraft[sslug].bucket_env) || null,
+      root_dir: svc ? (svc.root_dir || '') : '',
+      env: (settingsDraft[sslug] && settingsDraft[sslug].env) || '',
+      build_cmd: svc ? (svc.build_cmd || '') : '',
+      memory_mb: svc ? (svc.memory_mb || 512) : 512,
+      cpus: svc ? (svc.cpus || 1) : 1,
+      auto_deploy: !!(svc && svc.auto_deploy)
+    };
+    // Prefetch bucket credentials so the board is not stuck on "linking…"
+    if (svc && svc.type === 'go' && settingsDraft[sslug].linked_bucket && !settingsDraft[sslug].bucket_env) {
+      (function(appSlug, bSlug){
+        api('/api/groups/' + encodeURIComponent(activeGroup) + '/services/' + encodeURIComponent(bSlug) + '/env')
+          .then(function(r){
+            if (!settingsDraft[appSlug] || settingsDraft[appSlug].linked_bucket !== bSlug) return;
+            settingsDraft[appSlug].bucket_env = bucketEnvMapForService(
+              (deployed || []).filter(function(x){ return x.slug === bSlug; })[0],
+              r.env || r.env_json || ''
+            );
+            if (settingsSlug === appSlug) {
+              renderDrawerPortal({ patchBody: true });
+            }
+          })
+          .catch(function(){});
+      })(sslug, settingsDraft[sslug].linked_bucket);
+    }
+    renderServices({ soft: true, force: true });
     syncRouteFromState();
+    if (svc && svc.type === 'go') {
+      loadServiceEnv(sslug).then(function(next){
+        if (!next || settingsSlug !== sslug) return;
+        if (!settingsDraft[sslug]) settingsDraft[sslug] = {};
+        settingsDraft[sslug].env = next;
+        renderServices({ soft: true, force: true, _skipEnvSync: true });
+      }).catch(function(){});
+    } else if (svc && (svc.type === 'postgres' || svc.type === 'bucket')) {
+      loadServiceEnv(sslug).then(function(next){
+        if (!next || settingsSlug !== sslug) return;
+        if (!settingsDraft[sslug]) settingsDraft[sslug] = {};
+        settingsDraft[sslug].env = next;
+        renderServices({ soft: true, force: true, _skipEnvSync: true });
+      }).catch(function(){});
+    }
+  }
+
+  function closeSettingsDrawer(opts) {
+    opts = opts || {};
+    if (!settingsSlug || _drawerLeaving) return;
+    var root = document.getElementById('drawer-root');
+    var drawer = root && root.querySelector('.svc-drawer');
+    var back = root && root.querySelector('.svc-drawer-backdrop');
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var animate = opts.animate !== false && !reduce && drawer && root && !root.hidden;
+
+    function finish() {
+      _drawerLeaving = false;
+      if (_drawerLeaveTimer) { clearTimeout(_drawerLeaveTimer); _drawerLeaveTimer = null; }
+      var prev = settingsSlug;
+      settingsSlug = null;
+      if (prev) {
+        Object.keys(folds).forEach(function(k){ if (k.indexOf(prev+':')===0) delete folds[k]; });
+      }
+      renderDrawerPortal();
+      renderServices(opts.renderOpts || { animate: true });
+      syncRouteFromState();
+    }
+
+    if (!animate) {
+      finish();
+      return;
+    }
+    _drawerLeaving = true;
+    if (drawer) {
+      drawer.classList.remove('enter');
+      drawer.classList.add('leaving');
+    }
+    if (back) back.classList.add('leaving');
+    setDrawerA11y(false);
+    if (_drawerLeaveTimer) clearTimeout(_drawerLeaveTimer);
+    _drawerLeaveTimer = setTimeout(finish, 250);
   }
   var CANVAS_CARD_W = 236;
   var CANVAS_CARD_H = 148;
@@ -4261,6 +4559,26 @@
     place(storage, 0);
     place(apps.concat(other), 1);
     return nodes;
+  }
+
+
+  function clampCanvasZoom(z) {
+    z = Number(z) || 1;
+    if (z < 0.5) z = 0.5;
+    if (z > 1.5) z = 1.5;
+    return Math.round(z * 100) / 100;
+  }
+  function setCanvasZoom(next, opts) {
+    opts = opts || {};
+    canvasZoom = clampCanvasZoom(next);
+    var canvas = document.querySelector('.panel-group-detail .rw-canvas.is-free');
+    var scale = document.querySelector('.panel-group-detail .rw-board-scale');
+    if (scale) scale.style.transform = 'scale(' + canvasZoom + ')';
+    if (canvas) canvas.style.setProperty('--rw-grid', (24 * canvasZoom) + 'px');
+    var pct = document.querySelector('.panel-group-detail .rw-zoom-pct');
+    if (pct) pct.textContent = Math.round(canvasZoom * 100) + '%';
+    drawRwLinks();
+    if (!opts.soft) renderServices({ soft: true, force: true });
   }
 
   function applyAutoArrange() {
@@ -4327,6 +4645,19 @@
     if (!canvas || canvas._dragBound) return;
     canvas._dragBound = true;
 
+    canvas.addEventListener('wheel', function(e){
+      if (!(e.metaKey || e.ctrlKey)) return;
+      e.preventDefault();
+      var step = e.deltaY > 0 ? -0.08 : 0.08;
+      setCanvasZoom((canvasZoom || 1) + step, { soft: true });
+      var scale = canvas.querySelector('.rw-board-scale');
+      if (scale) scale.style.transform = 'scale(' + canvasZoom + ')';
+      canvas.style.setProperty('--rw-grid', (24 * canvasZoom) + 'px');
+      var pct = document.querySelector('.panel-group-detail .rw-zoom-pct');
+      if (pct) pct.textContent = Math.round(canvasZoom * 100) + '%';
+      drawRwLinks();
+    }, { passive: false });
+
     function nodeFromEvent(e) {
       var t = e.target;
       if (!t || !t.closest) return null;
@@ -4349,22 +4680,30 @@
         origX: (canvasLayout.nodes[slug] && canvasLayout.nodes[slug].x) || 0,
         origY: (canvasLayout.nodes[slug] && canvasLayout.nodes[slug].y) || 0,
         moved: false,
+        captured: false,
         pointerId: e.pointerId
       };
-      try { wrap.setPointerCapture(e.pointerId); } catch (err) {}
-      wrap.classList.add('is-dragging');
-      canvas.classList.add('is-dragging');
+      // Do not capture yet — a plain click must open settings.
     });
 
     canvas.addEventListener('pointermove', function(e){
       if (!_canvasDrag || _canvasDrag.pointerId !== e.pointerId) return;
       var dx = e.clientX - _canvasDrag.startX;
       var dy = e.clientY - _canvasDrag.startY;
-      if (!_canvasDrag.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) _canvasDrag.moved = true;
+      if (!_canvasDrag.moved && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
+        _canvasDrag.moved = true;
+        if (!_canvasDrag.captured) {
+          _canvasDrag.captured = true;
+          try { _canvasDrag.wrap.setPointerCapture(e.pointerId); } catch (err) {}
+          _canvasDrag.wrap.classList.add('is-dragging');
+          canvas.classList.add('is-dragging');
+        }
+      }
       if (!_canvasDrag.moved) return;
       e.preventDefault();
-      var nx = Math.max(0, _canvasDrag.origX + dx);
-      var ny = Math.max(0, _canvasDrag.origY + dy);
+      var z = canvasZoom || 1;
+      var nx = Math.max(0, _canvasDrag.origX + dx / z);
+      var ny = Math.max(0, _canvasDrag.origY + dy / z);
       canvasLayout.nodes[_canvasDrag.slug] = { x: nx, y: ny };
       _canvasDrag.wrap.style.left = Math.round(nx) + 'px';
       _canvasDrag.wrap.style.top = Math.round(ny) + 'px';
@@ -4377,13 +4716,21 @@
       _canvasDrag = null;
       d.wrap.classList.remove('is-dragging');
       canvas.classList.remove('is-dragging');
-      try { d.wrap.releasePointerCapture(d.pointerId); } catch (err) {}
+      if (d.captured) {
+        try { d.wrap.releasePointerCapture(d.pointerId); } catch (err) {}
+      }
       if (d.moved) {
         d.wrap.setAttribute('data-skip-click', '1');
         setTimeout(function(){ d.wrap.removeAttribute('data-skip-click'); }, 0);
         applyCanvasPositionsDOM();
         saveCanvasLayout(false);
+        return;
       }
+      // Click (no drag) → open configuration. Suppress the follow-up DOM click
+      // so data-action=svc:settings does not toggle the drawer closed again.
+      d.wrap.setAttribute('data-skip-click', '1');
+      setTimeout(function(){ d.wrap.removeAttribute('data-skip-click'); }, 50);
+      openServiceSettings(d.slug);
     }
     canvas.addEventListener('pointerup', endDrag);
     canvas.addEventListener('pointercancel', endDrag);
@@ -4805,6 +5152,8 @@
           settingsDraft[settingsSlug] = {
             name: urlSvc.name || '', branch: urlSvc.branch || 'main',
             linked_database: urlSvc.linked_database || '',
+            linked_bucket: urlSvc.linked_bucket || '',
+            bucket_env: null,
             root_dir: urlSvc.root_dir || '',
             env: '',
             build_cmd: urlSvc.build_cmd || '',
@@ -4947,7 +5296,15 @@
         loadBranches(val, el.dataset.branch || '');
         return;
       }
-      if (pid === 'branch' && wizard) { wizard.branch = val; wizard.root_dir = wizard.root_dir || ''; renderModal(); loadDirs(); return; }
+      if (pid === 'branch' && wizard) {
+        wizard.branch = val;
+        wizard.root_dir_locked = false;
+        wizard.root_dir = '';
+        wizard.root_hint = '';
+        renderModal();
+        loadDirs();
+        return;
+      }
       if (pid === 'db' && wizard) {
         captureWizardDraft();
         wizard.linked_database = val;
@@ -4974,7 +5331,13 @@
         renderModal();
         return;
       }
-      if (pid === 'root' && wizard) { wizard.root_dir = val; renderModal(); return; }
+      if (pid === 'root' && wizard) {
+        wizard.root_dir = val;
+        wizard.root_dir_locked = true;
+        wizard.root_hint = rootHintForSelection(val);
+        renderModal();
+        return;
+      }
       if (pid === 'bucket' && wizard) {
         captureWizardDraft();
         wizard.linked_bucket = val;
@@ -4985,7 +5348,8 @@
           api('/api/groups/' + encodeURIComponent(activeGroup) + '/services/' + encodeURIComponent(val) + '/env')
             .then(function(r){
               if (!wizard || wizard.linked_bucket !== val) return;
-              wizard.bucket_env = parseEnvMapClient(r.env || r.env_json || '');
+              var bSvc = (deployed || []).filter(function(x){ return x.slug === val; })[0];
+              wizard.bucket_env = bucketEnvMapForService(bSvc, r.env || r.env_json || '');
               renderModal();
             })
             .catch(function(){});
@@ -5001,7 +5365,23 @@
       if (pid === 'link-bucket' && settingsSlug) {
         if (!settingsDraft[settingsSlug]) settingsDraft[settingsSlug] = {};
         settingsDraft[settingsSlug].linked_bucket = val;
-        renderServices({soft:true});
+        settingsDraft[settingsSlug].bucket_env = null;
+        folds[settingsSlug + ':env'] = true;
+        renderServices({soft:true, force:true});
+        if (val) {
+          api('/api/groups/' + encodeURIComponent(activeGroup) + '/services/' + encodeURIComponent(val) + '/env')
+            .then(function(r){
+              if (!settingsSlug || !settingsDraft[settingsSlug]) return;
+              if (settingsDraft[settingsSlug].linked_bucket !== val) return;
+              settingsDraft[settingsSlug].bucket_env = bucketEnvMapForService(
+                (deployed || []).filter(function(x){ return x.slug === val; })[0],
+                r.env || r.env_json || ''
+              );
+              renderDrawerPortal({ patchBody: true, forceRemount: false });
+              renderServices({ soft: true, force: true });
+            })
+            .catch(function(){});
+        }
         return;
       }
       if (pid === 'engine-pg') {
@@ -5147,7 +5527,16 @@
     }
     else if (id === 'wizard:github') { openWizard({step:'github'}); }
     else if (id === 'wizard:group') { openWizard({step:'group'}); }
-    else if (id === 'canvas:arrange') {
+    else if (id === 'canvas:zoom-in') {
+      setCanvasZoom((canvasZoom || 1) + 0.1);
+      return;
+    } else if (id === 'canvas:zoom-out') {
+      setCanvasZoom((canvasZoom || 1) - 0.1);
+      return;
+    } else if (id === 'canvas:zoom-reset') {
+      setCanvasZoom(1);
+      return;
+    } else if (id === 'canvas:arrange') {
       applyAutoArrange();
       return;
     } else if (id === 'wizard:open') {
@@ -5193,10 +5582,14 @@
         return;
       }
       var dbs0 = (deployed || []).filter(function(x){ return x.type === 'postgres'; });
+      var buckets0 = (deployed || []).filter(function(x){ return x.type === 'bucket'; });
       var capW = piCapacity();
       var goSpec = {
         step:'go', repo:'', branch:'', name:'',
         linked_database: dbs0.length===1?dbs0[0].slug:'',
+        linked_bucket: buckets0.length===1?buckets0[0].slug:'',
+        db_env: null,
+        bucket_env: null,
         branches:[], dirs:[], loadingBranches:false, loadingDirs:false,
         root_dir:'', memory_mb: Math.min(512, capW.maxMem), cpus: Math.min(1, capW.maxCpu), build_cmd:'',
         go_toolchain: (engineView && engineView.settings && engineView.settings.go_toolchain) || 'auto',
@@ -5214,11 +5607,22 @@
         wizard.port_used = (a && a.used) || [];
         renderModal();
       }).catch(function(){});
+      // Prefetch linked service credentials so env boards never sit on "linking…"
       if (goSpec.linked_database) {
         api('/api/groups/' + encodeURIComponent(activeGroup) + '/services/' + encodeURIComponent(goSpec.linked_database) + '/env')
           .then(function(r){
             if (!wizard || wizard.linked_database !== goSpec.linked_database) return;
             wizard.db_env = parseEnvMapClient(r.env || r.env_json || '');
+            renderModal();
+          })
+          .catch(function(){});
+      }
+      if (goSpec.linked_bucket) {
+        api('/api/groups/' + encodeURIComponent(activeGroup) + '/services/' + encodeURIComponent(goSpec.linked_bucket) + '/env')
+          .then(function(r){
+            if (!wizard || wizard.linked_bucket !== goSpec.linked_bucket) return;
+            var bSvc = (deployed || []).filter(function(x){ return x.slug === goSpec.linked_bucket; })[0];
+            wizard.bucket_env = bucketEnvMapForService(bSvc, r.env || r.env_json || '');
             renderModal();
           })
           .catch(function(){});
@@ -5305,12 +5709,15 @@
       var prior = (deployed || []).filter(function(s){ return s.slug === optSlug; })[0];
       var reusing = !!(prior || (deployed || []).some(function(s){ return s.name === payload.name; }));
       var assignedPort = (prior && prior.port) ? prior.port : ((wizard && wizard.port) || 0);
-      var linkedPreview = '';
+      var linkedPreview = payload.env || '';
       if (payload.linked_database) {
-        linkedPreview = mergeLinkedPreviewEnv(payload.env || '', (wizard && wizard.db_env) || {});
+        linkedPreview = mergeLinkedPreviewEnv(linkedPreview, (wizard && wizard.db_env) || {}, RESERVED_DB_KEYS);
+      }
+      if (payload.linked_bucket) {
+        linkedPreview = mergeLinkedPreviewEnv(linkedPreview, (wizard && wizard.bucket_env) || {}, BUCKET_ENV_KEYS);
       }
       if (assignedPort) {
-        linkedPreview = upsertEnvClient(linkedPreview || payload.env || '', 'PORT', String(assignedPort));
+        linkedPreview = upsertEnvClient(linkedPreview || '', 'PORT', String(assignedPort));
       }
       runServiceJob({
         closeWizard: true,
@@ -5341,6 +5748,7 @@
             branch: payload.branch || 'main',
             linked_database: payload.linked_database || '',
             linked_bucket: payload.linked_bucket || '',
+            bucket_env: (wizard && wizard.bucket_env) || null,
             root_dir: payload.root_dir || '',
             env: linkedPreview || payload.env || '',
             build_cmd: payload.build_cmd || '',
@@ -5359,12 +5767,32 @@
           var sslug = settingsSlug;
           if (sslug) {
             if (!settingsDraft[sslug]) settingsDraft[sslug] = {};
-            if (svc && svc.linked_database) settingsDraft[sslug].linked_database = svc.linked_database;
-            loadServiceEnv(sslug, { force: true }).then(function(){
-              renderServices({ soft: true, _skipEnvSync: true });
+            if (svc) {
+              settingsDraft[sslug].linked_database = svc.linked_database || '';
+              settingsDraft[sslug].linked_bucket = svc.linked_bucket || '';
+            }
+            loadServiceEnv(sslug, { force: true }).then(function(next){
+              if (next != null && String(next).trim() !== '' && settingsDraft[sslug]) {
+                settingsDraft[sslug].env = next;
+              }
+              // App env now has injected refs — drop preview cache when ready.
+              if (settingsDraft[sslug] && settingsDraft[sslug].linked_bucket) {
+                var board = bucketLinkBoardMap(
+                  settingsDraft[sslug].linked_bucket,
+                  settingsDraft[sslug].env || '',
+                  settingsDraft[sslug].bucket_env
+                );
+                if (board.ready && !board.preview) settingsDraft[sslug].bucket_env = null;
+              }
+              renderServices({ soft: true, force: true, _skipEnvSync: true });
+              if (settingsSlug === sslug) renderDrawerPortal({ patchBody: true });
               setTimeout(function(){
-                loadServiceEnv(sslug, { force: true }).then(function(){
-                  renderServices({ soft: true, _skipEnvSync: true });
+                loadServiceEnv(sslug, { force: true }).then(function(next2){
+                  if (next2 != null && String(next2).trim() !== '' && settingsDraft[sslug]) {
+                    settingsDraft[sslug].env = next2;
+                  }
+                  renderServices({ soft: true, force: true, _skipEnvSync: true });
+                  if (settingsSlug === sslug) renderDrawerPortal({ patchBody: true });
                 });
               }, 1200);
             });
@@ -5855,43 +6283,11 @@
       e.stopPropagation();
       closeSettingsDrawer({ animate: true });
       return;
-    } else if (id.indexOf('svc:settings:') === 0) {
+        } else if (id.indexOf('svc:settings:') === 0) {
       var skipNode = e.target && e.target.closest && e.target.closest('.rw-node-wrap[data-skip-click]');
       if (skipNode) return;
-      var sslug = id.split(':').slice(2).join(':');
-      if (settingsSlug === sslug) {
-        settingsSlug = null;
-        Object.keys(folds).forEach(function(k){ if (k.indexOf(sslug+':')===0) delete folds[k]; });
-        renderServices({animate:true});
-        syncRouteFromState();
-        return;
-      }
-      if (settingsSlug) {
-        var prev = settingsSlug;
-        Object.keys(folds).forEach(function(k){ if (k.indexOf(prev+':')===0) delete folds[k]; });
-      }
-      settingsSlug = sslug;
-      var svc = (deployed || []).filter(function(x){ return x.slug === sslug; })[0];
-      Object.keys(folds).forEach(function(k){ if (k.indexOf(sslug+':')===0) folds[k] = false; });
-      var openDeploys = !!(svc && svc.type !== 'postgres' && (
-        (svc.deployments && svc.deployments.length) ||
-        svc.status === 'building' ||
-        (svc.deployments || []).some(function(d){ return d.status === 'building' || d.status === 'queued'; })
-      ));
-      folds[sslug + (openDeploys ? ':deploys' : ':access')] = true;
-      // Open panel immediately with known service fields; env fills in right after.
-      settingsDraft[sslug] = {
-        name: svc ? svc.name : '', branch: svc ? svc.branch : 'main',
-        linked_database: svc ? (svc.linked_database || '') : '',
-        root_dir: svc ? (svc.root_dir || '') : '',
-        env: (settingsDraft[sslug] && settingsDraft[sslug].env) || '',
-        build_cmd: svc ? (svc.build_cmd || '') : '',
-        memory_mb: svc ? (svc.memory_mb || 512) : 512,
-        cpus: svc ? (svc.cpus || 1) : 1,
-        auto_deploy: !!(svc && svc.auto_deploy)
-      };
-      renderServices({ soft: true, force: true });
-      syncRouteFromState();
+      e.stopPropagation();
+      openServiceSettings(id.split(':').slice(2).join(':'));
     } else if (id.indexOf('svc:save:') === 0) {
       var saveslug = id.split(':').slice(2).join(':');
       captureSettingsDrafts();
@@ -5906,7 +6302,32 @@
           };
       api('/api/groups/' + encodeURIComponent(activeGroup) + '/services/' + encodeURIComponent(saveslug) + '/settings', {
         method:'PUT', body:JSON.stringify(saveBody)
-      }).then(function(svc){ showToast((svc && svc.type === 'go') ? 'Saved · container restarted' : 'Saved'); return refreshServices(); })
+      }).then(function(svc){
+          showToast((svc && svc.type === 'go') ? 'Saved · container restarted' : 'Saved');
+          if (svc && settingsDraft[saveslug]) {
+            settingsDraft[saveslug].linked_database = svc.linked_database || '';
+            settingsDraft[saveslug].linked_bucket = svc.linked_bucket || '';
+          }
+          return refreshServices({ soft: true }).then(function(){
+            if (!(svc && svc.type === 'go')) return;
+            return loadServiceEnv(saveslug, { force: true }).then(function(next){
+              if (!settingsDraft[saveslug]) return;
+              if (next != null && String(next).trim() !== '') settingsDraft[saveslug].env = next;
+              // Once applied, drop preview — board reads refs from app env.
+              if (svc.linked_bucket) {
+                /* keep bucket_env as fallback until env has keys */
+                var board = bucketLinkBoardMap(svc.linked_bucket, settingsDraft[saveslug].env || '', settingsDraft[saveslug].bucket_env);
+                if (board.ready && !board.preview) settingsDraft[saveslug].bucket_env = null;
+              } else {
+                settingsDraft[saveslug].bucket_env = null;
+              }
+              if (settingsSlug === saveslug) {
+                renderDrawerPortal({ patchBody: true });
+                renderServices({ soft: true, force: true });
+              }
+            });
+          });
+        })
         .catch(function(e){ showToast(e.message || 'Save failed'); });
     } else if (id.indexOf('sql:preset:') === 0) {
       var pp = id.split(':');
@@ -6087,7 +6508,10 @@
 
   function loadBranches(repo, preferred) {
     if (!wizard || !repo) return Promise.resolve();
-    wizard.loadingBranches = true; wizard.loadingDirs = true; wizard.repo = repo; wizard.dirs = []; renderModal();
+    wizard.loadingBranches = true; wizard.loadingDirs = true; wizard.repo = repo;
+    wizard.dirs = []; wizard.go_modules = []; wizard.root_dir = ''; wizard.root_dir_locked = false;
+    wizard.root_has_go_mod = false; wizard.suggested_root = ''; wizard.root_hint = 'Scanning for go.mod…';
+    renderModal();
     return api('/api/github/branches?repo=' + encodeURIComponent(repo))
       .then(function(r){
         var list = r.branches || [];
@@ -6106,9 +6530,47 @@
     wizard.loadingDirs = true; renderModal();
     var q = '/api/github/dirs?repo=' + encodeURIComponent(wizard.repo) + '&branch=' + encodeURIComponent(wizard.branch || 'main');
     return api(q)
-      .then(function(r){ wizard.dirs = r.dirs || []; })
-      .catch(function(){ wizard.dirs = []; })
+      .then(function(r){
+        wizard.dirs = r.dirs || [];
+        wizard.go_modules = r.go_modules || [];
+        wizard.root_has_go_mod = !!r.root_has_go_mod;
+        wizard.suggested_root = (r.suggested_root != null) ? r.suggested_root : '';
+        wizard.root_hint = r.suggest_reason || '';
+        // Autoselect detected module unless the user already overrode Root.
+        if (!wizard.root_dir_locked) {
+          wizard.root_dir = wizard.suggested_root || '';
+        }
+        wizard.root_hint = rootHintForSelection(wizard.root_dir);
+      })
+      .catch(function(){
+        wizard.dirs = [];
+        wizard.go_modules = [];
+        wizard.root_has_go_mod = false;
+        wizard.suggested_root = '';
+        wizard.root_hint = 'Could not scan repo for go.mod';
+      })
       .finally(function(){ wizard.loadingDirs = false; renderModal(); });
+  }
+
+  function rootHasGoModAt(path) {
+    path = String(path || '');
+    if (path === '') return !!wizard.root_has_go_mod;
+    return (wizard.go_modules || []).some(function(m){ return m && m.has_go_mod && String(m.path) === path; });
+  }
+
+  function rootHintForSelection(path) {
+    path = String(path || '');
+    if (!wizard || !wizard.repo) return '';
+    if (wizard.loadingDirs) return 'Scanning for go.mod…';
+    if (path === '') {
+      return wizard.root_has_go_mod
+        ? 'Using repository root · go.mod found'
+        : (wizard.root_hint && wizard.root_hint.indexOf('Detected') === 0
+            ? wizard.root_hint
+            : 'No go.mod at repository root — pick a folder that has one');
+    }
+    if (rootHasGoModAt(path)) return 'Using '+path+'/ · go.mod found';
+    return 'Using '+path+'/ · no go.mod detected here (override OK if you know the path)';
   }
 
   /* === 09-activity.js === */
@@ -6857,7 +7319,7 @@
       return;
     }
     if (e.target && e.target.getAttribute && e.target.getAttribute('data-name-compose')) {
-      if (wizard && e.target.id === 'wiz-pg-name') wizard.name = e.target.value || '';
+      if (wizard && (e.target.id === 'wiz-pg-name' || e.target.id === 'wiz-bucket-name')) wizard.name = e.target.value || '';
       syncNameComposePreview(e.target);
       return;
     }
