@@ -1,0 +1,37 @@
+# Binaries / build output
+/firewifi-dashboard
+/dashboard
+*.exe
+*.test
+*.out
+
+# Go workspace / vendor (if ever added)
+/vendor/
+
+# Secrets & local env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.token
+id_ed25519*
+*_rsa
+*_rsa.pub
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Cursor / local scratch (never publish)
+.cursor/
+.patch-audit/
+.patch-fw/
+.tmp-*/
+.tmp-*/
+
+# Logs
+*.log

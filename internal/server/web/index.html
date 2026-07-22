@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en" data-motion="off" data-boot="off">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0c0d12">
+  <title>FireWifi</title>
+  <link rel="stylesheet" href="/assets/dashboard.css">
+</head>
+<body>
+  <div class="app-shell">
+    <nav class="app-rail" id="app-rail" aria-label="Main navigation"></nav>
+    <div class="app-body">
+      <header class="topbar">
+        <div class="brand">
+          <h1>FireWifi</h1>
+          <p>Pi hotspot</p>
+        </div>
+        <div class="live"><span id="live-dot" class="pulse"></span><span id="live-text">Connecting</span></div>
+      </header>
+      <main id="app" class="app-content"></main>
+    </div>
+  </div>
+  <div id="drawer-root" hidden></div>
+  <div id="modal-root"></div>
+  <aside id="activity" class="activity" hidden>
+    <div class="activity-head">
+      <div class="activity-titles">
+        <strong id="activity-title">Activity</strong>
+        <span id="activity-scope" class="ghost" hidden></span>
+      </div>
+      <div class="activity-tools">
+        <span id="activity-status" class="activity-pill"></span>
+        <button type="button" class="btn btn-quiet" data-action="activity:copy" title="Copy all build logs">Copy all</button>
+        <button type="button" class="btn btn-quiet" id="activity-follow" data-action="activity:follow" hidden title="Resume auto-scroll">Follow</button>
+        <button type="button" class="btn btn-quiet" data-action="activity:toggle">Collapse</button>
+        <button type="button" class="btn btn-quiet" data-action="activity:close">Close</button>
+      </div>
+    </div>
+    <div id="activity-progress" class="activity-progress" hidden>
+      <div class="ap-top">
+        <div class="ap-meta">
+          <span id="ap-step" class="ap-step">Starting…</span>
+          <span id="ap-remain" class="ap-remain"></span>
+        </div>
+        <span id="ap-pct" class="ap-pct" aria-live="polite">0%</span>
+      </div>
+      <div class="ap-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="ap-bar">
+        <div id="ap-fill" class="ap-fill"></div>
+      </div>
+      <ol id="ap-steps" class="ap-steps"></ol>
+    </div>
+    <div id="activity-log" class="activity-log" aria-live="polite"></div>
+  </aside>
+  <div id="toast" class="toast"></div>
+  <script id="initial-state" type="application/json">__STATE__</script>
+  <script src="/assets/js/app.js" defer></script>
+</body>
+</html>
