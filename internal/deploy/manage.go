@@ -8,12 +8,13 @@ import (
 
 // ManageOverview is a single snapshot for the Storage / Network tabs.
 type ManageOverview struct {
-	DeployBytes int64           `json:"deploy_bytes"`
-	CacheBytes  int64           `json:"cache_bytes"`
-	GroupBytes  int64           `json:"group_bytes"`
-	Published   []PublishedPort `json:"published"`
-	Docker      DockerInventory `json:"docker"`
-	DockerError string          `json:"docker_error,omitempty"`
+	DeployBytes int64              `json:"deploy_bytes"`
+	CacheBytes  int64              `json:"cache_bytes"`
+	GroupBytes  int64              `json:"group_bytes"`
+	Published   []PublishedPort    `json:"published"`
+	Docker      DockerInventory    `json:"docker"`
+	DockerError string             `json:"docker_error,omitempty"`
+	Daemon      DockerDaemonStatus `json:"daemon"`
 }
 
 // PublishedPort is a service or container reachable on the Pi.
@@ -42,6 +43,8 @@ func (m *Manager) ManageOverview(ctx context.Context) (ManageOverview, error) {
 			Volumes:    []DockerVolume{},
 		},
 	}
+
+	out.Daemon = m.DockerDaemon(ctx)
 
 	if inv, err := m.DockerInventory(ctx); err == nil {
 		if inv.Disk == nil {

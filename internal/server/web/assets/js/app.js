@@ -5,6 +5,7 @@
   var config = null;
   var busy = {};
   var formDirty = false;
+  var hotspotSettingsOpen = false;
   var github = null;
   var groups = [];
   var activeGroup = null;
@@ -110,12 +111,51 @@
   }
   function fmtRate(n) { return fmtBytes(n) + '/s'; }
   function clamp(n) { n = Number(n || 0); return Math.max(0, Math.min(100, n)); }
-  function metric(label, value, detail, percent, cls) {
-    var p = clamp(percent).toFixed(0) + '%';
-    return '<div class="metric"><div class="k">'+esc(label)+'</div><div class="v">'+esc(value)+'</div><div class="d">'+esc(detail)+'</div><div class="bar '+esc(cls||'')+'" style="--p:'+esc(p)+'"><span></span></div></div>';
+
+  function ico(name, cls) {
+    var c = 'ico' + (cls ? (' ' + cls) : '');
+    var common = ' class="'+c+'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+    var paths = {
+      db: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
+      app: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6M9 13h6M9 17h4"/>',
+      play: '<polygon points="8,5 19,12 8,19" fill="currentColor" stroke="none"/>',
+      stop: '<rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" stroke="none"/>',
+      refresh: '<path d="M21 12a9 9 0 1 1-2.6-6.2"/><polyline points="21,3 21,9 15,9"/>',
+      logs: '<path d="M8 6h12M8 12h12M8 18h8"/><circle cx="4" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1" fill="currentColor" stroke="none"/>',
+      open: '<path d="M14 4h6v6"/><path d="M10 14L20 4"/><path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5"/>',
+      copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10"/>',
+      globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+      chev: '<path d="M9 6l6 6-6 6"/>',
+      back: '<path d="M15 6l-6 6 6 6"/>',
+      plus: '<path d="M12 5v14M5 12h14"/>',
+      trash: '<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/>',
+      link: '<path d="M10 13a5 5 0 0 0 7.1 0l2.1-2.1a5 5 0 0 0-7.1-7.1L10.9 5"/><path d="M14 11a5 5 0 0 0-7.1 0L4.8 13.1a5 5 0 0 0 7.1 7.1L13.1 19"/>',
+      close: '<path d="M18 6L6 18M6 6l12 12"/>',
+      github: '<path d="M9 19c-4.3 1.4-4.3-2.1-6-2.1"/><path d="M15 22v-3.9a3.4 3.4 0 0 0-1-2.4c3.2-.4 6.6-1.6 6.6-7.1A5.4 5.4 0 0 0 19.5 5a5 5 0 0 0-.1-3.7S18.2 1 15.8 2.7a9.4 9.4 0 0 0-6.6 0C6.8 1 5.6 1.3 5.6 1.3A5 5 0 0 0 5.5 5 5.4 5.4 0 0 0 4 9.6c0 5.5 3.4 6.7 6.6 7.1a3.4 3.4 0 0 0-1 2.4V22"/>',
+      docker: '<path d="M4 15h2v2H4zM7 15h2v2H7zM10 15h2v2h-2zM13 15h2v2h-2zM7 12h2v2H7zM10 12h2v2h-2zM13 12h2v2h-2zM10 9h2v2h-2z"/><path d="M3 18h13.5a4.5 4.5 0 0 0 1.2-8.8 5.5 5.5 0 0 0-10.3-1.6A4 4 0 0 0 3 14.5"/>',
+      cpu: '<rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 9h6v6H9zM9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 15h3M1 9h3M1 15h3"/>',
+      memory: '<rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 7v10M12 7v10M17 7v10"/>',
+      thermal: '<path d="M12 3a3 3 0 0 1 3 3v7.1a4 4 0 1 1-6 0V6a3 3 0 0 1 3-3z"/><path d="M12 14v3"/>',
+      disk: '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
+      download: '<path d="M12 4v12"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/>',
+      upload: '<path d="M12 20V8"/><path d="M7 13l5-5 5 5"/><path d="M5 4h14"/>',
+      shield: '<path d="M12 3l8 3v6c0 5-3.4 8.4-8 9-4.6-.6-8-4-8-9V6l8-3z"/>',
+      settings: '<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.86 1.01 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+      storage: '<path d="M4 7h16v4H4zM4 13h16v4H4z"/><circle cx="8" cy="9" r="1" fill="currentColor" stroke="none"/><circle cx="8" cy="15" r="1" fill="currentColor" stroke="none"/>',
+      spark: '<path d="M12 3l1.5 5.5L19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5L12 3z"/>'
+    };
+    return '<svg'+common+'>'+(paths[name] || '')+'</svg>';
   }
-  function btn(label, id, cls, disabled) {
-    return '<button type="button" class="btn '+(cls||'')+(busy[id]?' loading':'')+'" data-action="'+esc(id)+'" '+(disabled || busy[id] ? 'disabled' : '')+'><span class="spinner"></span><span>'+esc(label)+'</span></button>';
+
+  function metric(label, value, detail, percent, cls, icon) {
+    var p = clamp(percent).toFixed(0) + '%';
+    var key = cls || String(label || '').toLowerCase();
+    var ic = icon ? ('<span class="metric-ico" aria-hidden="true">'+ico(icon)+'</span>') : '';
+    return '<div class="metric'+(icon?' has-ico':'')+'" data-metric="'+esc(key)+'">'+ic+'<div class="metric-body"><div class="k">'+esc(label)+'</div><div class="v">'+esc(value)+'</div><div class="d">'+esc(detail)+'</div><div class="bar '+esc(cls||'')+'" style="--p:'+esc(p)+'"><span style="width:'+esc(p)+'"></span></div></div></div>';
+  }
+  function btn(label, id, cls, disabled, icon) {
+    var ic = icon ? ico(icon) : '';
+    return '<button type="button" class="btn '+(cls||'')+(busy[id]?' loading':'')+(icon?' has-ico':'')+'" data-action="'+esc(id)+'" '+(disabled || busy[id] ? 'disabled' : '')+'><span class="spinner"></span>'+ic+'<span>'+esc(label)+'</span></button>';
   }
   function field(label, name, value, type) {
     return '<label>'+esc(label)+'<input type="'+esc(type||'text')+'" name="'+esc(name)+'" value="'+esc(value)+'" autocomplete="off"></label>';
@@ -177,16 +217,16 @@
     var temp = Number(thermal.temperature_celsius || 0);
     return ''
       +'<section class="panel panel-live" id="panel-monitoring">'
-          +'<div class="head"><h2>System</h2><span class="hint">Live</span></div>'
+          +'<div class="head"><h2>'+ico('spark')+' System</h2><span class="hint">Live</span></div>'
           +'<div class="metrics metrics-dense">'
-            +metric('CPU', fmtPct(cpu.busy_percent), 'Idle ' + fmtPct(cpu.idle_percent), cpu.busy_percent, 'cpu')
-            +metric('Memory', fmtPct(mem.used_percent), fmtBytes(mem.used_bytes), mem.used_percent, 'memory')
-            +metric('Thermal', thermal.available ? temp.toFixed(0) + '°' : 'n/a', thermal.throttle_known ? (thermal.throttled ? 'Throttled' : 'OK') : 'Sensor', temp / 85 * 100, 'thermal')
-            +metric('Disk', fmtPct(storage.used_percent), fmtBytes(storage.used_bytes), storage.used_percent, 'storage')
+            +metric('CPU', fmtPct(cpu.busy_percent), 'Idle ' + fmtPct(cpu.idle_percent), cpu.busy_percent, 'cpu', 'cpu')
+            +metric('Memory', fmtPct(mem.used_percent), fmtBytes(mem.used_bytes), mem.used_percent, 'memory', 'memory')
+            +metric('Thermal', thermal.available ? temp.toFixed(0) + '°' : 'n/a', thermal.throttle_known ? (thermal.throttled ? 'Throttled' : 'OK') : 'Sensor', temp / 85 * 100, 'thermal', 'thermal')
+            +metric('Disk', fmtPct(storage.used_percent), fmtBytes(storage.used_bytes), storage.used_percent, 'storage', 'disk')
           +'</div>'
           +'<div class="net net-dense">'
-            +'<div><span>↓ Down</span><strong>'+esc(fmtRate(net.down_bytes_per_sec))+'</strong></div>'
-            +'<div><span>↑ Up</span><strong>'+esc(fmtRate(net.up_bytes_per_sec))+'</strong></div>'
+            +'<div><span class="net-lab">'+ico('download')+' Down</span><strong>'+esc(fmtRate(net.down_bytes_per_sec))+'</strong></div>'
+            +'<div><span class="net-lab">'+ico('upload')+' Up</span><strong>'+esc(fmtRate(net.up_bytes_per_sec))+'</strong></div>'
           +'</div>'
         +'</section>';
   }
@@ -198,7 +238,7 @@
       +'<section class="panel panel-live" id="panel-vpn">'
           +'<div class="vpn-top">'
             +'<div class="vpn-title">'
-              +'<div class="big">'+esc(mode === 'residential' ? 'Residential' : 'Mullvad')+'</div>'
+              +'<div class="big">'+ico('shield')+' '+esc(mode === 'residential' ? 'Residential' : 'Mullvad')+'</div>'
               +'<div class="route">'+esc(routeLabel(mode))+'</div>'
             +'</div>'
             +'<div class="pill '+esc(h.cls)+'"><span class="pulse '+(h.cls === 'off' ? 'off' : '')+'"></span>'+esc(h.text)+'</div>'
@@ -208,17 +248,17 @@
             +'<button type="button" data-action="mode:residential" class="'+(mode === 'residential' ? 'active' : '')+'" '+(busy['mode:mullvad'] || busy['mode:residential'] ? 'disabled' : '')+'>Residential</button>'
           +'</div>'
           +'<div class="actions">'
-            +btn('Start', 'hotspot:start', 'primary', s.hotspot_running)
-            +btn('Stop', 'hotspot:stop', '', !s.hotspot_running)
-            +btn('Restart', 'hotspot:restart', '', false)
+            +btn('Start', 'hotspot:start', 'primary', s.hotspot_running, 'play')
+            +btn('Stop', 'hotspot:stop', 'danger-soft', !s.hotspot_running, 'stop')
+            +btn('Restart', 'hotspot:restart', 'btn-quiet', false, 'refresh')
           +'</div>'
           +'<div class="rows">'
             +'<div class="row"><span>SSID</span><strong>'+esc(s.ssid || '—')+'</strong></div>'
             +'<div class="row"><span>Gateway</span><strong>'+esc(s.hotspot_ip || '—')+'</strong></div>'
             +'<div class="row"><span>DHCP</span><strong>'+esc(dhcp)+'</strong></div>'
           +'</div>'
-          +'<details class="settings">'
-            +'<summary>Edit hotspot settings</summary>'
+          +'<details class="settings"'+(hotspotSettingsOpen ? ' open' : '')+'>'
+            +'<summary>'+ico('settings')+' Edit hotspot settings</summary>'
             +'<form id="config-form">'
               +'<div class="fields">'
                 +field('SSID', 'ssid', c.ssid || s.ssid || '')
@@ -227,7 +267,7 @@
                 +field('DHCP start', 'dhcp_start', c.dhcp_start || s.dhcp_start || '')
                 +field('DHCP end', 'dhcp_end', c.dhcp_end || s.dhcp_end || '')
               +'</div>'
-              +'<div class="form-actions"><button type="submit" class="btn primary '+(busy.config?'loading':'')+'" '+(busy.config?'disabled':'')+'><span class="spinner"></span><span>Save</span></button></div>'
+              +'<div class="form-actions"><button type="submit" class="btn primary has-ico '+(busy.config?'loading':'')+'" '+(busy.config?'disabled':'')+'><span class="spinner"></span>'+ico('spark')+'<span>Save</span></button></div>'
             +'</form>'
           +'</details>'
         +'</section>';
@@ -577,7 +617,12 @@
       var nTrack = b.querySelector(trackSel);
       var val = a.querySelector(valSel);
       var nVal = b.querySelector(valSel);
-      if (fill && nFill) fill.style.width = nFill.style.width;
+      if (fill && nFill) {
+        var nextW = nFill.style.width;
+        if (fill.style.width !== nextW) {
+          requestAnimationFrame(function(){ fill.style.width = nextW; });
+        }
+      }
       if (track && nTrack) {
         var now = nTrack.getAttribute('aria-valuenow');
         if (now != null) track.setAttribute('aria-valuenow', now);
@@ -611,7 +656,9 @@
   }
 
   function patchServiceUsageDOM() {
-    var root = document.querySelector('.panel-group-detail .svc-list') || document;
+    // Lanes each have their own .svc-list — scope to the whole group panel
+    // so App cards are patched, not only the first (Databases) list.
+    var root = document.querySelector('.panel-group-detail') || document;
     (deployed || []).forEach(function(svc) {
       if (!svc || !svc.slug) return;
       var card = root.querySelector('.svc-card[data-slug="'+svc.slug+'"]');
@@ -1252,50 +1299,71 @@
             +'<span class="gh-dot"></span>'
             +'<span class="gh-label">'+esc((gh.user && gh.user.login) || 'GitHub')+'</span>'
           +'</div>'
-          +'<p class="ghost">Deploy Go apps from your repositories. Disconnect here to switch accounts.</p>'
+          +'<p class="ghost">Connected. Disconnect to switch accounts.</p>'
           +'<div class="inline-actions">'
-            +'<button type="button" class="btn btn-quiet" data-action="github:clear">Disconnect GitHub</button>'
+            +'<button type="button" class="btn btn-quiet danger-soft has-ico" data-action="github:clear">'+ico('close')+'<span>Disconnect</span></button>'
           +'</div>'
         +'</div>';
     }
     return ''
-      +'<div class="settings-gh ws-empty">'
-        +'<strong>Connect GitHub</strong>'
+      +'<div class="settings-gh settings-gh-empty">'
         +'<p>Link your account to pick repositories when deploying apps.</p>'
-        +'<button type="button" class="btn primary" data-action="wizard:github">Connect GitHub</button>'
+        +'<button type="button" class="btn primary has-ico" data-action="wizard:github">'+ico('github')+'<span>Connect GitHub</span></button>'
       +'</div>';
   }
 
-  function settingsSeg() {
-    var tabs = [
-      { id: 'github', label: 'GitHub' },
-      { id: 'storage', label: 'Storage' }
-    ];
+  function settingsSection(opts) {
+    opts = opts || {};
     return ''
-      +'<div class="ws-tabs" role="tablist" aria-label="Settings">'
-        + tabs.map(function(t){
-            return '<button type="button" role="tab" class="'+(settingsTab===t.id?'active':'')+'" data-action="settings:tab:'+t.id+'" aria-selected="'+(settingsTab===t.id?'true':'false')+'">'+esc(t.label)+'</button>';
-          }).join('')
-      +'</div>';
+      +'<section class="settings-section'+(opts.cls ? (' '+opts.cls) : '')+'"'+(opts.id ? (' id="'+esc(opts.id)+'"') : '')+'>'
+        +'<header class="settings-section-head">'
+          +(opts.icon ? ('<span class="settings-section-ico" aria-hidden="true">'+ico(opts.icon)+'</span>') : '')
+          +'<div class="settings-section-titles">'
+            +'<h3>'+esc(opts.title || '')+'</h3>'
+            +(opts.sub ? ('<p class="ghost">'+opts.sub+'</p>') : '')
+          +'</div>'
+          +(opts.action || '')
+        +'</header>'
+        +'<div class="settings-section-body">'+(opts.body || '')+'</div>'
+      +'</section>';
   }
 
   function settingsWorkspaceView(s) {
-    var tab = settingsTab || 'github';
-    var body = tab === 'storage' ? storagePanelBody(s) : githubSettingsPanel(github);
+    var ghBody = githubSettingsPanel(github);
+    var storageBody = storagePanelBody(s);
+    var refreshAct = ''
+      +'<div class="settings-section-actions">'
+        +btn('Refresh', 'docker:refresh', 'btn-quiet btn-compact', manageLoading || busy['docker:refresh'], 'refresh')
+      +'</div>';
     return ''
       +'<div class="nav-page" data-view="settings">'
         +'<div class="rack">'
           +'<section class="panel panel-svc panel-manage panel-workspace panel-settings">'
             +'<header class="ws-head ws-head-settings">'
               +'<div class="ws-head-top">'
-                +'<div class="ws-title-block"><h2>Settings</h2></div>'
-                +(tab === 'storage'
-                  ? ('<div class="ws-head-actions">'+btn('Refresh', 'docker:refresh', 'btn-quiet btn-compact', manageLoading || busy['docker:refresh'])+'</div>')
-                  : '')
+                +'<div class="ws-title-block">'
+                  +'<h2><span class="ws-title-ico" aria-hidden="true">'+ico('settings')+'</span> Settings</h2>'
+                  +'<p class="ghost">Account and host storage</p>'
+                +'</div>'
               +'</div>'
-              +settingsSeg()
             +'</header>'
-            +'<div class="ws-body settings-body">'+(body || '')+'</div>'
+            +'<div class="ws-body settings-body settings-stack">'
+              +settingsSection({
+                id: 'settings-github',
+                icon: 'github',
+                title: 'GitHub',
+                sub: 'Deploy Go apps from your repositories.',
+                body: ghBody
+              })
+              +settingsSection({
+                id: 'settings-storage',
+                icon: 'storage',
+                title: 'Storage',
+                sub: 'Disk, Docker inventory, and the shared Postgres engine.',
+                action: refreshAct,
+                body: storageBody
+              })
+            +'</div>'
           +'</section>'
         +'</div>'
       +'</div>';
@@ -1328,13 +1396,14 @@
     if (disk) bits.push(disk);
     return ''
       +'<button type="button" class="group-tile'+(isActive ? ' active' : '')+'" data-action="group:open:'+esc(g.slug)+'">'
+        +'<span class="group-tile-ico" aria-hidden="true">'+ico('app')+'</span>'
         +'<div class="group-tile-main">'
           +'<div class="group-tile-title">'+esc(g.name || g.slug)+'</div>'
           +'<div class="group-tile-sub"><span class="mono">'+esc(g.slug)+'</span>'
             +(bits.length ? (' · ' + esc(bits.join(' · '))) : '')
           +'</div>'
         +'</div>'
-        +'<span class="group-tile-chev" aria-hidden="true"></span>'
+        +'<span class="group-tile-chev" aria-hidden="true">'+ico('chev')+'</span>'
       +'</button>';
   }
 
@@ -1342,7 +1411,7 @@
     var n = (groups || []).length;
     var cards = (groups || []).map(function(g){ return groupTileHTML(g, activeGroup === g.slug); }).join('');
     var errBlock = groupsError && !navLoading
-      ? ('<div class="ws-empty ws-empty-compact" role="alert"><strong>Could not load groups</strong><p>'+esc(groupsError)+'</p><button type="button" class="btn primary btn-compact" data-action="projects:retry">Retry</button></div>')
+      ? ('<div class="ws-empty ws-empty-compact" role="alert"><strong>Could not load groups</strong><p>'+esc(groupsError)+'</p><button type="button" class="btn primary btn-compact has-ico" data-action="projects:retry">'+ico('refresh')+'<span>Retry</span></button></div>')
       : '';
     var empty = ''
       +'<div class="ws-empty ws-empty-compact">'
@@ -1353,7 +1422,7 @@
     return ''
       +'<div class="ws-col ws-col-groups">'
         +'<div class="ws-section-head">'
-          +'<div class="ws-section-title"><h3>Groups</h3><span class="gd-count">'+String(n)+'</span></div>'
+          +'<div class="ws-section-title"><h3>'+ico('app')+' Groups</h3><span class="gd-count">'+String(n)+'</span></div>'
         +'</div>'
         +'<div class="group-tile-list group-tile-list-col">'+body+'</div>'
       +'</div>';
@@ -1378,10 +1447,10 @@
           +'<section class="panel panel-svc panel-manage panel-workspace panel-projects-crm">'
             +'<header class="ws-head">'
               +'<div class="ws-head-main">'
-                +'<div class="ws-title-block"><h2>Projects</h2><p class="ghost">Groups &amp; services</p></div>'
+                +'<div class="ws-title-block"><h2><span class="ws-title-ico" aria-hidden="true">'+ico('app')+'</span> Projects</h2><p class="ghost">Groups &amp; services</p></div>'
               +'</div>'
               +'<div class="ws-head-actions">'
-                +'<button type="button" class="btn primary btn-compact" data-action="wizard:group">New group</button>'
+                +'<button type="button" class="btn primary btn-compact has-ico" data-action="wizard:group">'+ico('plus')+'<span>New group</span></button>'
               +'</div>'
             +'</header>'
             +'<div class="ws-body projects-split">'
@@ -1404,7 +1473,7 @@
     var savedName = g.name || g.slug;
     var nameDirty = String(draftName).trim() !== String(savedName).trim();
     var empty = navLoading
-      ? ('<div class="gd-empty gd-empty-loading"><div class="nav-spinner" aria-hidden="true"></div><p>Loading…</p></div>')
+      ? ('<div class="gd-empty gd-empty-loading" role="status" aria-live="polite"><div class="nav-spinner" aria-hidden="true"></div><p>Loading services…</p></div>')
       : servicesError
       ? ('<div class="gd-empty" role="alert"><strong>Could not load services</strong><p>'+esc(servicesError)+'</p><button type="button" class="btn primary" data-action="projects:retry">Retry</button></div>')
       : (''
@@ -1412,7 +1481,7 @@
           +'<div class="gd-empty-ill" aria-hidden="true">'+ico('plus')+'</div>'
           +'<strong>Nothing here yet</strong>'
           +'<p>Add a database first, then an app — link them so the app gets <code>DB_*</code> automatically.</p>'
-          +'<button type="button" class="btn primary" data-action="wizard:open">'+ico('plus')+' Add service</button>'
+          +'<button type="button" class="btn primary has-ico" data-action="wizard:open">'+ico('plus')+'<span>Add service</span></button>'
         +'</div>');
     function lane(opts) {
       return ''
@@ -1421,7 +1490,7 @@
             +'<div class="svc-lane-title">'+ico(opts.ico)+'<h3>'+esc(opts.title)+'</h3><span class="gd-count">'+opts.count+'</span></div>'
             +(opts.action || '')
           +'</div>'
-          +'<div class="svc-grid-canvas"><div class="svc-list svc-grid'+(navLoading?' is-loading':'')+'">'+(opts.body || '')+'</div></div>'
+          +'<div class="svc-list svc-grid'+(navLoading?' is-loading':'')+'">'+(opts.body || '')+'</div>'
         +'</div>';
     }
     var canvasInner;
@@ -1439,7 +1508,7 @@
             action: '<button type="button" class="rw-add-btn rw-add-primary" data-action="wizard:type:go">'+ico('plus')+' App</button>' });
     }
     var body = ''
-      +'<div class="rw-canvas'+(settingsSlug?' drawer-open':'')+'" data-canvas="1">'
+      +'<div class="rw-canvas'+(settingsSlug?' drawer-open':'')+(!list.length?' is-empty':'')+(navLoading?' is-loading':'')+'" data-canvas="1">'
         +'<svg class="rw-links" aria-hidden="true"><g class="rw-links-g"></g></svg>'
         +canvasInner
       +'</div>';
@@ -1448,18 +1517,17 @@
         +'<header class="gd-head">'
           +'<button type="button" class="btn btn-quiet btn-back btn-icon" data-action="group:back" title="Back to groups" aria-label="Back">'+ico('back')+'</button>'
           +'<div class="gd-identity">'
-            +'<label class="gd-label" for="group-name">Group</label>'
             +'<div class="gd-name-row">'
-              +uiInput({ name: 'group-name', id: 'group-name', value: draftName, placeholder: 'Name this group', className: 'gd-name-input' })
-              +'<button type="button" class="btn primary btn-compact gd-save'+(nameDirty?' is-dirty':'')+(busy['group:save']?' loading':'')+'" data-action="group:save" data-baseline="'+esc(savedName)+'" '+(busy['group:save'] || !nameDirty?'disabled':'')+' title="Save name"><span class="spinner"></span><span>Save</span></button>'
+              +uiInput({ name: 'group-name', id: 'group-name', value: draftName, placeholder: 'Name this group', className: 'gd-name-input', ariaLabel: 'Group name' })
+              +'<button type="button" class="btn primary btn-compact has-ico gd-save'+(nameDirty?' is-dirty':'')+(busy['group:save']?' loading':'')+'" data-action="group:save" data-baseline="'+esc(savedName)+'" '+(busy['group:save'] || !nameDirty?'disabled':'')+' title="Save name"><span class="spinner"></span>'+ico('spark')+'<span>Save</span></button>'
             +'</div>'
             +'<div class="gd-meta"><span class="mono">'+esc(g.slug)+'</span></div>'
           +'</div>'
           +'<div class="gd-head-actions">'
-            +'<button type="button" class="btn btn-quiet danger-soft btn-compact" data-action="group:delete:'+esc(g.slug)+'" title="Delete group">'+ico('trash')+' Delete</button>'
+            +'<button type="button" class="btn btn-quiet danger-soft btn-compact has-ico" data-action="group:delete:'+esc(g.slug)+'" title="Delete group">'+ico('trash')+'<span>Delete</span></button>'
           +'</div>'
         +'</header>'
-        +'<div class="gd-body rw-canvas-wrap">'
+        +'<div class="gd-body gd-workarea rw-canvas-wrap'+(navLoading?' is-loading':'')+'">'
           + body
         +'</div>'
       +'</div>';
@@ -1474,8 +1542,8 @@
           +'<span class="ghost">'+(s.syncrox_running ? 'Running on :5090' : 'Stopped')+'</span>'
         +'</div>'
         +'<div class="inline-actions">'
-          +btn(s.syncrox_running ? 'Stop' : 'Start', s.syncrox_running ? 'syncrox:stop' : 'syncrox:start', s.syncrox_running ? 'danger' : 'primary', false)
-          +'<a class="btn" href="http://'+esc(publicHost())+':5090" target="_blank" rel="noopener">Open</a>'
+          +btn(s.syncrox_running ? 'Stop' : 'Start', s.syncrox_running ? 'syncrox:stop' : 'syncrox:start', s.syncrox_running ? 'danger-soft' : 'primary', false, s.syncrox_running ? 'stop' : 'play')
+          +'<a class="btn has-ico" href="http://'+esc(publicHost())+':5090" target="_blank" rel="noopener">'+ico('open')+'<span>Open</span></a>'
         +'</div>'
       +'</div>';
   }
@@ -1483,29 +1551,6 @@
 
 
   /** Compact inline SVG icons — shared across service cards & actions. */
-  function ico(name, cls) {
-    var c = 'ico' + (cls ? (' ' + cls) : '');
-    var common = ' class="'+c+'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
-    var paths = {
-      db: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
-      app: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6M9 13h6M9 17h4"/>',
-      play: '<polygon points="8,5 19,12 8,19" fill="currentColor" stroke="none"/>',
-      stop: '<rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" stroke="none"/>',
-      refresh: '<path d="M21 12a9 9 0 1 1-2.6-6.2"/><polyline points="21,3 21,9 15,9"/>',
-      logs: '<path d="M8 6h12M8 12h12M8 18h8"/><circle cx="4" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1" fill="currentColor" stroke="none"/>',
-      open: '<path d="M14 4h6v6"/><path d="M10 14L20 4"/><path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5"/>',
-      copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10"/>',
-      globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
-      chev: '<path d="M9 6l6 6-6 6"/>',
-      back: '<path d="M15 6l-6 6 6 6"/>',
-      plus: '<path d="M12 5v14M5 12h14"/>',
-      trash: '<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/>',
-      link: '<path d="M10 13a5 5 0 0 0 7.1 0l2.1-2.1a5 5 0 0 0-7.1-7.1L10.9 5"/><path d="M14 11a5 5 0 0 0-7.1 0L4.8 13.1a5 5 0 0 0 7.1 7.1L13.1 19"/>',
-      close: '<path d="M18 6L6 18M6 6l12 12"/>'
-    };
-    return '<svg'+common+'>'+(paths[name] || '')+'</svg>';
-  }
-
   function svcKindMeta(svc) {
     if (svc && svc.type === 'postgres') {
       return { kind: 'db', label: 'Database', ico: 'db' };
@@ -1712,21 +1757,21 @@
     var acts = '';
     if (isPg) {
       if (isUp) {
-        acts = btn('Stop', 'svc:stop:'+svc.slug, toolCls, startStopBusy)
-          + btn('Restart', 'svc:restart:'+svc.slug, toolCls, restartBusy);
+        acts = btn('Stop', 'svc:stop:'+svc.slug, toolCls + ' danger-soft', startStopBusy, 'stop')
+          + btn('Restart', 'svc:restart:'+svc.slug, toolCls, restartBusy, 'refresh');
       } else {
-        acts = btn('Start', 'svc:start:'+svc.slug, 'primary ' + toolCls, startStopBusy);
+        acts = btn('Start', 'svc:start:'+svc.slug, 'primary ' + toolCls, startStopBusy, 'play');
       }
     } else if (building) {
-      acts = '<span class="drawer-tool-note ghost" role="status">Deploying…</span>';
+      acts = '<span class="drawer-tool-note ghost" role="status">'+ico('refresh', 'spin')+' Deploying…</span>';
     } else {
       if (isUp) {
-        acts = btn('Stop', 'svc:stop:'+svc.slug, toolCls, startStopBusy);
+        acts = btn('Stop', 'svc:stop:'+svc.slug, toolCls + ' danger-soft', startStopBusy, 'stop');
       } else {
-        acts = btn('Start', 'svc:start:'+svc.slug, 'primary ' + toolCls, startStopBusy);
+        acts = btn('Start', 'svc:start:'+svc.slug, 'primary ' + toolCls, startStopBusy, 'play');
       }
-      acts += btn('Restart', 'svc:restart:'+svc.slug, toolCls, restartBusy || !isUp);
-      acts += btn('Logs', 'svc:logs:'+svc.slug, toolCls, false);
+      acts += btn('Restart', 'svc:restart:'+svc.slug, toolCls, restartBusy || !isUp, 'refresh');
+      acts += btn('Logs', 'svc:logs:'+svc.slug, toolCls, false, 'logs');
     }
     return acts;
   }
@@ -2020,7 +2065,7 @@
       banner = ''
         +'<div class="svc-banner fail" data-stop="1">'
           +'<div class="svc-banner-text">'+esc(String(svc.last_error).slice(0,200))+'</div>'
-          +'<button type="button" class="btn btn-quiet btn-compact" data-action="svc:logs:'+esc(svc.slug)+'">Logs</button>'
+          +'<button type="button" class="btn btn-quiet btn-compact has-ico" data-action="svc:logs:'+esc(svc.slug)+'">'+ico('logs')+'<span>Logs</span></button>'
         +'</div>';
     } else if (!isPg && building) {
       banner = ''
@@ -2221,7 +2266,8 @@
   }
 
   function onSettingsStoragePage() {
-    return navView === 'settings' && settingsTab === 'storage' && !activeGroup;
+    // Storage lives on the single Settings page (no separate tab).
+    return navView === 'settings' && !activeGroup;
   }
 
   function refreshManage(opts) {
@@ -2266,19 +2312,40 @@
       });
   }
 
-  function engineStatusLabel(ev) {
-    if (!ev) return { text: 'Unknown', cls: 'off' };
-    if (ev.postgres_running) return { text: 'Running', cls: 'on' };
-    // Infer restarting/stopped from containers when engine reports down
+  function findPostgresEngineContainer() {
     var ctrs = ((manageOv && manageOv.docker) || dockerInv || {}).containers || [];
     for (var i = 0; i < ctrs.length; i++) {
-      var c = ctrs[i];
-      if (!c || !/postgres|firewifi-postgres/i.test(c.name + ' ' + (c.image || ''))) continue;
+      if (isPostgresEngineContainer(ctrs[i])) return ctrs[i];
+    }
+    for (var j = 0; j < ctrs.length; j++) {
+      var c = ctrs[j];
+      if (c && /firewifi-postgres|\bpostgres\b/i.test(String(c.name || '') + ' ' + String(c.image || ''))) return c;
+    }
+    return null;
+  }
+
+  function engineStatusLabel(ev) {
+    if (manageLoading && !(ev && ev.postgres_running) && !findPostgresEngineContainer()) {
+      return { text: 'Checking…', cls: 'wait' };
+    }
+    if (ev && ev.postgres_running) return { text: 'Running', cls: 'on' };
+    var c = findPostgresEngineContainer();
+    if (c) {
       var st = String(c.state || '').toLowerCase();
-      if (st === 'restarting') return { text: 'Restarting', cls: 'warn' };
-      if (st === 'running') return { text: 'Running', cls: 'on' };
+      if (st === 'restarting' || String(c.status || '').toLowerCase().indexOf('health: starting') >= 0) {
+        return { text: 'Starting…', cls: 'warn' };
+      }
+      if (c.running || st === 'running') return { text: 'Running', cls: 'on' };
       return { text: 'Stopped', cls: 'off' };
     }
+    // Published DB services imply the shared engine must be up.
+    var pubs = (manageOv && manageOv.published) || [];
+    for (var i = 0; i < pubs.length; i++) {
+      if (pubs[i] && pubs[i].kind === 'postgres' && pubs[i].running) {
+        return { text: 'Running', cls: 'on' };
+      }
+    }
+    if (!ev && !manageOv && !manageError) return { text: 'Checking…', cls: 'wait' };
     return { text: 'Stopped', cls: 'off' };
   }
 
@@ -2292,43 +2359,107 @@
     return { text: c.status || c.state || 'Stopped', cls: 'off' };
   }
 
+  function dockerDaemonStatus() {
+    var ov = manageOv || {};
+    var d = ov.daemon || {};
+    if (manageLoading && !manageOv) return { text: 'Checking…', cls: 'wait', running: false, checking: true };
+    if (d.running) return { text: 'Running', cls: 'on', running: true, checking: false, version: d.version || '', active: d.active || 'active' };
+    if (d.active === 'activating' || d.active === 'reloading') {
+      return { text: 'Starting…', cls: 'warn', running: false, checking: false, active: d.active };
+    }
+    if (d.active === 'deactivating') {
+      return { text: 'Stopping…', cls: 'warn', running: false, checking: false, active: d.active };
+    }
+    if (d.error && !d.active) return { text: 'Unknown', cls: 'off', running: false, checking: false, error: d.error };
+    return { text: 'Stopped', cls: 'off', running: false, checking: false, active: d.active || 'inactive' };
+  }
+
+  function dockerDaemonCard() {
+    var st = dockerDaemonStatus();
+    var busyStart = !!busy['docker:daemon-start'];
+    var busyStop = !!busy['docker:daemon-stop'];
+    var busyD = busyStart || busyStop;
+    var on = !!st.running;
+    var powerLabel = busyStart ? 'Starting…' : (busyStop ? 'Stopping…' : (st.checking ? '…' : (on ? 'Stop' : 'Start')));
+    var powerAction = on ? 'docker:daemon-stop' : 'docker:daemon-start';
+    var powerCls = on ? 'btn-quiet btn-compact danger-soft' : 'primary btn-compact';
+    var meta = [];
+    if (st.version) meta.push('v' + st.version);
+    if (st.active) meta.push(st.active);
+    meta.push('systemctl docker.service');
+    var ctrs = ((((manageOv && manageOv.docker) || dockerInv || {}).containers) || []);
+    var runningN = ctrs.filter(function(c){ return c && c.running; }).length;
+    var depend = runningN === 1
+      ? '1 container depends on this runtime'
+      : (runningN + ' containers depend on this runtime');
+    return ''
+      +'<div class="manage-block engine-card daemon-card">'
+        +'<div class="manage-block-head">'
+          +'<div class="engine-title">'
+            +'<span class="engine-ico" aria-hidden="true">'+ico('docker')+'</span>'
+            +'<span class="dock-state '+st.cls+'"></span>'
+            +'<strong>Docker daemon</strong>'
+            +'<span class="dock-badge '+st.cls+'">'+esc(st.text)+'</span>'
+          +'</div>'
+          +'<div class="engine-power" data-stop="1">'
+            +btn(powerLabel, powerAction, powerCls, busyD || st.checking, on ? 'stop' : 'play')
+          +'</div>'
+        +'</div>'
+        +'<p class="engine-help">Host container runtime (dockerd). Go apps and the shared Postgres engine both need this running.</p>'
+        +'<p class="engine-meta mono">'+esc(meta.join(' · '))+'</p>'
+        +'<p class="engine-depend ghost">'+esc(depend)+'</p>'
+      +'</div>';
+  }
+
   function engineCard() {
     var ev = engineView || { settings: {}, postgres_options: [], go_options: [] };
     var s = ev.settings || {};
-    var pg = (engineDraft && engineDraft.postgres_version) || s.postgres_version || '16';
+    var pg = (engineDraft && engineDraft.postgres_version) || s.postgres_version || 'latest';
     var go = (engineDraft && engineDraft.go_toolchain) || s.go_toolchain || 'auto';
     var st = engineStatusLabel(ev);
     var busyStart = !!busy['engine:start'];
     var busyStop = !!busy['engine:stop'];
     var busySave = !!busy['engine:save'];
     var busyEng = busyStart || busyStop || busySave;
-    var on = !!ev.postgres_running || st.cls === 'on' || st.cls === 'warn';
-    var powerLabel = busyStart ? 'Starting…' : (busyStop ? 'Stopping…' : (on ? 'Stop' : 'Start'));
+    var checking = st.cls === 'wait';
+    var on = !checking && (!!ev.postgres_running || st.cls === 'on' || st.cls === 'warn');
+    var powerLabel = busyStart ? 'Starting…' : (busyStop ? 'Stopping…' : (checking ? '…' : (on ? 'Stop' : 'Start')));
     var powerAction = on ? 'engine:stop' : 'engine:start';
-    var powerCls = on ? 'btn-quiet btn-compact' : 'primary btn-compact';
+    var powerCls = on ? 'btn-quiet btn-compact danger-soft' : 'primary btn-compact';
+    var ctr = findPostgresEngineContainer();
+    var pubs = (manageOv && manageOv.published) || [];
+    var dbN = 0;
+    for (var i = 0; i < pubs.length; i++) {
+      if (pubs[i] && pubs[i].kind === 'postgres') dbN++;
+    }
+    var depend = dbN === 1 ? '1 database uses this engine' : (dbN + ' databases use this engine');
+    var hostLine = 'firewifi-postgres · ' + esc(ev.postgres_image || (ctr && ctr.image) || 'postgres') + ' · 127.0.0.1:5432';
     return ''
       +'<div class="manage-block engine-card">'
         +'<div class="manage-block-head">'
           +'<div class="engine-title">'
+            +'<span class="engine-ico" aria-hidden="true">'+ico('db')+'</span>'
             +'<span class="dock-state '+st.cls+'"></span>'
-            +'<strong>Postgres engine</strong>'
+            +'<strong>Shared Postgres engine</strong>'
             +'<span class="dock-badge '+st.cls+'">'+esc(st.text)+'</span>'
           +'</div>'
           +'<div class="engine-power" data-stop="1">'
-            +btn(powerLabel, powerAction, powerCls, busyEng)
+            +btn(powerLabel, powerAction, powerCls, busyEng || checking, on ? 'stop' : 'play')
           +'</div>'
         +'</div>'
-        +'<p class="engine-meta mono">Shared database host · '+esc(ev.postgres_image || 'postgres')+' · 127.0.0.1:5432</p>'
+        +'<p class="engine-help">Powers project databases on this Pi. Go apps run as their own Docker containers — this is not the Docker daemon.</p>'
+        +'<p class="engine-meta mono">'+hostLine+'</p>'
+        +'<p class="engine-depend ghost">'+esc(depend)+'</p>'
         +'<div class="runtime-grid">'
           +'<label class="runtime-field"><span>Postgres version</span>'
-            +cselectHTML('engine-pg', pg, 'Version…', runtimeOptions(ev.postgres_options), busyEng, {searchable:false})
+            +cselectHTML('engine-pg', pg, 'Version…', runtimeOptions(ev.postgres_options), busyEng || checking, {searchable:false})
           +'</label>'
           +'<label class="runtime-field"><span>Go builds</span>'
-            +cselectHTML('engine-go', go, 'Toolchain…', runtimeOptions(ev.go_options), busyEng, {searchable:false})
+            +cselectHTML('engine-go', go, 'Toolchain…', runtimeOptions(ev.go_options), busyEng || checking, {searchable:false})
           +'</label>'
         +'</div>'
         +'<div class="manage-row-actions end">'
-          +btn(busySave ? 'Applying…' : 'Apply', 'engine:save', 'btn-compact', busyEng)
+          +btn(busySave ? 'Applying…' : 'Apply', 'engine:save', 'primary btn-compact', busyEng || checking, 'spark')
         +'</div>'
       +'</div>';
   }
@@ -2362,7 +2493,7 @@
       + (unusedVols ? ' · ' + unusedVols + ' unused' : '');
 
     var loading = manageLoading && !manageOv && !manageError
-      ? '<div class="empty empty-loading compact storage-state"><div class="nav-spinner" aria-hidden="true"></div><h3>Scanning…</h3><p class="ghost">Docker inventory and engine</p></div>'
+      ? '<div class="storage-state storage-scanning compact"><div class="nav-spinner" aria-hidden="true"></div><p>Scanning Docker inventory…</p></div>'
       : '';
     var errBlock = manageError && !manageLoading
       ? '<div class="empty storage-state storage-error compact"><h3>Scan failed</h3><p>'+esc(manageError)+'</p><div class="inline-actions">'+btn('Retry', 'docker:refresh', 'btn-compact primary', busy['docker:refresh'])+'</div></div>'
@@ -2391,20 +2522,23 @@
             +dockCheck('build_cache', 'Build cache', !!opt.build_cache)
           +'</div>'
           +'<div class="manage-row-actions end">'
-            +btn('Stop managed', 'docker:stop-all', 'danger btn-quiet btn-compact', manageLoading || busy['docker:stop-all'])
-            +btn('Clean', 'docker:prune', 'primary btn-compact', manageLoading || busy['docker:prune'])
+            +btn('Stop managed', 'docker:stop-all', 'danger btn-quiet btn-compact', manageLoading || busy['docker:stop-all'], 'stop')
+            +btn('Clean', 'docker:prune', 'primary btn-compact', manageLoading || busy['docker:prune'], 'spark')
           +'</div>'
         +'</div>'
       +'</details>';
 
-    return errBlock || loading || (
+    if (errBlock && !manageOv) return errBlock;
+    return (
       '<div class="storage-flow">'
+        +loading
         +dockerWarn
+        +dockerDaemonCard()
         +engineCard()
         +strip
-        +manageSection('Volumes', vols.length, volMeta, vols.length ? vols.map(dockVolumeRow).join('') : manageEmpty('No volumes'))
+        +manageSection('Volumes', vols.length, volMeta, vols.length ? vols.map(dockVolumeRow).join('') : manageEmpty(manageLoading ? 'Scanning volumes…' : 'No volumes'))
         +prune
-        +manageSection('Containers', ctrs.length, ctrMeta || 'app containers', ctrs.length ? ctrs.map(dockContainerRow).join('') : manageEmpty('No app containers'))
+        +manageSection('Containers', ctrs.length, ctrMeta || 'app containers', ctrs.length ? ctrs.map(dockContainerRow).join('') : manageEmpty(manageLoading ? 'Scanning containers…' : 'No app containers'))
       +'</div>'
     );
   }
@@ -2422,10 +2556,12 @@
   }
 
   function manageSection(title, count, meta, body) {
+    var icons = { Volumes: 'disk', Containers: 'docker', Images: 'storage' };
+    var ic = icons[title] ? ('<span class="dock-sec-ico" aria-hidden="true">'+ico(icons[title])+'</span>') : '';
     return ''
       +'<div class="dock-section">'
         +'<div class="dock-section-head">'
-          +'<strong>'+esc(title)+'</strong>'
+          +'<strong>'+ic+esc(title)+'</strong>'
           +'<span class="ghost">'+(meta ? esc(meta) : esc(String(count)))+'</span>'
         +'</div>'
         +'<div class="dock-list">'+body+'</div>'
@@ -2451,11 +2587,11 @@
       actions = '<span class="ghost">Managed by engine</span>';
     } else {
       if (c.running || String(c.state||'').toLowerCase() === 'restarting') {
-        actions += btn('Stop', 'docker:stop:'+c.name, 'btn-quiet btn-compact', !!busy['docker:stop:'+c.name]);
+        actions += btn('Stop', 'docker:stop:'+c.name, 'btn-quiet btn-compact danger-soft', !!busy['docker:stop:'+c.name], 'stop');
       } else {
-        actions += btn('Start', 'docker:start:'+c.name, 'primary btn-quiet btn-compact', !!busy['docker:start:'+c.name]);
+        actions += btn('Start', 'docker:start:'+c.name, 'primary btn-quiet btn-compact', !!busy['docker:start:'+c.name], 'play');
       }
-      actions += btn('Remove', 'docker:rm-ctr:'+c.name, 'danger btn-quiet btn-compact', !!busy['docker:rm-ctr:'+c.name]);
+      actions += btn('Remove', 'docker:rm-ctr:'+c.name, 'danger btn-quiet btn-compact', !!busy['docker:rm-ctr:'+c.name], 'trash');
     }
     var size = (c.size || '—').split(' (')[0];
     return ''
@@ -3039,7 +3175,7 @@
     if (navView === 'overview') return '/overview';
     if (navView === 'activity') return '/activity';
     if (navView === 'settings') {
-      return settingsTab === 'storage' ? '/settings/storage' : '/settings';
+      return '/settings';
     }
     if (navView === 'projects') {
       if (activeGroup) {
@@ -3057,8 +3193,7 @@
     var p = String(path || '/').replace(/\/+$/, '') || '/';
     if (p === '/' || p === '/overview') return { navView: 'overview' };
     if (p === '/activity') return { navView: 'activity' };
-    if (p === '/settings') return { navView: 'settings', settingsTab: 'github' };
-    if (p === '/settings/storage') return { navView: 'settings', settingsTab: 'storage' };
+    if (p === '/settings' || p === '/settings/storage') return { navView: 'settings', settingsTab: 'storage', settingsFocus: (p === '/settings/storage' ? 'storage' : 'github') };
     if (p === '/projects') return { navView: 'projects' };
     var m = p.match(/^\/projects\/([^/]+)(?:\/([^/]+))?$/);
     if (m) {
@@ -3103,13 +3238,16 @@
       dockerOpen = false;
     }
     ensureStatsPoll();
-    if (opts.render === false) return;
-    if (navView === 'settings' && settingsTab === 'storage') {
+    if (navView === 'settings') {
+      // Always load engine + Docker inventory on Settings (boot uses render:false).
       manageLoading = true;
-      render(opts);
-      refreshManage({ animate: true });
+      dockerOpen = true;
+      settingsTab = 'storage';
+      if (opts.render !== false) render(opts);
+      refreshManage({ animate: opts.animate !== false });
       return;
     }
+    if (opts.render === false) return;
     if (navView === 'projects') {
       render(opts);
       refreshServices({ soft: true });
@@ -3213,8 +3351,17 @@
     });
     bits.push('busy:' + Object.keys(busy || {}).sort().join(','));
     bits.push('err:' + String(servicesError || '') + ':' + String(groupsError || '') + ':' + (navLoading ? 1 : 0));
-    if (navView === 'settings' && settingsTab === 'storage') {
-      bits.push('stor:' + (manageLoading ? 1 : 0) + ':' + (manageOv ? 1 : 0) + ':' + String(manageError || ''));
+    if (navView === 'settings') {
+      var engRun = (engineView && engineView.postgres_running) ? 1 : 0;
+      var engBusy = (busy['engine:start'] || busy['engine:stop'] || busy['engine:save']) ? 1 : 0;
+      var daemonRun = (manageOv && manageOv.daemon && manageOv.daemon.running) ? 1 : 0;
+      var daemonBusy = (busy['docker:daemon-start'] || busy['docker:daemon-stop']) ? 1 : 0;
+      var dockN = 0;
+      try {
+        dockN = ((((manageOv && manageOv.docker) || dockerInv || {}).containers) || []).length;
+      } catch (e) {}
+      bits.push('stor:' + (manageLoading ? 1 : 0) + ':' + (manageOv ? 1 : 0) + ':' + String(manageError || '')
+        + ':e' + engRun + ':b' + engBusy + ':d' + daemonRun + ':db' + daemonBusy + ':c' + dockN);
     }
     try {
       Object.keys(sqlResult || {}).sort().forEach(function(slug){
@@ -3592,23 +3739,108 @@
     }
   }
 
-  function patchLive() {
-    var draft = readFormDraft();
-    var s = state || {};
-    var c = draft || config || {};
-    var mon = document.getElementById('panel-monitoring');
-    var vpnEl = document.getElementById('panel-vpn');
-    if (mon) {
-      var wrap = document.createElement('div');
-      wrap.innerHTML = monitoring(s);
-      mon.replaceWith(wrap.firstChild);
+  function patchMetricEl(el, value, detail, percent) {
+    if (!el) return;
+    var p = clamp(percent).toFixed(0) + '%';
+    var v = el.querySelector('.v');
+    var d = el.querySelector('.d');
+    var bar = el.querySelector('.bar');
+    var span = bar && bar.querySelector('span');
+    if (v && v.textContent !== String(value)) v.textContent = value;
+    if (d && d.textContent !== String(detail)) d.textContent = detail;
+    if (bar) bar.style.setProperty('--p', p);
+    if (span && span.style.width !== p) {
+      requestAnimationFrame(function(){ span.style.width = p; });
     }
-    var hotspotOpen = !!(vpnEl && vpnEl.querySelector('details[open]'));
-    if (vpnEl && !(formDirty && hotspotOpen)) {
-      var wrap2 = document.createElement('div');
-      wrap2.innerHTML = vpn(s, formDirty ? c : (config || {}));
-      vpnEl.replaceWith(wrap2.firstChild);
-      if (!formDirty) formDirty = false;
+  }
+
+  function patchMonitoringLive(s) {
+    var mon = document.getElementById('panel-monitoring');
+    if (!mon) return;
+    var d = (s && s.device_metrics) || {};
+    var cpu = d.cpu || {}, mem = d.memory || {}, thermal = d.thermal || {}, storage = d.storage || {}, net = d.network || {};
+    var temp = Number(thermal.temperature_celsius || 0);
+    var thermalDetail = thermal.throttle_known ? (thermal.throttled ? 'Throttled' : 'OK') : 'Sensor';
+    var thermalVal = thermal.available ? (temp.toFixed(0) + '°') : 'n/a';
+    patchMetricEl(mon.querySelector('[data-metric="cpu"]'), fmtPct(cpu.busy_percent), 'Idle ' + fmtPct(cpu.idle_percent), cpu.busy_percent);
+    patchMetricEl(mon.querySelector('[data-metric="memory"]'), fmtPct(mem.used_percent), fmtBytes(mem.used_bytes), mem.used_percent);
+    patchMetricEl(mon.querySelector('[data-metric="thermal"]'), thermalVal, thermalDetail, temp / 85 * 100);
+    patchMetricEl(mon.querySelector('[data-metric="storage"]'), fmtPct(storage.used_percent), fmtBytes(storage.used_bytes), storage.used_percent);
+    var nets = mon.querySelectorAll('.net-dense strong');
+    if (nets[0]) nets[0].textContent = fmtRate(net.down_bytes_per_sec);
+    if (nets[1]) nets[1].textContent = fmtRate(net.up_bytes_per_sec);
+  }
+
+  function patchVpnChrome(vpnEl, s) {
+    if (!vpnEl || !s) return;
+    var mode = s.mode || 'mullvad';
+    var h = health(s);
+    var dhcp = (s.dhcp_start && s.dhcp_end) ? s.dhcp_start + ' – ' + s.dhcp_end : 'Not set';
+    var big = vpnEl.querySelector('.vpn-title .big');
+    if (big) {
+      var label = mode === 'residential' ? 'Residential' : 'Mullvad';
+      // keep shield icon, replace text node after svg
+      var svg = big.querySelector('svg');
+      big.innerHTML = '';
+      if (svg) big.appendChild(svg);
+      else big.insertAdjacentHTML('afterbegin', ico('shield'));
+      big.appendChild(document.createTextNode(' ' + label));
+    }
+    var route = vpnEl.querySelector('.vpn-title .route');
+    if (route) route.textContent = routeLabel(mode);
+    var pill = vpnEl.querySelector('.pill');
+    if (pill) {
+      pill.className = 'pill ' + h.cls;
+      var pulse = pill.querySelector('.pulse');
+      if (pulse) pulse.className = 'pulse' + (h.cls === 'off' ? ' off' : '');
+      // text after pulse
+      var nodes = [].slice.call(pill.childNodes);
+      nodes.forEach(function(n){ if (n.nodeType === 3) pill.removeChild(n); });
+      pill.appendChild(document.createTextNode(h.text));
+    }
+    var seg = vpnEl.querySelectorAll('.seg button');
+    if (seg[0]) {
+      seg[0].classList.toggle('active', mode === 'mullvad');
+      seg[0].disabled = !!(busy['mode:mullvad'] || busy['mode:residential']);
+    }
+    if (seg[1]) {
+      seg[1].classList.toggle('active', mode === 'residential');
+      seg[1].disabled = !!(busy['mode:mullvad'] || busy['mode:residential']);
+    }
+    // rows
+    var rows = vpnEl.querySelectorAll('.rows .row strong');
+    if (rows[0]) rows[0].textContent = s.ssid || '—';
+    if (rows[1]) rows[1].textContent = s.hotspot_ip || '—';
+    if (rows[2]) rows[2].textContent = dhcp;
+    // action buttons: rebuild actions row only
+    var actions = vpnEl.querySelector('.actions');
+    if (actions) {
+      actions.innerHTML = ''
+        + btn('Start', 'hotspot:start', 'primary', s.hotspot_running, 'play')
+        + btn('Stop', 'hotspot:stop', 'danger-soft', !s.hotspot_running, 'stop')
+        + btn('Restart', 'hotspot:restart', 'btn-quiet', false, 'refresh');
+    }
+  }
+
+  function patchLive() {
+    var s = state || {};
+    // Prefer live DOM open state; keep flag in sync
+    var vpnEl = document.getElementById('panel-vpn');
+    var detailsOpen = !!(vpnEl && vpnEl.querySelector('details.settings[open]'));
+    if (detailsOpen) hotspotSettingsOpen = true;
+
+    patchMonitoringLive(s);
+
+    if (vpnEl) {
+      if (hotspotSettingsOpen || detailsOpen) {
+        patchVpnChrome(vpnEl, s);
+      } else {
+        var draft = readFormDraft();
+        var c = draft || config || {};
+        var wrap2 = document.createElement('div');
+        wrap2.innerHTML = vpn(s, formDirty ? c : (config || {}));
+        vpnEl.replaceWith(wrap2.firstChild);
+      }
     }
     setLive(true);
   }
@@ -3617,6 +3849,9 @@
     opts = opts || {};
     captureWizardDraft();
     captureSettingsDrafts();
+    // Preserve hotspot settings expand across full re-renders
+    var det = document.querySelector('#panel-vpn details.settings');
+    if (det) hotspotSettingsOpen = !!det.open;
     var draft = readFormDraft();
     var s = state || {};
     var c = draft || config || {};
@@ -3708,7 +3943,16 @@
     return Promise.all([
       api("/api/groups").then(function(r){ groups = r.groups || []; groupsError = null; }).catch(function(e){ groupsError = (e && e.message) || "Could not load groups"; }),
       activeGroup
-        ? api("/api/groups/" + encodeURIComponent(activeGroup) + "/services").then(function(r){ deployed = r.services || []; servicesError = null; }).catch(function(e){ servicesError = (e && e.message) || "Could not load services"; deployed = []; })
+        ? api("/api/groups/" + encodeURIComponent(activeGroup) + "/services").then(function(r){
+            var prevStats = {};
+            (deployed || []).forEach(function(s){ if (s && s.slug && s.stats) prevStats[s.slug] = s.stats; });
+            deployed = r.services || [];
+            (deployed || []).forEach(function(s){
+              if (!s || !s.slug) return;
+              if (prevStats[s.slug] && (!s.stats || s.type === "go")) s.stats = prevStats[s.slug];
+            });
+            servicesError = null;
+          }).catch(function(e){ servicesError = (e && e.message) || "Could not load services"; deployed = []; })
         : Promise.resolve().then(function(){ deployed = []; servicesError = null; })
     ]).then(function(){
       navLoading = false;
@@ -3767,7 +4011,16 @@
   }
   function refreshConfig(force) {
     if (formDirty && !force) return Promise.resolve(config);
-    return api('/api/config').then(function(c){ config = c; render(); return c; }).catch(function(e){ console.error(e); });
+    return api('/api/config').then(function(c){
+      config = c;
+      var editing = hotspotSettingsOpen || !!(document.querySelector('#panel-vpn details.settings[open]'));
+      if (editing && !force) {
+        // Keep the open form intact; live chrome is patched via patchLive/SSE.
+        return c;
+      }
+      render();
+      return c;
+    }).catch(function(e){ console.error(e); });
   }
   function fallbackPoll() {
     clearInterval(pollTimer);
@@ -4240,13 +4493,11 @@
       if (view === 'settings') {
         activeGroup = null;
         manageTab = 'services';
-        if (!settingsTab) settingsTab = 'github';
-        dockerOpen = (settingsTab === 'storage');
+        settingsTab = 'storage';
+        dockerOpen = true;
+        manageLoading = true;
         render({ animate: true, dir: _navDir });
-        if (settingsTab === 'storage') {
-          manageLoading = true;
-          refreshManage({ animate: true });
-        }
+        refreshManage({ animate: true });
         syncRouteFromState();
         return;
       }
@@ -4272,19 +4523,18 @@
         renderDrawerPortal();
         navView = 'settings';
         manageTab = 'services';
-      }
-      if (settingsTab === stab && navView === 'settings') return;
-      settingsTab = stab;
-      dockerOpen = (stab === 'storage');
-      _navDir = 'forward';
-      if (stab === 'storage') {
+        settingsTab = 'storage';
+        dockerOpen = true;
         manageLoading = true;
+        _navDir = 'forward';
         render({ animate: true, dir: _navDir });
         refreshManage({ animate: true });
-      } else {
-        renderServices({ animate: true, dir: _navDir });
+        syncRouteFromState();
       }
-      syncRouteFromState();
+      requestAnimationFrame(function(){
+        var el = document.getElementById('settings-' + stab);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
     } else if (id.indexOf('manage:tab:') === 0) {
       var legacyTab = id.slice('manage:tab:'.length);
       if (legacyTab === 'storage') {
@@ -4331,11 +4581,34 @@
     } else if (id === 'docker:refresh') {
       busy['docker:refresh'] = true;
       renderServices({soft:true});
-      refreshManage().finally(function(){ delete busy['docker:refresh']; if (onSettingsStoragePage()) renderServices({soft:true}); });
+      refreshManage().finally(function(){ delete busy['docker:refresh']; if (onSettingsStoragePage()) renderServices({soft:true, force:true}); });
     } else if (id === 'docker:stop-all') {
       var nRun = ((dockerInv && dockerInv.containers) || []).filter(function(c){ return c.running && c.managed; }).length;
       dockerAction({action:'stop-all'}, 'docker:stop-all',
         'Stop '+nRun+' FireWifi-managed container(s)?\n\nOnly labeled fw-* / firewifi containers. Shared images stay. Start apps again from Groups.');
+    } else if (id === 'docker:daemon-start' || id === 'docker:daemon-stop') {
+      if (busy['docker:daemon-start'] || busy['docker:daemon-stop'] || busy.deploy) return;
+      var dStart = id === 'docker:daemon-start';
+      if (!dStart && !confirm('Stop the Docker daemon?\n\nEvery container on this Pi will stop (Go apps, Postgres engine, databases) until you Start Docker again.\n\nThe FireWifi dashboard itself keeps running.')) return;
+      busy[id] = true;
+      activity.userCollapsed = false;
+      openActivityConsole({
+        forceExpand: true, clearPin: true, reset: true, active: true,
+        title: dStart ? 'Start Docker daemon' : 'Stop Docker daemon',
+        scope: 'engine/docker',
+        contextKey: 'live:engine/docker'
+      });
+      if (onSettingsStoragePage()) renderServices({ soft: true, force: true });
+      api('/api/docker', { method:'POST', body: JSON.stringify({ action: dStart ? 'daemon_start' : 'daemon_stop' }) })
+        .then(function(res){
+          showToast((res && res.message) || (dStart ? 'Docker daemon running' : 'Docker daemon stopped'));
+          return refreshManage();
+        })
+        .catch(function(e){ showToast(e.message || 'Docker daemon action failed'); })
+        .finally(function(){
+          delete busy[id];
+          if (onSettingsStoragePage()) renderServices({ soft: true, force: true });
+        });
     } else if (id === 'engine:start' || id === 'engine:stop') {
       if (busy['engine:start'] || busy['engine:stop'] || busy.deploy) return;
       var start = id === 'engine:start';
@@ -5708,7 +5981,9 @@
   
   document.getElementById('app').addEventListener('toggle', function(e) {
     if (!e.target || e.target.tagName !== 'DETAILS') return;
-    if (!e.target.open && e.target.closest('#panel-vpn')) {
+    if (!e.target.closest('#panel-vpn')) return;
+    hotspotSettingsOpen = !!e.target.open;
+    if (!e.target.open) {
       // Discard unsaved hotspot edits when collapsing
       formDirty = false;
       patchLive();
@@ -5737,6 +6012,10 @@
   if (navView === 'activity') {
     activity.userCollapsed = false;
     openActivityConsole({ forceExpand: true });
+  }
+  if (navView === 'settings') {
+    manageLoading = true;
+    refreshManage({ animate: true });
   }
   refreshConfig(true);
   refreshServices();

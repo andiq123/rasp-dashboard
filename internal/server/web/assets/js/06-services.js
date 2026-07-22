@@ -7,50 +7,71 @@
             +'<span class="gh-dot"></span>'
             +'<span class="gh-label">'+esc((gh.user && gh.user.login) || 'GitHub')+'</span>'
           +'</div>'
-          +'<p class="ghost">Deploy Go apps from your repositories. Disconnect here to switch accounts.</p>'
+          +'<p class="ghost">Connected. Disconnect to switch accounts.</p>'
           +'<div class="inline-actions">'
-            +'<button type="button" class="btn btn-quiet" data-action="github:clear">Disconnect GitHub</button>'
+            +'<button type="button" class="btn btn-quiet danger-soft has-ico" data-action="github:clear">'+ico('close')+'<span>Disconnect</span></button>'
           +'</div>'
         +'</div>';
     }
     return ''
-      +'<div class="settings-gh ws-empty">'
-        +'<strong>Connect GitHub</strong>'
+      +'<div class="settings-gh settings-gh-empty">'
         +'<p>Link your account to pick repositories when deploying apps.</p>'
-        +'<button type="button" class="btn primary" data-action="wizard:github">Connect GitHub</button>'
+        +'<button type="button" class="btn primary has-ico" data-action="wizard:github">'+ico('github')+'<span>Connect GitHub</span></button>'
       +'</div>';
   }
 
-  function settingsSeg() {
-    var tabs = [
-      { id: 'github', label: 'GitHub' },
-      { id: 'storage', label: 'Storage' }
-    ];
+  function settingsSection(opts) {
+    opts = opts || {};
     return ''
-      +'<div class="ws-tabs" role="tablist" aria-label="Settings">'
-        + tabs.map(function(t){
-            return '<button type="button" role="tab" class="'+(settingsTab===t.id?'active':'')+'" data-action="settings:tab:'+t.id+'" aria-selected="'+(settingsTab===t.id?'true':'false')+'">'+esc(t.label)+'</button>';
-          }).join('')
-      +'</div>';
+      +'<section class="settings-section'+(opts.cls ? (' '+opts.cls) : '')+'"'+(opts.id ? (' id="'+esc(opts.id)+'"') : '')+'>'
+        +'<header class="settings-section-head">'
+          +(opts.icon ? ('<span class="settings-section-ico" aria-hidden="true">'+ico(opts.icon)+'</span>') : '')
+          +'<div class="settings-section-titles">'
+            +'<h3>'+esc(opts.title || '')+'</h3>'
+            +(opts.sub ? ('<p class="ghost">'+opts.sub+'</p>') : '')
+          +'</div>'
+          +(opts.action || '')
+        +'</header>'
+        +'<div class="settings-section-body">'+(opts.body || '')+'</div>'
+      +'</section>';
   }
 
   function settingsWorkspaceView(s) {
-    var tab = settingsTab || 'github';
-    var body = tab === 'storage' ? storagePanelBody(s) : githubSettingsPanel(github);
+    var ghBody = githubSettingsPanel(github);
+    var storageBody = storagePanelBody(s);
+    var refreshAct = ''
+      +'<div class="settings-section-actions">'
+        +btn('Refresh', 'docker:refresh', 'btn-quiet btn-compact', manageLoading || busy['docker:refresh'], 'refresh')
+      +'</div>';
     return ''
       +'<div class="nav-page" data-view="settings">'
         +'<div class="rack">'
           +'<section class="panel panel-svc panel-manage panel-workspace panel-settings">'
             +'<header class="ws-head ws-head-settings">'
               +'<div class="ws-head-top">'
-                +'<div class="ws-title-block"><h2>Settings</h2></div>'
-                +(tab === 'storage'
-                  ? ('<div class="ws-head-actions">'+btn('Refresh', 'docker:refresh', 'btn-quiet btn-compact', manageLoading || busy['docker:refresh'])+'</div>')
-                  : '')
+                +'<div class="ws-title-block">'
+                  +'<h2><span class="ws-title-ico" aria-hidden="true">'+ico('settings')+'</span> Settings</h2>'
+                  +'<p class="ghost">Account and host storage</p>'
+                +'</div>'
               +'</div>'
-              +settingsSeg()
             +'</header>'
-            +'<div class="ws-body settings-body">'+(body || '')+'</div>'
+            +'<div class="ws-body settings-body settings-stack">'
+              +settingsSection({
+                id: 'settings-github',
+                icon: 'github',
+                title: 'GitHub',
+                sub: 'Deploy Go apps from your repositories.',
+                body: ghBody
+              })
+              +settingsSection({
+                id: 'settings-storage',
+                icon: 'storage',
+                title: 'Storage',
+                sub: 'Disk, Docker inventory, and the shared Postgres engine.',
+                action: refreshAct,
+                body: storageBody
+              })
+            +'</div>'
           +'</section>'
         +'</div>'
       +'</div>';
@@ -83,13 +104,14 @@
     if (disk) bits.push(disk);
     return ''
       +'<button type="button" class="group-tile'+(isActive ? ' active' : '')+'" data-action="group:open:'+esc(g.slug)+'">'
+        +'<span class="group-tile-ico" aria-hidden="true">'+ico('app')+'</span>'
         +'<div class="group-tile-main">'
           +'<div class="group-tile-title">'+esc(g.name || g.slug)+'</div>'
           +'<div class="group-tile-sub"><span class="mono">'+esc(g.slug)+'</span>'
             +(bits.length ? (' · ' + esc(bits.join(' · '))) : '')
           +'</div>'
         +'</div>'
-        +'<span class="group-tile-chev" aria-hidden="true"></span>'
+        +'<span class="group-tile-chev" aria-hidden="true">'+ico('chev')+'</span>'
       +'</button>';
   }
 
@@ -97,7 +119,7 @@
     var n = (groups || []).length;
     var cards = (groups || []).map(function(g){ return groupTileHTML(g, activeGroup === g.slug); }).join('');
     var errBlock = groupsError && !navLoading
-      ? ('<div class="ws-empty ws-empty-compact" role="alert"><strong>Could not load groups</strong><p>'+esc(groupsError)+'</p><button type="button" class="btn primary btn-compact" data-action="projects:retry">Retry</button></div>')
+      ? ('<div class="ws-empty ws-empty-compact" role="alert"><strong>Could not load groups</strong><p>'+esc(groupsError)+'</p><button type="button" class="btn primary btn-compact has-ico" data-action="projects:retry">'+ico('refresh')+'<span>Retry</span></button></div>')
       : '';
     var empty = ''
       +'<div class="ws-empty ws-empty-compact">'
@@ -108,7 +130,7 @@
     return ''
       +'<div class="ws-col ws-col-groups">'
         +'<div class="ws-section-head">'
-          +'<div class="ws-section-title"><h3>Groups</h3><span class="gd-count">'+String(n)+'</span></div>'
+          +'<div class="ws-section-title"><h3>'+ico('app')+' Groups</h3><span class="gd-count">'+String(n)+'</span></div>'
         +'</div>'
         +'<div class="group-tile-list group-tile-list-col">'+body+'</div>'
       +'</div>';
@@ -133,10 +155,10 @@
           +'<section class="panel panel-svc panel-manage panel-workspace panel-projects-crm">'
             +'<header class="ws-head">'
               +'<div class="ws-head-main">'
-                +'<div class="ws-title-block"><h2>Projects</h2><p class="ghost">Groups &amp; services</p></div>'
+                +'<div class="ws-title-block"><h2><span class="ws-title-ico" aria-hidden="true">'+ico('app')+'</span> Projects</h2><p class="ghost">Groups &amp; services</p></div>'
               +'</div>'
               +'<div class="ws-head-actions">'
-                +'<button type="button" class="btn primary btn-compact" data-action="wizard:group">New group</button>'
+                +'<button type="button" class="btn primary btn-compact has-ico" data-action="wizard:group">'+ico('plus')+'<span>New group</span></button>'
               +'</div>'
             +'</header>'
             +'<div class="ws-body projects-split">'
@@ -159,7 +181,7 @@
     var savedName = g.name || g.slug;
     var nameDirty = String(draftName).trim() !== String(savedName).trim();
     var empty = navLoading
-      ? ('<div class="gd-empty gd-empty-loading"><div class="nav-spinner" aria-hidden="true"></div><p>Loading…</p></div>')
+      ? ('<div class="gd-empty gd-empty-loading" role="status" aria-live="polite"><div class="nav-spinner" aria-hidden="true"></div><p>Loading services…</p></div>')
       : servicesError
       ? ('<div class="gd-empty" role="alert"><strong>Could not load services</strong><p>'+esc(servicesError)+'</p><button type="button" class="btn primary" data-action="projects:retry">Retry</button></div>')
       : (''
@@ -167,7 +189,7 @@
           +'<div class="gd-empty-ill" aria-hidden="true">'+ico('plus')+'</div>'
           +'<strong>Nothing here yet</strong>'
           +'<p>Add a database first, then an app — link them so the app gets <code>DB_*</code> automatically.</p>'
-          +'<button type="button" class="btn primary" data-action="wizard:open">'+ico('plus')+' Add service</button>'
+          +'<button type="button" class="btn primary has-ico" data-action="wizard:open">'+ico('plus')+'<span>Add service</span></button>'
         +'</div>');
     function lane(opts) {
       return ''
@@ -176,7 +198,7 @@
             +'<div class="svc-lane-title">'+ico(opts.ico)+'<h3>'+esc(opts.title)+'</h3><span class="gd-count">'+opts.count+'</span></div>'
             +(opts.action || '')
           +'</div>'
-          +'<div class="svc-grid-canvas"><div class="svc-list svc-grid'+(navLoading?' is-loading':'')+'">'+(opts.body || '')+'</div></div>'
+          +'<div class="svc-list svc-grid'+(navLoading?' is-loading':'')+'">'+(opts.body || '')+'</div>'
         +'</div>';
     }
     var canvasInner;
@@ -194,7 +216,7 @@
             action: '<button type="button" class="rw-add-btn rw-add-primary" data-action="wizard:type:go">'+ico('plus')+' App</button>' });
     }
     var body = ''
-      +'<div class="rw-canvas'+(settingsSlug?' drawer-open':'')+'" data-canvas="1">'
+      +'<div class="rw-canvas'+(settingsSlug?' drawer-open':'')+(!list.length?' is-empty':'')+(navLoading?' is-loading':'')+'" data-canvas="1">'
         +'<svg class="rw-links" aria-hidden="true"><g class="rw-links-g"></g></svg>'
         +canvasInner
       +'</div>';
@@ -203,18 +225,17 @@
         +'<header class="gd-head">'
           +'<button type="button" class="btn btn-quiet btn-back btn-icon" data-action="group:back" title="Back to groups" aria-label="Back">'+ico('back')+'</button>'
           +'<div class="gd-identity">'
-            +'<label class="gd-label" for="group-name">Group</label>'
             +'<div class="gd-name-row">'
-              +uiInput({ name: 'group-name', id: 'group-name', value: draftName, placeholder: 'Name this group', className: 'gd-name-input' })
-              +'<button type="button" class="btn primary btn-compact gd-save'+(nameDirty?' is-dirty':'')+(busy['group:save']?' loading':'')+'" data-action="group:save" data-baseline="'+esc(savedName)+'" '+(busy['group:save'] || !nameDirty?'disabled':'')+' title="Save name"><span class="spinner"></span><span>Save</span></button>'
+              +uiInput({ name: 'group-name', id: 'group-name', value: draftName, placeholder: 'Name this group', className: 'gd-name-input', ariaLabel: 'Group name' })
+              +'<button type="button" class="btn primary btn-compact has-ico gd-save'+(nameDirty?' is-dirty':'')+(busy['group:save']?' loading':'')+'" data-action="group:save" data-baseline="'+esc(savedName)+'" '+(busy['group:save'] || !nameDirty?'disabled':'')+' title="Save name"><span class="spinner"></span>'+ico('spark')+'<span>Save</span></button>'
             +'</div>'
             +'<div class="gd-meta"><span class="mono">'+esc(g.slug)+'</span></div>'
           +'</div>'
           +'<div class="gd-head-actions">'
-            +'<button type="button" class="btn btn-quiet danger-soft btn-compact" data-action="group:delete:'+esc(g.slug)+'" title="Delete group">'+ico('trash')+' Delete</button>'
+            +'<button type="button" class="btn btn-quiet danger-soft btn-compact has-ico" data-action="group:delete:'+esc(g.slug)+'" title="Delete group">'+ico('trash')+'<span>Delete</span></button>'
           +'</div>'
         +'</header>'
-        +'<div class="gd-body rw-canvas-wrap">'
+        +'<div class="gd-body gd-workarea rw-canvas-wrap'+(navLoading?' is-loading':'')+'">'
           + body
         +'</div>'
       +'</div>';
@@ -229,8 +250,8 @@
           +'<span class="ghost">'+(s.syncrox_running ? 'Running on :5090' : 'Stopped')+'</span>'
         +'</div>'
         +'<div class="inline-actions">'
-          +btn(s.syncrox_running ? 'Stop' : 'Start', s.syncrox_running ? 'syncrox:stop' : 'syncrox:start', s.syncrox_running ? 'danger' : 'primary', false)
-          +'<a class="btn" href="http://'+esc(publicHost())+':5090" target="_blank" rel="noopener">Open</a>'
+          +btn(s.syncrox_running ? 'Stop' : 'Start', s.syncrox_running ? 'syncrox:stop' : 'syncrox:start', s.syncrox_running ? 'danger-soft' : 'primary', false, s.syncrox_running ? 'stop' : 'play')
+          +'<a class="btn has-ico" href="http://'+esc(publicHost())+':5090" target="_blank" rel="noopener">'+ico('open')+'<span>Open</span></a>'
         +'</div>'
       +'</div>';
   }
@@ -238,29 +259,6 @@
 
 
   /** Compact inline SVG icons — shared across service cards & actions. */
-  function ico(name, cls) {
-    var c = 'ico' + (cls ? (' ' + cls) : '');
-    var common = ' class="'+c+'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
-    var paths = {
-      db: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
-      app: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6M9 13h6M9 17h4"/>',
-      play: '<polygon points="8,5 19,12 8,19" fill="currentColor" stroke="none"/>',
-      stop: '<rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" stroke="none"/>',
-      refresh: '<path d="M21 12a9 9 0 1 1-2.6-6.2"/><polyline points="21,3 21,9 15,9"/>',
-      logs: '<path d="M8 6h12M8 12h12M8 18h8"/><circle cx="4" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1" fill="currentColor" stroke="none"/>',
-      open: '<path d="M14 4h6v6"/><path d="M10 14L20 4"/><path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5"/>',
-      copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V6a2 2 0 0 1 2-2h10"/>',
-      globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
-      chev: '<path d="M9 6l6 6-6 6"/>',
-      back: '<path d="M15 6l-6 6 6 6"/>',
-      plus: '<path d="M12 5v14M5 12h14"/>',
-      trash: '<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/>',
-      link: '<path d="M10 13a5 5 0 0 0 7.1 0l2.1-2.1a5 5 0 0 0-7.1-7.1L10.9 5"/><path d="M14 11a5 5 0 0 0-7.1 0L4.8 13.1a5 5 0 0 0 7.1 7.1L13.1 19"/>',
-      close: '<path d="M18 6L6 18M6 6l12 12"/>'
-    };
-    return '<svg'+common+'>'+(paths[name] || '')+'</svg>';
-  }
-
   function svcKindMeta(svc) {
     if (svc && svc.type === 'postgres') {
       return { kind: 'db', label: 'Database', ico: 'db' };
@@ -467,21 +465,21 @@
     var acts = '';
     if (isPg) {
       if (isUp) {
-        acts = btn('Stop', 'svc:stop:'+svc.slug, toolCls, startStopBusy)
-          + btn('Restart', 'svc:restart:'+svc.slug, toolCls, restartBusy);
+        acts = btn('Stop', 'svc:stop:'+svc.slug, toolCls + ' danger-soft', startStopBusy, 'stop')
+          + btn('Restart', 'svc:restart:'+svc.slug, toolCls, restartBusy, 'refresh');
       } else {
-        acts = btn('Start', 'svc:start:'+svc.slug, 'primary ' + toolCls, startStopBusy);
+        acts = btn('Start', 'svc:start:'+svc.slug, 'primary ' + toolCls, startStopBusy, 'play');
       }
     } else if (building) {
-      acts = '<span class="drawer-tool-note ghost" role="status">Deploying…</span>';
+      acts = '<span class="drawer-tool-note ghost" role="status">'+ico('refresh', 'spin')+' Deploying…</span>';
     } else {
       if (isUp) {
-        acts = btn('Stop', 'svc:stop:'+svc.slug, toolCls, startStopBusy);
+        acts = btn('Stop', 'svc:stop:'+svc.slug, toolCls + ' danger-soft', startStopBusy, 'stop');
       } else {
-        acts = btn('Start', 'svc:start:'+svc.slug, 'primary ' + toolCls, startStopBusy);
+        acts = btn('Start', 'svc:start:'+svc.slug, 'primary ' + toolCls, startStopBusy, 'play');
       }
-      acts += btn('Restart', 'svc:restart:'+svc.slug, toolCls, restartBusy || !isUp);
-      acts += btn('Logs', 'svc:logs:'+svc.slug, toolCls, false);
+      acts += btn('Restart', 'svc:restart:'+svc.slug, toolCls, restartBusy || !isUp, 'refresh');
+      acts += btn('Logs', 'svc:logs:'+svc.slug, toolCls, false, 'logs');
     }
     return acts;
   }
@@ -775,7 +773,7 @@
       banner = ''
         +'<div class="svc-banner fail" data-stop="1">'
           +'<div class="svc-banner-text">'+esc(String(svc.last_error).slice(0,200))+'</div>'
-          +'<button type="button" class="btn btn-quiet btn-compact" data-action="svc:logs:'+esc(svc.slug)+'">Logs</button>'
+          +'<button type="button" class="btn btn-quiet btn-compact has-ico" data-action="svc:logs:'+esc(svc.slug)+'">'+ico('logs')+'<span>Logs</span></button>'
         +'</div>';
     } else if (!isPg && building) {
       banner = ''

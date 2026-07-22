@@ -396,6 +396,27 @@ func splitJSONLines(s string) []string {
 func (m *Manager) DockerDo(ctx context.Context, act DockerAction) (DockerActionResult, error) {
 	res := DockerActionResult{Action: act.Action}
 	switch strings.ToLower(strings.TrimSpace(act.Action)) {
+	case "daemon_start", "daemon-start":
+		st, err := m.StartDockerDaemon(ctx)
+		if err != nil {
+			return res, err
+		}
+		res.OK = true
+		res.Message = "Docker daemon running"
+		if st.Version != "" {
+			res.Message += " · " + st.Version
+		}
+		return res, nil
+
+	case "daemon_stop", "daemon-stop":
+		_, err := m.StopDockerDaemon(ctx)
+		if err != nil {
+			return res, err
+		}
+		res.OK = true
+		res.Message = "Docker daemon stopped"
+		return res, nil
+
 	case "start":
 		id := strings.TrimSpace(act.ID)
 		if id == "" {

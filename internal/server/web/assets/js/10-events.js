@@ -200,7 +200,9 @@
   
   document.getElementById('app').addEventListener('toggle', function(e) {
     if (!e.target || e.target.tagName !== 'DETAILS') return;
-    if (!e.target.open && e.target.closest('#panel-vpn')) {
+    if (!e.target.closest('#panel-vpn')) return;
+    hotspotSettingsOpen = !!e.target.open;
+    if (!e.target.open) {
       // Discard unsaved hotspot edits when collapsing
       formDirty = false;
       patchLive();
@@ -229,6 +231,10 @@
   if (navView === 'activity') {
     activity.userCollapsed = false;
     openActivityConsole({ forceExpand: true });
+  }
+  if (navView === 'settings') {
+    manageLoading = true;
+    refreshManage({ animate: true });
   }
   refreshConfig(true);
   refreshServices();

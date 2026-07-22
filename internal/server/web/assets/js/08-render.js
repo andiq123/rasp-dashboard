@@ -259,7 +259,7 @@
     if (navView === 'overview') return '/overview';
     if (navView === 'activity') return '/activity';
     if (navView === 'settings') {
-      return settingsTab === 'storage' ? '/settings/storage' : '/settings';
+      return '/settings';
     }
     if (navView === 'projects') {
       if (activeGroup) {
@@ -277,8 +277,7 @@
     var p = String(path || '/').replace(/\/+$/, '') || '/';
     if (p === '/' || p === '/overview') return { navView: 'overview' };
     if (p === '/activity') return { navView: 'activity' };
-    if (p === '/settings') return { navView: 'settings', settingsTab: 'github' };
-    if (p === '/settings/storage') return { navView: 'settings', settingsTab: 'storage' };
+    if (p === '/settings' || p === '/settings/storage') return { navView: 'settings', settingsTab: 'storage', settingsFocus: (p === '/settings/storage' ? 'storage' : 'github') };
     if (p === '/projects') return { navView: 'projects' };
     var m = p.match(/^\/projects\/([^/]+)(?:\/([^/]+))?$/);
     if (m) {
@@ -323,13 +322,16 @@
       dockerOpen = false;
     }
     ensureStatsPoll();
-    if (opts.render === false) return;
-    if (navView === 'settings' && settingsTab === 'storage') {
+    if (navView === 'settings') {
+      // Always load engine + Docker inventory on Settings (boot uses render:false).
       manageLoading = true;
-      render(opts);
-      refreshManage({ animate: true });
+      dockerOpen = true;
+      settingsTab = 'storage';
+      if (opts.render !== false) render(opts);
+      refreshManage({ animate: opts.animate !== false });
       return;
     }
+    if (opts.render === false) return;
     if (navView === 'projects') {
       render(opts);
       refreshServices({ soft: true });
@@ -433,8 +435,17 @@
     });
     bits.push('busy:' + Object.keys(busy || {}).sort().join(','));
     bits.push('err:' + String(servicesError || '') + ':' + String(groupsError || '') + ':' + (navLoading ? 1 : 0));
-    if (navView === 'settings' && settingsTab === 'storage') {
-      bits.push('stor:' + (manageLoading ? 1 : 0) + ':' + (manageOv ? 1 : 0) + ':' + String(manageError || ''));
+    if (navView === 'settings') {
+      var engRun = (engineView && engineView.postgres_running) ? 1 : 0;
+      var engBusy = (busy['engine:start'] || busy['engine:stop'] || busy['engine:save']) ? 1 : 0;
+      var daemonRun = (manageOv && manageOv.daemon && manageOv.daemon.running) ? 1 : 0;
+      var daemonBusy = (busy['docker:daemon-start'] || busy['docker:daemon-stop']) ? 1 : 0;
+      var dockN = 0;
+      try {
+        dockN = ((((manageOv && manageOv.docker) || dockerInv || {}).containers) || []).length;
+      } catch (e) {}
+      bits.push('stor:' + (manageLoading ? 1 : 0) + ':' + (manageOv ? 1 : 0) + ':' + String(manageError || '')
+        + ':e' + engRun + ':b' + engBusy + ':d' + daemonRun + ':db' + daemonBusy + ':c' + dockN);
     }
     try {
       Object.keys(sqlResult || {}).sort().forEach(function(slug){
@@ -812,23 +823,108 @@
     }
   }
 
-  function patchLive() {
-    var draft = readFormDraft();
-    var s = state || {};
-    var c = draft || config || {};
-    var mon = document.getElementById('panel-monitoring');
-    var vpnEl = document.getElementById('panel-vpn');
-    if (mon) {
-      var wrap = document.createElement('div');
-      wrap.innerHTML = monitoring(s);
-      mon.replaceWith(wrap.firstChild);
+  function patchMetricEl(el, value, detail, percent) {
+    if (!el) return;
+    var p = clamp(percent).toFixed(0) + '%';
+    var v = el.querySelector('.v');
+    var d = el.querySelector('.d');
+    var bar = el.querySelector('.bar');
+    var span = bar && bar.querySelector('span');
+    if (v && v.textContent !== String(value)) v.textContent = value;
+    if (d && d.textContent !== String(detail)) d.textContent = detail;
+    if (bar) bar.style.setProperty('--p', p);
+    if (span && span.style.width !== p) {
+      requestAnimationFrame(function(){ span.style.width = p; });
     }
-    var hotspotOpen = !!(vpnEl && vpnEl.querySelector('details[open]'));
-    if (vpnEl && !(formDirty && hotspotOpen)) {
-      var wrap2 = document.createElement('div');
-      wrap2.innerHTML = vpn(s, formDirty ? c : (config || {}));
-      vpnEl.replaceWith(wrap2.firstChild);
-      if (!formDirty) formDirty = false;
+  }
+
+  function patchMonitoringLive(s) {
+    var mon = document.getElementById('panel-monitoring');
+    if (!mon) return;
+    var d = (s && s.device_metrics) || {};
+    var cpu = d.cpu || {}, mem = d.memory || {}, thermal = d.thermal || {}, storage = d.storage || {}, net = d.network || {};
+    var temp = Number(thermal.temperature_celsius || 0);
+    var thermalDetail = thermal.throttle_known ? (thermal.throttled ? 'Throttled' : 'OK') : 'Sensor';
+    var thermalVal = thermal.available ? (temp.toFixed(0) + '°') : 'n/a';
+    patchMetricEl(mon.querySelector('[data-metric="cpu"]'), fmtPct(cpu.busy_percent), 'Idle ' + fmtPct(cpu.idle_percent), cpu.busy_percent);
+    patchMetricEl(mon.querySelector('[data-metric="memory"]'), fmtPct(mem.used_percent), fmtBytes(mem.used_bytes), mem.used_percent);
+    patchMetricEl(mon.querySelector('[data-metric="thermal"]'), thermalVal, thermalDetail, temp / 85 * 100);
+    patchMetricEl(mon.querySelector('[data-metric="storage"]'), fmtPct(storage.used_percent), fmtBytes(storage.used_bytes), storage.used_percent);
+    var nets = mon.querySelectorAll('.net-dense strong');
+    if (nets[0]) nets[0].textContent = fmtRate(net.down_bytes_per_sec);
+    if (nets[1]) nets[1].textContent = fmtRate(net.up_bytes_per_sec);
+  }
+
+  function patchVpnChrome(vpnEl, s) {
+    if (!vpnEl || !s) return;
+    var mode = s.mode || 'mullvad';
+    var h = health(s);
+    var dhcp = (s.dhcp_start && s.dhcp_end) ? s.dhcp_start + ' – ' + s.dhcp_end : 'Not set';
+    var big = vpnEl.querySelector('.vpn-title .big');
+    if (big) {
+      var label = mode === 'residential' ? 'Residential' : 'Mullvad';
+      // keep shield icon, replace text node after svg
+      var svg = big.querySelector('svg');
+      big.innerHTML = '';
+      if (svg) big.appendChild(svg);
+      else big.insertAdjacentHTML('afterbegin', ico('shield'));
+      big.appendChild(document.createTextNode(' ' + label));
+    }
+    var route = vpnEl.querySelector('.vpn-title .route');
+    if (route) route.textContent = routeLabel(mode);
+    var pill = vpnEl.querySelector('.pill');
+    if (pill) {
+      pill.className = 'pill ' + h.cls;
+      var pulse = pill.querySelector('.pulse');
+      if (pulse) pulse.className = 'pulse' + (h.cls === 'off' ? ' off' : '');
+      // text after pulse
+      var nodes = [].slice.call(pill.childNodes);
+      nodes.forEach(function(n){ if (n.nodeType === 3) pill.removeChild(n); });
+      pill.appendChild(document.createTextNode(h.text));
+    }
+    var seg = vpnEl.querySelectorAll('.seg button');
+    if (seg[0]) {
+      seg[0].classList.toggle('active', mode === 'mullvad');
+      seg[0].disabled = !!(busy['mode:mullvad'] || busy['mode:residential']);
+    }
+    if (seg[1]) {
+      seg[1].classList.toggle('active', mode === 'residential');
+      seg[1].disabled = !!(busy['mode:mullvad'] || busy['mode:residential']);
+    }
+    // rows
+    var rows = vpnEl.querySelectorAll('.rows .row strong');
+    if (rows[0]) rows[0].textContent = s.ssid || '—';
+    if (rows[1]) rows[1].textContent = s.hotspot_ip || '—';
+    if (rows[2]) rows[2].textContent = dhcp;
+    // action buttons: rebuild actions row only
+    var actions = vpnEl.querySelector('.actions');
+    if (actions) {
+      actions.innerHTML = ''
+        + btn('Start', 'hotspot:start', 'primary', s.hotspot_running, 'play')
+        + btn('Stop', 'hotspot:stop', 'danger-soft', !s.hotspot_running, 'stop')
+        + btn('Restart', 'hotspot:restart', 'btn-quiet', false, 'refresh');
+    }
+  }
+
+  function patchLive() {
+    var s = state || {};
+    // Prefer live DOM open state; keep flag in sync
+    var vpnEl = document.getElementById('panel-vpn');
+    var detailsOpen = !!(vpnEl && vpnEl.querySelector('details.settings[open]'));
+    if (detailsOpen) hotspotSettingsOpen = true;
+
+    patchMonitoringLive(s);
+
+    if (vpnEl) {
+      if (hotspotSettingsOpen || detailsOpen) {
+        patchVpnChrome(vpnEl, s);
+      } else {
+        var draft = readFormDraft();
+        var c = draft || config || {};
+        var wrap2 = document.createElement('div');
+        wrap2.innerHTML = vpn(s, formDirty ? c : (config || {}));
+        vpnEl.replaceWith(wrap2.firstChild);
+      }
     }
     setLive(true);
   }
@@ -837,6 +933,9 @@
     opts = opts || {};
     captureWizardDraft();
     captureSettingsDrafts();
+    // Preserve hotspot settings expand across full re-renders
+    var det = document.querySelector('#panel-vpn details.settings');
+    if (det) hotspotSettingsOpen = !!det.open;
     var draft = readFormDraft();
     var s = state || {};
     var c = draft || config || {};
@@ -928,7 +1027,16 @@
     return Promise.all([
       api("/api/groups").then(function(r){ groups = r.groups || []; groupsError = null; }).catch(function(e){ groupsError = (e && e.message) || "Could not load groups"; }),
       activeGroup
-        ? api("/api/groups/" + encodeURIComponent(activeGroup) + "/services").then(function(r){ deployed = r.services || []; servicesError = null; }).catch(function(e){ servicesError = (e && e.message) || "Could not load services"; deployed = []; })
+        ? api("/api/groups/" + encodeURIComponent(activeGroup) + "/services").then(function(r){
+            var prevStats = {};
+            (deployed || []).forEach(function(s){ if (s && s.slug && s.stats) prevStats[s.slug] = s.stats; });
+            deployed = r.services || [];
+            (deployed || []).forEach(function(s){
+              if (!s || !s.slug) return;
+              if (prevStats[s.slug] && (!s.stats || s.type === "go")) s.stats = prevStats[s.slug];
+            });
+            servicesError = null;
+          }).catch(function(e){ servicesError = (e && e.message) || "Could not load services"; deployed = []; })
         : Promise.resolve().then(function(){ deployed = []; servicesError = null; })
     ]).then(function(){
       navLoading = false;
@@ -987,7 +1095,16 @@
   }
   function refreshConfig(force) {
     if (formDirty && !force) return Promise.resolve(config);
-    return api('/api/config').then(function(c){ config = c; render(); return c; }).catch(function(e){ console.error(e); });
+    return api('/api/config').then(function(c){
+      config = c;
+      var editing = hotspotSettingsOpen || !!(document.querySelector('#panel-vpn details.settings[open]'));
+      if (editing && !force) {
+        // Keep the open form intact; live chrome is patched via patchLive/SSE.
+        return c;
+      }
+      render();
+      return c;
+    }).catch(function(e){ console.error(e); });
   }
   function fallbackPoll() {
     clearInterval(pollTimer);
@@ -1460,13 +1577,11 @@
       if (view === 'settings') {
         activeGroup = null;
         manageTab = 'services';
-        if (!settingsTab) settingsTab = 'github';
-        dockerOpen = (settingsTab === 'storage');
+        settingsTab = 'storage';
+        dockerOpen = true;
+        manageLoading = true;
         render({ animate: true, dir: _navDir });
-        if (settingsTab === 'storage') {
-          manageLoading = true;
-          refreshManage({ animate: true });
-        }
+        refreshManage({ animate: true });
         syncRouteFromState();
         return;
       }
@@ -1492,19 +1607,18 @@
         renderDrawerPortal();
         navView = 'settings';
         manageTab = 'services';
-      }
-      if (settingsTab === stab && navView === 'settings') return;
-      settingsTab = stab;
-      dockerOpen = (stab === 'storage');
-      _navDir = 'forward';
-      if (stab === 'storage') {
+        settingsTab = 'storage';
+        dockerOpen = true;
         manageLoading = true;
+        _navDir = 'forward';
         render({ animate: true, dir: _navDir });
         refreshManage({ animate: true });
-      } else {
-        renderServices({ animate: true, dir: _navDir });
+        syncRouteFromState();
       }
-      syncRouteFromState();
+      requestAnimationFrame(function(){
+        var el = document.getElementById('settings-' + stab);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
     } else if (id.indexOf('manage:tab:') === 0) {
       var legacyTab = id.slice('manage:tab:'.length);
       if (legacyTab === 'storage') {
@@ -1551,11 +1665,34 @@
     } else if (id === 'docker:refresh') {
       busy['docker:refresh'] = true;
       renderServices({soft:true});
-      refreshManage().finally(function(){ delete busy['docker:refresh']; if (onSettingsStoragePage()) renderServices({soft:true}); });
+      refreshManage().finally(function(){ delete busy['docker:refresh']; if (onSettingsStoragePage()) renderServices({soft:true, force:true}); });
     } else if (id === 'docker:stop-all') {
       var nRun = ((dockerInv && dockerInv.containers) || []).filter(function(c){ return c.running && c.managed; }).length;
       dockerAction({action:'stop-all'}, 'docker:stop-all',
         'Stop '+nRun+' FireWifi-managed container(s)?\n\nOnly labeled fw-* / firewifi containers. Shared images stay. Start apps again from Groups.');
+    } else if (id === 'docker:daemon-start' || id === 'docker:daemon-stop') {
+      if (busy['docker:daemon-start'] || busy['docker:daemon-stop'] || busy.deploy) return;
+      var dStart = id === 'docker:daemon-start';
+      if (!dStart && !confirm('Stop the Docker daemon?\n\nEvery container on this Pi will stop (Go apps, Postgres engine, databases) until you Start Docker again.\n\nThe FireWifi dashboard itself keeps running.')) return;
+      busy[id] = true;
+      activity.userCollapsed = false;
+      openActivityConsole({
+        forceExpand: true, clearPin: true, reset: true, active: true,
+        title: dStart ? 'Start Docker daemon' : 'Stop Docker daemon',
+        scope: 'engine/docker',
+        contextKey: 'live:engine/docker'
+      });
+      if (onSettingsStoragePage()) renderServices({ soft: true, force: true });
+      api('/api/docker', { method:'POST', body: JSON.stringify({ action: dStart ? 'daemon_start' : 'daemon_stop' }) })
+        .then(function(res){
+          showToast((res && res.message) || (dStart ? 'Docker daemon running' : 'Docker daemon stopped'));
+          return refreshManage();
+        })
+        .catch(function(e){ showToast(e.message || 'Docker daemon action failed'); })
+        .finally(function(){
+          delete busy[id];
+          if (onSettingsStoragePage()) renderServices({ soft: true, force: true });
+        });
     } else if (id === 'engine:start' || id === 'engine:stop') {
       if (busy['engine:start'] || busy['engine:stop'] || busy.deploy) return;
       var start = id === 'engine:start';

@@ -71,7 +71,8 @@
   }
 
   function onSettingsStoragePage() {
-    return navView === 'settings' && settingsTab === 'storage' && !activeGroup;
+    // Storage lives on the single Settings page (no separate tab).
+    return navView === 'settings' && !activeGroup;
   }
 
   function refreshManage(opts) {
@@ -116,19 +117,40 @@
       });
   }
 
-  function engineStatusLabel(ev) {
-    if (!ev) return { text: 'Unknown', cls: 'off' };
-    if (ev.postgres_running) return { text: 'Running', cls: 'on' };
-    // Infer restarting/stopped from containers when engine reports down
+  function findPostgresEngineContainer() {
     var ctrs = ((manageOv && manageOv.docker) || dockerInv || {}).containers || [];
     for (var i = 0; i < ctrs.length; i++) {
-      var c = ctrs[i];
-      if (!c || !/postgres|firewifi-postgres/i.test(c.name + ' ' + (c.image || ''))) continue;
+      if (isPostgresEngineContainer(ctrs[i])) return ctrs[i];
+    }
+    for (var j = 0; j < ctrs.length; j++) {
+      var c = ctrs[j];
+      if (c && /firewifi-postgres|\bpostgres\b/i.test(String(c.name || '') + ' ' + String(c.image || ''))) return c;
+    }
+    return null;
+  }
+
+  function engineStatusLabel(ev) {
+    if (manageLoading && !(ev && ev.postgres_running) && !findPostgresEngineContainer()) {
+      return { text: 'Checking…', cls: 'wait' };
+    }
+    if (ev && ev.postgres_running) return { text: 'Running', cls: 'on' };
+    var c = findPostgresEngineContainer();
+    if (c) {
       var st = String(c.state || '').toLowerCase();
-      if (st === 'restarting') return { text: 'Restarting', cls: 'warn' };
-      if (st === 'running') return { text: 'Running', cls: 'on' };
+      if (st === 'restarting' || String(c.status || '').toLowerCase().indexOf('health: starting') >= 0) {
+        return { text: 'Starting…', cls: 'warn' };
+      }
+      if (c.running || st === 'running') return { text: 'Running', cls: 'on' };
       return { text: 'Stopped', cls: 'off' };
     }
+    // Published DB services imply the shared engine must be up.
+    var pubs = (manageOv && manageOv.published) || [];
+    for (var i = 0; i < pubs.length; i++) {
+      if (pubs[i] && pubs[i].kind === 'postgres' && pubs[i].running) {
+        return { text: 'Running', cls: 'on' };
+      }
+    }
+    if (!ev && !manageOv && !manageError) return { text: 'Checking…', cls: 'wait' };
     return { text: 'Stopped', cls: 'off' };
   }
 
@@ -142,43 +164,107 @@
     return { text: c.status || c.state || 'Stopped', cls: 'off' };
   }
 
+  function dockerDaemonStatus() {
+    var ov = manageOv || {};
+    var d = ov.daemon || {};
+    if (manageLoading && !manageOv) return { text: 'Checking…', cls: 'wait', running: false, checking: true };
+    if (d.running) return { text: 'Running', cls: 'on', running: true, checking: false, version: d.version || '', active: d.active || 'active' };
+    if (d.active === 'activating' || d.active === 'reloading') {
+      return { text: 'Starting…', cls: 'warn', running: false, checking: false, active: d.active };
+    }
+    if (d.active === 'deactivating') {
+      return { text: 'Stopping…', cls: 'warn', running: false, checking: false, active: d.active };
+    }
+    if (d.error && !d.active) return { text: 'Unknown', cls: 'off', running: false, checking: false, error: d.error };
+    return { text: 'Stopped', cls: 'off', running: false, checking: false, active: d.active || 'inactive' };
+  }
+
+  function dockerDaemonCard() {
+    var st = dockerDaemonStatus();
+    var busyStart = !!busy['docker:daemon-start'];
+    var busyStop = !!busy['docker:daemon-stop'];
+    var busyD = busyStart || busyStop;
+    var on = !!st.running;
+    var powerLabel = busyStart ? 'Starting…' : (busyStop ? 'Stopping…' : (st.checking ? '…' : (on ? 'Stop' : 'Start')));
+    var powerAction = on ? 'docker:daemon-stop' : 'docker:daemon-start';
+    var powerCls = on ? 'btn-quiet btn-compact danger-soft' : 'primary btn-compact';
+    var meta = [];
+    if (st.version) meta.push('v' + st.version);
+    if (st.active) meta.push(st.active);
+    meta.push('systemctl docker.service');
+    var ctrs = ((((manageOv && manageOv.docker) || dockerInv || {}).containers) || []);
+    var runningN = ctrs.filter(function(c){ return c && c.running; }).length;
+    var depend = runningN === 1
+      ? '1 container depends on this runtime'
+      : (runningN + ' containers depend on this runtime');
+    return ''
+      +'<div class="manage-block engine-card daemon-card">'
+        +'<div class="manage-block-head">'
+          +'<div class="engine-title">'
+            +'<span class="engine-ico" aria-hidden="true">'+ico('docker')+'</span>'
+            +'<span class="dock-state '+st.cls+'"></span>'
+            +'<strong>Docker daemon</strong>'
+            +'<span class="dock-badge '+st.cls+'">'+esc(st.text)+'</span>'
+          +'</div>'
+          +'<div class="engine-power" data-stop="1">'
+            +btn(powerLabel, powerAction, powerCls, busyD || st.checking, on ? 'stop' : 'play')
+          +'</div>'
+        +'</div>'
+        +'<p class="engine-help">Host container runtime (dockerd). Go apps and the shared Postgres engine both need this running.</p>'
+        +'<p class="engine-meta mono">'+esc(meta.join(' · '))+'</p>'
+        +'<p class="engine-depend ghost">'+esc(depend)+'</p>'
+      +'</div>';
+  }
+
   function engineCard() {
     var ev = engineView || { settings: {}, postgres_options: [], go_options: [] };
     var s = ev.settings || {};
-    var pg = (engineDraft && engineDraft.postgres_version) || s.postgres_version || '16';
+    var pg = (engineDraft && engineDraft.postgres_version) || s.postgres_version || 'latest';
     var go = (engineDraft && engineDraft.go_toolchain) || s.go_toolchain || 'auto';
     var st = engineStatusLabel(ev);
     var busyStart = !!busy['engine:start'];
     var busyStop = !!busy['engine:stop'];
     var busySave = !!busy['engine:save'];
     var busyEng = busyStart || busyStop || busySave;
-    var on = !!ev.postgres_running || st.cls === 'on' || st.cls === 'warn';
-    var powerLabel = busyStart ? 'Starting…' : (busyStop ? 'Stopping…' : (on ? 'Stop' : 'Start'));
+    var checking = st.cls === 'wait';
+    var on = !checking && (!!ev.postgres_running || st.cls === 'on' || st.cls === 'warn');
+    var powerLabel = busyStart ? 'Starting…' : (busyStop ? 'Stopping…' : (checking ? '…' : (on ? 'Stop' : 'Start')));
     var powerAction = on ? 'engine:stop' : 'engine:start';
-    var powerCls = on ? 'btn-quiet btn-compact' : 'primary btn-compact';
+    var powerCls = on ? 'btn-quiet btn-compact danger-soft' : 'primary btn-compact';
+    var ctr = findPostgresEngineContainer();
+    var pubs = (manageOv && manageOv.published) || [];
+    var dbN = 0;
+    for (var i = 0; i < pubs.length; i++) {
+      if (pubs[i] && pubs[i].kind === 'postgres') dbN++;
+    }
+    var depend = dbN === 1 ? '1 database uses this engine' : (dbN + ' databases use this engine');
+    var hostLine = 'firewifi-postgres · ' + esc(ev.postgres_image || (ctr && ctr.image) || 'postgres') + ' · 127.0.0.1:5432';
     return ''
       +'<div class="manage-block engine-card">'
         +'<div class="manage-block-head">'
           +'<div class="engine-title">'
+            +'<span class="engine-ico" aria-hidden="true">'+ico('db')+'</span>'
             +'<span class="dock-state '+st.cls+'"></span>'
-            +'<strong>Postgres engine</strong>'
+            +'<strong>Shared Postgres engine</strong>'
             +'<span class="dock-badge '+st.cls+'">'+esc(st.text)+'</span>'
           +'</div>'
           +'<div class="engine-power" data-stop="1">'
-            +btn(powerLabel, powerAction, powerCls, busyEng)
+            +btn(powerLabel, powerAction, powerCls, busyEng || checking, on ? 'stop' : 'play')
           +'</div>'
         +'</div>'
-        +'<p class="engine-meta mono">Shared database host · '+esc(ev.postgres_image || 'postgres')+' · 127.0.0.1:5432</p>'
+        +'<p class="engine-help">Powers project databases on this Pi. Go apps run as their own Docker containers — this is not the Docker daemon.</p>'
+        +'<p class="engine-meta mono">'+hostLine+'</p>'
+        +'<p class="engine-depend ghost">'+esc(depend)+'</p>'
         +'<div class="runtime-grid">'
           +'<label class="runtime-field"><span>Postgres version</span>'
-            +cselectHTML('engine-pg', pg, 'Version…', runtimeOptions(ev.postgres_options), busyEng, {searchable:false})
+            +cselectHTML('engine-pg', pg, 'Version…', runtimeOptions(ev.postgres_options), busyEng || checking, {searchable:false})
           +'</label>'
           +'<label class="runtime-field"><span>Go builds</span>'
-            +cselectHTML('engine-go', go, 'Toolchain…', runtimeOptions(ev.go_options), busyEng, {searchable:false})
+            +cselectHTML('engine-go', go, 'Toolchain…', runtimeOptions(ev.go_options), busyEng || checking, {searchable:false})
           +'</label>'
         +'</div>'
         +'<div class="manage-row-actions end">'
-          +btn(busySave ? 'Applying…' : 'Apply', 'engine:save', 'btn-compact', busyEng)
+          +btn(busySave ? 'Applying…' : 'Apply', 'engine:save', 'primary btn-compact', busyEng || checking, 'spark')
         +'</div>'
       +'</div>';
   }
@@ -212,7 +298,7 @@
       + (unusedVols ? ' · ' + unusedVols + ' unused' : '');
 
     var loading = manageLoading && !manageOv && !manageError
-      ? '<div class="empty empty-loading compact storage-state"><div class="nav-spinner" aria-hidden="true"></div><h3>Scanning…</h3><p class="ghost">Docker inventory and engine</p></div>'
+      ? '<div class="storage-state storage-scanning compact"><div class="nav-spinner" aria-hidden="true"></div><p>Scanning Docker inventory…</p></div>'
       : '';
     var errBlock = manageError && !manageLoading
       ? '<div class="empty storage-state storage-error compact"><h3>Scan failed</h3><p>'+esc(manageError)+'</p><div class="inline-actions">'+btn('Retry', 'docker:refresh', 'btn-compact primary', busy['docker:refresh'])+'</div></div>'
@@ -241,20 +327,23 @@
             +dockCheck('build_cache', 'Build cache', !!opt.build_cache)
           +'</div>'
           +'<div class="manage-row-actions end">'
-            +btn('Stop managed', 'docker:stop-all', 'danger btn-quiet btn-compact', manageLoading || busy['docker:stop-all'])
-            +btn('Clean', 'docker:prune', 'primary btn-compact', manageLoading || busy['docker:prune'])
+            +btn('Stop managed', 'docker:stop-all', 'danger btn-quiet btn-compact', manageLoading || busy['docker:stop-all'], 'stop')
+            +btn('Clean', 'docker:prune', 'primary btn-compact', manageLoading || busy['docker:prune'], 'spark')
           +'</div>'
         +'</div>'
       +'</details>';
 
-    return errBlock || loading || (
+    if (errBlock && !manageOv) return errBlock;
+    return (
       '<div class="storage-flow">'
+        +loading
         +dockerWarn
+        +dockerDaemonCard()
         +engineCard()
         +strip
-        +manageSection('Volumes', vols.length, volMeta, vols.length ? vols.map(dockVolumeRow).join('') : manageEmpty('No volumes'))
+        +manageSection('Volumes', vols.length, volMeta, vols.length ? vols.map(dockVolumeRow).join('') : manageEmpty(manageLoading ? 'Scanning volumes…' : 'No volumes'))
         +prune
-        +manageSection('Containers', ctrs.length, ctrMeta || 'app containers', ctrs.length ? ctrs.map(dockContainerRow).join('') : manageEmpty('No app containers'))
+        +manageSection('Containers', ctrs.length, ctrMeta || 'app containers', ctrs.length ? ctrs.map(dockContainerRow).join('') : manageEmpty(manageLoading ? 'Scanning containers…' : 'No app containers'))
       +'</div>'
     );
   }
@@ -272,10 +361,12 @@
   }
 
   function manageSection(title, count, meta, body) {
+    var icons = { Volumes: 'disk', Containers: 'docker', Images: 'storage' };
+    var ic = icons[title] ? ('<span class="dock-sec-ico" aria-hidden="true">'+ico(icons[title])+'</span>') : '';
     return ''
       +'<div class="dock-section">'
         +'<div class="dock-section-head">'
-          +'<strong>'+esc(title)+'</strong>'
+          +'<strong>'+ic+esc(title)+'</strong>'
           +'<span class="ghost">'+(meta ? esc(meta) : esc(String(count)))+'</span>'
         +'</div>'
         +'<div class="dock-list">'+body+'</div>'
@@ -301,11 +392,11 @@
       actions = '<span class="ghost">Managed by engine</span>';
     } else {
       if (c.running || String(c.state||'').toLowerCase() === 'restarting') {
-        actions += btn('Stop', 'docker:stop:'+c.name, 'btn-quiet btn-compact', !!busy['docker:stop:'+c.name]);
+        actions += btn('Stop', 'docker:stop:'+c.name, 'btn-quiet btn-compact danger-soft', !!busy['docker:stop:'+c.name], 'stop');
       } else {
-        actions += btn('Start', 'docker:start:'+c.name, 'primary btn-quiet btn-compact', !!busy['docker:start:'+c.name]);
+        actions += btn('Start', 'docker:start:'+c.name, 'primary btn-quiet btn-compact', !!busy['docker:start:'+c.name], 'play');
       }
-      actions += btn('Remove', 'docker:rm-ctr:'+c.name, 'danger btn-quiet btn-compact', !!busy['docker:rm-ctr:'+c.name]);
+      actions += btn('Remove', 'docker:rm-ctr:'+c.name, 'danger btn-quiet btn-compact', !!busy['docker:rm-ctr:'+c.name], 'trash');
     }
     var size = (c.size || '—').split(' (')[0];
     return ''

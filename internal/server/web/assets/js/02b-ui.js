@@ -340,7 +340,12 @@
       var nTrack = b.querySelector(trackSel);
       var val = a.querySelector(valSel);
       var nVal = b.querySelector(valSel);
-      if (fill && nFill) fill.style.width = nFill.style.width;
+      if (fill && nFill) {
+        var nextW = nFill.style.width;
+        if (fill.style.width !== nextW) {
+          requestAnimationFrame(function(){ fill.style.width = nextW; });
+        }
+      }
       if (track && nTrack) {
         var now = nTrack.getAttribute('aria-valuenow');
         if (now != null) track.setAttribute('aria-valuenow', now);
@@ -374,7 +379,9 @@
   }
 
   function patchServiceUsageDOM() {
-    var root = document.querySelector('.panel-group-detail .svc-list') || document;
+    // Lanes each have their own .svc-list — scope to the whole group panel
+    // so App cards are patched, not only the first (Databases) list.
+    var root = document.querySelector('.panel-group-detail') || document;
     (deployed || []).forEach(function(svc) {
       if (!svc || !svc.slug) return;
       var card = root.querySelector('.svc-card[data-slug="'+svc.slug+'"]');
