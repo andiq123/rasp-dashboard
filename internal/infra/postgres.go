@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,6 +26,12 @@ var identRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
 
 type Postgres struct {
 	ComposeFile string
+	statusMu   sync.Mutex
+	statusAt   time.Time
+	statusSnap Status
+	volMu      sync.Mutex
+	volAt      time.Time
+	volSnap    VolumeInfo
 }
 
 func NewPostgres(baseDir string) *Postgres {
@@ -39,6 +46,24 @@ type Status struct {
 }
 
 func (p *Postgres) Status(ctx context.Context) Status {
+	p.statusMu.Lock()
+	if time.Since(p.statusAt) < 2*time.Second {
+		st := p.statusSnap
+		p.statusMu.Unlock()
+		return st
+	}
+	p.statusMu.Unlock()
+
+	st := p.statusSlow(ctx)
+
+	p.statusMu.Lock()
+	p.statusSnap = st
+	p.statusAt = time.Now()
+	p.statusMu.Unlock()
+	return st
+}
+
+func (p *Postgres) statusSlow(ctx context.Context) Status {
 	st := Status{DSN: DefaultDSN, Image: p.Image()}
 	if _, err := exec.LookPath("docker"); err != nil {
 		st.Detail = "docker not installed — run bin/setup-infra"

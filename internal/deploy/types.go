@@ -52,6 +52,7 @@ type Service struct {
 	Running        bool    `json:"running"`
 	URL            string  `json:"url,omitempty"`
 	PublicURL      string  `json:"public_url,omitempty"`
+	PublicPath     string  `json:"public_path,omitempty"` // best path to open (e.g. /health)
 	StaticHost     string  `json:"static_host,omitempty"`
 	TunnelActive   bool    `json:"tunnel_active,omitempty"`
 	ConnectionURL  string  `json:"connection_url,omitempty"`
@@ -354,12 +355,28 @@ func normalizeEnv(body string) string {
 		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
 			continue
 		}
+		if i := strings.IndexByte(line, '='); i > 0 {
+			line = line[:i+1] + unquoteEnvValue(line[i+1:])
+		}
 		out = append(out, line)
 	}
 	if len(out) == 0 {
 		return ""
 	}
 	return strings.Join(out, "\n") + "\n"
+}
+
+// unquoteEnvValue strips one layer of surrounding quotes.
+// Docker --env-file keeps literal quotes in the container value, so
+// CORS_ALLOWED_ORIGINS="https://app.example" would crash apps that validate origins.
+func unquoteEnvValue(v string) string {
+	v = strings.TrimSpace(v)
+	if len(v) >= 2 {
+		if (v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\'') {
+			return v[1 : len(v)-1]
+		}
+	}
+	return v
 }
 
 func sortStrings(a []string) { sort.Strings(a) }

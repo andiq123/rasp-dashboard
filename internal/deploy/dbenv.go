@@ -2,8 +2,6 @@ package deploy
 
 import (
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -25,10 +23,7 @@ var linkedDBKeys = []string{
 }
 
 func removeLinkedDBEnv(body string) string {
-	for _, k := range linkedDBKeys {
-		body = removeEnvKey(body, k)
-	}
-	return body
+	return clearEnvKeys(body, linkedDBKeys...)
 }
 
 func parsePostgresURL(raw string) (host, port, user, pass, name, sslmode string) {
@@ -114,24 +109,36 @@ func dbServiceHasCreds(mp map[string]string) bool {
 		envGet(mp, "DB_NAME") != ""
 }
 
-// injectLinkedDatabase writes Railway-style references into a Go app env:
-//
-//	DATABASE_URL=${{Postgres.DATABASE_URL}}
-//	POSTGRES_HOST=${{Postgres.POSTGRES_HOST}}
-//	DB_HOST=${{Postgres.DB_HOST}}
-//
-// Resolved into runtime.env on deploy.
+// databaseLinkSpec copies concrete Postgres env from a group DB service.
+func databaseLinkSpec() linkedEnvSpec {
+	return linkedEnvSpec{
+		Kind:   "database",
+		Remove: linkedDBKeys,
+		Copy: []linkedKeyCopy{
+			{"DATABASE_URL", "DATABASE_URL", ""},
+			{"DB_HOST", "DB_HOST", "POSTGRES_HOST"},
+			{"DB_PORT", "DB_PORT", "POSTGRES_PORT"},
+			{"DB_NAME", "DB_NAME", "POSTGRES_DB"},
+			{"DB_USER", "DB_USER", "POSTGRES_USER"},
+			{"DB_PASSWORD", "DB_PASSWORD", "POSTGRES_PASSWORD"},
+			{"DB_SSLMODE", "DB_SSLMODE", ""},
+			{"POSTGRES_HOST", "POSTGRES_HOST", "DB_HOST"},
+			{"POSTGRES_PORT", "POSTGRES_PORT", "DB_PORT"},
+			{"POSTGRES_DB", "POSTGRES_DB", "DB_NAME"},
+			{"POSTGRES_USER", "POSTGRES_USER", "DB_USER"},
+			{"POSTGRES_PASSWORD", "POSTGRES_PASSWORD", "DB_PASSWORD"},
+		},
+	}
+}
+
+// injectLinkedDatabase copies live DB_* / POSTGRES_* / DATABASE_URL values
+// from the linked Postgres service in the same group (concrete, not refs).
 func (m *Manager) injectLinkedDatabase(body, group, dbSlug string) string {
 	dbSlug = strings.TrimSpace(dbSlug)
 	if group == "" || dbSlug == "" {
 		return body
 	}
-	b, err := os.ReadFile(filepath.Join(m.serviceDir(group, dbSlug), "env"))
-	src := ""
-	if err == nil {
-		src = string(b)
-	}
-	mp := parseEnvMap(src)
+	mp := m.readServiceEnvMap(group, dbSlug)
 	if envGet(mp, "DATABASE_URL") == "" {
 		if u := m.readServiceDATABASEURL(group, dbSlug); u != "" {
 			mp["DATABASE_URL"] = u
@@ -140,33 +147,7 @@ func (m *Manager) injectLinkedDatabase(body, group, dbSlug string) string {
 	if !dbServiceHasCreds(mp) {
 		return body
 	}
-	body = removeLinkedDBEnv(body)
-
-	type pair struct{ app, prefer, fallback string }
-	for _, p := range []pair{
-		{"DATABASE_URL", "DATABASE_URL", ""},
-		{"DB_HOST", "DB_HOST", "POSTGRES_HOST"},
-		{"DB_PORT", "DB_PORT", "POSTGRES_PORT"},
-		{"DB_NAME", "DB_NAME", "POSTGRES_DB"},
-		{"DB_USER", "DB_USER", "POSTGRES_USER"},
-		{"DB_PASSWORD", "DB_PASSWORD", "POSTGRES_PASSWORD"},
-		{"DB_SSLMODE", "DB_SSLMODE", ""},
-		{"POSTGRES_HOST", "POSTGRES_HOST", "DB_HOST"},
-		{"POSTGRES_PORT", "POSTGRES_PORT", "DB_PORT"},
-		{"POSTGRES_DB", "POSTGRES_DB", "DB_NAME"},
-		{"POSTGRES_USER", "POSTGRES_USER", "DB_USER"},
-		{"POSTGRES_PASSWORD", "POSTGRES_PASSWORD", "DB_PASSWORD"},
-	} {
-		srcKey := p.prefer
-		if envGet(mp, srcKey) == "" && p.fallback != "" {
-			srcKey = p.fallback
-		}
-		if envGet(mp, srcKey) == "" {
-			continue
-		}
-		body = upsertEnv(body, p.app, refExpr(dbSlug, srcKey))
-	}
-
+	body = m.injectLinkedServiceEnvFrom(body, group, dbSlug, mp, databaseLinkSpec())
 	out := parseEnvMap(body)
 	if envGet(out, "DB_HOST") == "" && envGet(out, "POSTGRES_HOST") == "" {
 		body = upsertEnv(body, "DB_HOST", "127.0.0.1")

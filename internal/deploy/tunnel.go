@@ -196,6 +196,7 @@ func (m *Manager) syncTunnel(svc *Service) {
 		} else if svc.PublicURL != "" {
 			m.writeTunnelURL(svc.Group, svc.Slug, svc.PublicURL)
 		}
+		m.restorePublicPath(svc)
 		return
 	}
 	if wanted && url != "" {
@@ -208,9 +209,11 @@ func (m *Manager) syncTunnel(svc *Service) {
 		stale := svc.TunnelActive || svc.PublicURL != "" || url != ""
 		svc.TunnelActive = false
 		svc.PublicURL = ""
+		svc.PublicPath = ""
 		if url != "" || m.tunnelPID(svc.Group, svc.Slug) > 0 {
 			_ = os.Remove(filepath.Join(m.tunnelDir(svc.Group, svc.Slug), "url"))
 			_ = os.Remove(filepath.Join(m.tunnelDir(svc.Group, svc.Slug), "pid"))
+			_ = os.Remove(filepath.Join(m.tunnelDir(svc.Group, svc.Slug), "open_path"))
 		}
 		if stale {
 			svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
@@ -305,6 +308,10 @@ func (m *Manager) StartTunnel(ctx context.Context, group, slug string) (Service,
 		m.syncTunnel(&svc)
 		if svc.PublicURL != "" {
 			m.writeTunnelWanted(group, slug, true)
+			if svc.PublicPath == "" {
+				m.applyOriginProbe(&svc)
+				m.persistService(svc)
+			}
 			return svc, nil
 		}
 	}
@@ -357,21 +364,23 @@ func (m *Manager) StartTunnel(ctx context.Context, group, slug string) (Service,
 	svc.PublicURL = public
 	svc.TunnelActive = true
 	svc.StaticHost = ""
+	m.applyOriginProbe(&svc)
+	open := publicOpenURL(public, svc.PublicPath)
+	if err := verifyPublicURL(ctx, public, svc.PublicPath); err != nil {
+		m.logf("warn", "Tunnel published but public check failed for %s/%s: %v", group, slug, err)
+	} else {
+		m.logf("ok", "Public check OK %s/%s → %s", group, slug, open)
+	}
 	svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	m.persistService(svc)
-	m.logf("ok", "Exposed %s/%s → %s", group, slug, public)
+	m.logf("ok", "Exposed %s/%s → %s", group, slug, open)
 	return svc, nil
 }
 
 // StopTunnel tears down the quick tunnel for a service.
-func (m *Manager) StopTunnel(ctx context.Context, group, slug string) (Service, error) {
-	_ = ctx
-	if err := requireSlug(group, "group"); err != nil {
-		return Service{}, err
-	}
-	if err := requireSlug(slug, "service"); err != nil {
-		return Service{}, err
-	}
+// stopTunnelProcesses kills local/systemd tunnel processes without touching the registry.
+// Safe to call while holding other locks (does not take m.mu).
+func (m *Manager) stopTunnelProcesses(group, slug string) {
 	key := tunnelKey(group, slug)
 	tunnelMu.Lock()
 	tp := tunnelProcs[key]
@@ -391,7 +400,19 @@ func (m *Manager) StopTunnel(ctx context.Context, group, slug string) (Service, 
 	dir := m.tunnelDir(group, slug)
 	_ = os.Remove(filepath.Join(dir, "pid"))
 	_ = os.Remove(filepath.Join(dir, "url"))
+	_ = os.Remove(filepath.Join(dir, "open_path"))
 	m.writeTunnelWanted(group, slug, false)
+}
+
+func (m *Manager) StopTunnel(ctx context.Context, group, slug string) (Service, error) {
+	_ = ctx
+	if err := requireSlug(group, "group"); err != nil {
+		return Service{}, err
+	}
+	if err := requireSlug(slug, "service"); err != nil {
+		return Service{}, err
+	}
+	m.stopTunnelProcesses(group, slug)
 
 	m.mu.Lock()
 	reg, err := m.loadRegistry()
@@ -404,7 +425,9 @@ func (m *Manager) StopTunnel(ctx context.Context, group, slug string) (Service, 
 		return Service{}, fmt.Errorf("service not found")
 	}
 	svc.PublicURL = ""
+	svc.PublicPath = ""
 	svc.TunnelActive = false
+	m.writeTunnelOpenPath(group, slug, "")
 	svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	m.persistService(svc)
 	m.logf("info", "Tunnel closed for %s/%s", group, slug)

@@ -263,7 +263,7 @@
   connectEvents();
   watchActivity();
   document.querySelectorAll('[data-res-panel]').forEach(syncResLabels);
-  setInterval(function(){ if (!wizard && !picker) refreshServices(); }, 8000);
+  setInterval(function(){ if (!wizard && !picker && !document.hidden) refreshServices({ soft: true }); }, 12000);
 
 
   document.getElementById('app').addEventListener('click', function(e){

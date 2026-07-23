@@ -544,6 +544,7 @@
     if (need) {
       if (!activityPoll) {
         activityPoll = setInterval(function(){
+          if (document.hidden) return;
           api('/api/activity').then(function(s){
             var wasActive = activity.active;
             applyActivity(s);
@@ -553,13 +554,14 @@
               refreshServices({ soft: true });
             }
           }).catch(function(){});
-          if (busy.deploy || activity.deployment_id || activity.active || anyServiceBuilding()) {
+          if (busy.deploy || activity.active || anyServiceBuilding()) {
             _svcSoftTick++;
-            if (_svcSoftTick % 2 === 0 && typeof refreshServices === 'function') {
+            // ~ every 8s while a job runs (4 * 2s)
+            if (_svcSoftTick % 4 === 0 && typeof refreshServices === 'function') {
               refreshServices({ soft: true });
             }
           }
-        }, 450);
+        }, 2000);
       }
     } else if (activityPoll) {
       clearInterval(activityPoll);

@@ -1,8 +1,8 @@
 package deploy
 
 import (
-	"errors"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -79,16 +79,21 @@ func (m *Manager) Redeploy(ctx context.Context, group, slug string) (Service, er
 	if svc.Type != TypeGo {
 		return Service{}, fmt.Errorf("only go services redeploy")
 	}
-	plan, err := m.planGoDeploy(group, CreateGoRequest{
-		Repo: svc.Repo, Branch: svc.Branch, Name: svc.Name,
-		LinkedDatabase: svc.LinkedDatabase, RootDir: svc.RootDir, BuildCmd: svc.BuildCmd,
-		GoToolchain: svc.GoToolchain, MemoryMB: svc.MemoryMB, CPUs: svc.CPUs,
-	}, slug)
+	plan, err := m.planGoDeploy(group, redeployGoRequest(svc), slug)
 	if err != nil {
 		return Service{}, err
 	}
 	plan.Reuse = true
 	return m.runGoDeploy(ctx, plan)
+}
+
+func redeployGoRequest(svc Service) CreateGoRequest {
+	return CreateGoRequest{
+		Repo: svc.Repo, Branch: svc.Branch, Name: svc.Name,
+		LinkedDatabase: svc.LinkedDatabase, LinkedBucket: svc.LinkedBucket,
+		RootDir: svc.RootDir, BuildCmd: svc.BuildCmd,
+		GoToolchain: svc.GoToolchain, MemoryMB: svc.MemoryMB, CPUs: svc.CPUs,
+	}
 }
 
 // planGoDeploy resolves name/slug and whether we will reuse an existing slot.

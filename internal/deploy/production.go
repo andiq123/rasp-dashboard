@@ -2,6 +2,7 @@ package deploy
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -76,6 +77,7 @@ func replaceEnvAssign(cmd, key, value string) string {
 
 // ensureProductionEnv forces production runtime mode for common frameworks.
 // Deployed services always run as production — never development/debug.
+// Missing JWT_SECRET gets a ${{secret(32)}} placeholder (materialized on save/start).
 func ensureProductionEnv(body string) string {
 	for _, d := range []struct{ key, value string }{
 		{"APP_ENV", "production"},
@@ -84,6 +86,22 @@ func ensureProductionEnv(body string) string {
 		{"NODE_ENV", "production"},
 	} {
 		body = upsertEnv(body, d.key, d.value)
+	}
+	mp := parseEnvMap(body)
+	for _, s := range bootstrapSecretKeys {
+		cur := strings.TrimSpace(mp[s.Key])
+		need := cur == "" || isDevEnvValue(cur) || len(cur) < s.Len
+		if !need || strings.Contains(cur, "${{") {
+			continue
+		}
+		n := s.Len
+		if n < 16 {
+			n = 16
+		}
+		if n > 64 {
+			n = 64
+		}
+		body = upsertEnv(body, s.Key, "${{secret("+strconv.Itoa(n)+")}}")
 	}
 	return body
 }

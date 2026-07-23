@@ -5569,11 +5569,7 @@ html.drawer-open .rw-canvas.drawer-open .svc-node.selected {
   background: transparent !important;
   color: var(--drawer-text);
 }
-#drawer-root .svc-drawer .svc-settings-foot {
-  border-top: 1px solid var(--drawer-border) !important;
-  background: rgba(255, 255, 255, .96) !important;
-  backdrop-filter: none;
-}
+/* svc-settings-foot chrome: authoritative polish at file end */
 #drawer-root .svc-drawer .svc-settings-hint,
 #drawer-root .svc-drawer .ghost,
 #drawer-root .svc-drawer label,
@@ -5819,16 +5815,13 @@ html.drawer-open body {
 #drawer-root .svc-drawer .fold.open .fold-chevron {
   border-color: var(--drawer-accent) !important;
 }
-#drawer-root .svc-drawer .ui-footer,
-#drawer-root .svc-drawer .svc-settings-foot {
-  background: rgba(0,0,0,.28);
-}
+/* foot styles: authoritative block at file end */
 #drawer-root .svc-drawer .access-url,
 #drawer-root .svc-drawer .svc-foot-url,
 #drawer-root .svc-drawer code {
   background: var(--drawer-input-bg) !important;
   border: 1px solid var(--drawer-input-border) !important;
-  color: #cbd5e1 !important;
+  color: var(--drawer-text) !important;
   border-radius: 8px;
 }
 #drawer-root .svc-drawer .res-panel {
@@ -6169,12 +6162,7 @@ html.drawer-open body {
   background: rgba(244, 63, 94, .08);
   color: #be123c;
 }
-#drawer-root .svc-drawer .ui-footer {
-  margin-top: 4px;
-  padding-top: 14px;
-  border-top: 1px solid var(--drawer-border);
-  background: transparent !important;
-}
+/* ui-footer chrome: authoritative sticky foot at file end */
 #drawer-root .svc-drawer .ui-field {
   margin-top: 0;
 }
@@ -6220,7 +6208,7 @@ html.drawer-open body {
 #drawer-root .svc-drawer code {
   background: var(--drawer-input-bg) !important;
   border: 1px solid var(--drawer-input-border) !important;
-  color: #334155 !important;
+  color: var(--drawer-text) !important;
 }
 #drawer-root .svc-drawer .res-panel {
   background: var(--drawer-surface) !important;
@@ -6424,31 +6412,7 @@ html.drawer-open body {
 #drawer-root .svc-drawer .folds-drawer .fold-body {
   transition: grid-template-rows .2s var(--ease-smooth, ease) !important;
 }
-#drawer-root .svc-drawer .svc-settings-foot {
-  position: sticky;
-  bottom: 0;
-  z-index: 3;
-  margin-top: auto;
-  padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px)) !important;
-  box-shadow: 0 -10px 28px rgba(15, 23, 42, .08);
-}
-#drawer-root .svc-drawer .svc-settings-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-#drawer-root .svc-drawer .svc-settings-actions .btn {
-  min-height: 36px;
-  font-size: 13px;
-}
-#drawer-root .svc-drawer .svc-settings-actions .btn.primary {
-  order: -1;
-}
-#drawer-root .svc-drawer .svc-settings-hint {
-  font-size: 12px;
-  margin-top: 8px;
-}
+/* settings foot/actions: see authoritative polish at file end */
 @media (max-width: 720px) {
   #drawer-root .svc-drawer:not(.enter) {
     transform: translateY(0) !important;
@@ -9111,18 +9075,134 @@ html.drawer-open body {
   animation: drawerChromeIn .3s var(--ease-out-soft) .07s both;
 }
 
-/* Sticky footer blur when scrolling body */
+/* === Service drawer settings polish (authoritative) === */
+#drawer-root .svc-drawer-body {
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)) !important;
+}
+
 #drawer-root .svc-drawer .ui-footer,
 #drawer-root .svc-drawer .svc-settings-foot {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-  margin-top: 12px !important;
-  padding: 12px 0 4px !important;
-  background: linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.92) 28%, #fff 100%) !important;
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  border-top: 0 !important;
+  position: sticky !important;
+  bottom: 0 !important;
+  z-index: 5 !important;
+  margin-top: auto !important;
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px)) !important;
+  background: var(--drawer-surface, #fff) !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  border-top: 1px solid var(--drawer-border, rgba(15, 23, 42, .08)) !important;
+  box-shadow: 0 -8px 24px rgba(15, 23, 42, .04) !important;
+}
+
+#drawer-root .svc-drawer .svc-settings-actions {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 10px !important;
+  align-items: center !important;
+}
+
+#drawer-root .svc-drawer .svc-settings-actions .btn {
+  min-height: 36px !important;
+  align-self: stretch;
+}
+
+#drawer-root .svc-drawer .svc-settings-actions .btn.primary {
+  order: -1;
+}
+
+#drawer-root .svc-drawer .svc-settings-hint {
+  font-size: 12px;
+  margin-top: 8px;
+  color: var(--drawer-muted) !important;
+}
+
+#drawer-root .svc-drawer .btn.primary {
+  background: var(--drawer-accent) !important;
+  border-color: var(--drawer-accent) !important;
+  color: #fff !important;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--drawer-accent) 35%, transparent) !important;
+  transition:
+    background var(--motion-med) var(--ease-smooth),
+    box-shadow var(--motion-med) var(--ease-smooth),
+    transform var(--motion-fast) var(--ease-out-soft),
+    filter var(--motion-med) var(--ease-smooth) !important;
+}
+
+#drawer-root .svc-drawer .btn.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--drawer-accent) 82%, #000) !important;
+  border-color: color-mix(in srgb, var(--drawer-accent) 82%, #000) !important;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--drawer-accent) 40%, transparent) !important;
+  filter: none !important;
+  transform: translateY(-1px);
+}
+
+#drawer-root .svc-drawer .btn.primary:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(139, 92, 246, .22) !important;
+}
+
+#drawer-root .svc-drawer .btn.btn-secondary,
+#drawer-root .svc-drawer .btn.btn-quiet,
+#drawer-root .svc-drawer .btn.btn-danger-ghost,
+#drawer-root .svc-drawer .btn.btn-stop {
+  transition:
+    background 200ms var(--ease-smooth),
+    border-color 200ms var(--ease-smooth),
+    color 200ms var(--ease-smooth),
+    box-shadow 200ms var(--ease-smooth) !important;
+}
+
+#drawer-root .svc-drawer .btn.btn-secondary:hover:not(:disabled),
+#drawer-root .svc-drawer .btn.btn-quiet:hover:not(:disabled) {
+  background: rgba(15, 23, 42, .04) !important;
+  border-color: rgba(15, 23, 42, .12) !important;
+}
+
+#drawer-root .svc-drawer .btn.btn-danger-ghost:hover:not(:disabled) {
+  background: rgba(225, 29, 72, .06) !important;
+}
+
+#drawer-root .svc-drawer .folds-drawer .fold-head {
+  transition: background 200ms var(--ease-smooth) !important;
+}
+
+#drawer-root .svc-drawer .folds-drawer .fold-head:hover {
+  background: rgba(15, 23, 42, .03) !important;
+}
+
+#drawer-root .svc-drawer .fold-chevron {
+  transition: transform var(--motion-med) var(--ease-smooth), border-color var(--motion-med) var(--ease-smooth) !important;
+}
+
+#drawer-root .svc-drawer .folds-drawer .fold {
+  box-shadow: none !important;
+}
+
+#drawer-root .svc-drawer .svc-banner.fail {
+  background: var(--red-soft, #fff1f2) !important;
+  border-color: rgba(225, 29, 72, .16) !important;
+}
+
+#drawer-root .svc-drawer .svc-banner.fail .svc-banner-text {
+  color: #9f1239 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #drawer-root .svc-drawer .btn.primary:hover:not(:disabled),
+  #drawer-root .svc-drawer .btn.primary:active:not(:disabled) {
+    transform: none !important;
+  }
+  #drawer-root .svc-drawer .folds-drawer .fold-head,
+  #drawer-root .svc-drawer .fold-chevron,
+  #drawer-root .svc-drawer .btn.primary,
+  #drawer-root .svc-drawer .btn.btn-secondary,
+  #drawer-root .svc-drawer .btn.btn-quiet,
+  #drawer-root .svc-drawer .btn.btn-danger-ghost,
+  #drawer-root .svc-drawer .btn.btn-stop {
+    transition: none !important;
+  }
 }
 
 #drawer-root .svc-drawer-toolbar {

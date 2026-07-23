@@ -191,12 +191,11 @@
         : { map: {}, ready: false, preview: false };
       var bucketMap = bucketBoard.map || {};
       var envBody = ''
-        +(link ? wizAutoDBEnvHTML(link, linkedMap, conflictKeys, { reveal: !!wizEnvReveal, revealAction: 'wizenvreveal' }) : '')
+        +(link ? wizAutoDBEnvHTML(link, linkedMap, conflictKeys, { reveal: !!wizEnvReveal, revealAction: 'wizenvreveal', group: activeGroup || '' }) : '')
         +(blink ? wizAutoBucketEnvHTML(blink, bucketMap, {
             reveal: !!wizEnvReveal,
             revealAction: 'wizenvreveal',
-            preview: !!bucketBoard.preview
-          }) : '')
+            preview: !!bucketBoard.preview, group: activeGroup || ''}) : '')
         +'<div class="wiz-custom-env">'
           +'<div class="wiz-custom-head">'
             +'<span>Your variables</span>'

@@ -121,6 +121,7 @@ func (m *Manager) forceClearJob(msg string) {
 	cancel := m.jobCancel
 	m.jobBusy = false
 	m.jobScope = ""
+	m.jobStartedAt = time.Time{}
 	m.jobCancel = nil
 	m.jobMu.Unlock()
 	if cancel != nil {

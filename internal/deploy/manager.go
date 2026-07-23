@@ -19,21 +19,22 @@ import (
 )
 
 type Manager struct {
-	BaseDir   string
-	DeployDir string
-	TokenPath string
-	Postgres  *infra.Postgres
-	MinIO     *infra.MinIO
-	Activity  *ActivityHub
-	Cache     *cache.Store
-	mu        sync.Mutex
-	jobMu     sync.Mutex
-	jobBusy   bool
-	jobScope  string // group/slug or group while a job runs
-	jobCancel context.CancelFunc
-	deletedMu sync.Mutex
-	deleting  map[string]struct{} // group/slug being removed — ignore late build completion
-	stats     *statsHub
+	BaseDir      string
+	DeployDir    string
+	TokenPath    string
+	Postgres     *infra.Postgres
+	MinIO        *infra.MinIO
+	Activity     *ActivityHub
+	Cache        *cache.Store
+	mu           sync.Mutex
+	jobMu        sync.Mutex
+	jobBusy      bool
+	jobScope     string // group/slug or group while a job runs
+	jobStartedAt time.Time
+	jobCancel    context.CancelFunc
+	deletedMu    sync.Mutex
+	deleting     map[string]struct{} // group/slug being removed — ignore late build completion
+	stats        *statsHub
 }
 
 func NewManager(baseDir, homeDir string, pg *infra.Postgres, mn *infra.MinIO) *Manager {
@@ -51,6 +52,7 @@ func NewManager(baseDir, homeDir string, pg *infra.Postgres, mn *infra.MinIO) *M
 	go m.BootstrapQuickTunnels()
 	go m.BootstrapAutoDeploy()
 	go m.BootstrapStats()
+	go m.BootstrapJobWatchdog()
 	return m
 }
 
@@ -84,6 +86,7 @@ func (m *Manager) acquireJobDeploy(title, scope, deployID string) error {
 	}
 	m.jobBusy = true
 	m.jobScope = strings.TrimSpace(scope)
+	m.jobStartedAt = time.Now()
 	if deployID != "" {
 		m.beginJobDeploy(title, scope, deployID)
 	} else {
@@ -111,6 +114,7 @@ func (m *Manager) releaseJob(ok bool, msg string) {
 	}
 	m.jobBusy = false
 	m.jobScope = ""
+	m.jobStartedAt = time.Time{}
 	cancel := m.jobCancel
 	m.jobCancel = nil
 	m.jobMu.Unlock()
@@ -282,9 +286,7 @@ func (m *Manager) DeleteGroup(ctx context.Context, group string) error {
 		if d.BinaryBytes > 0 {
 			m.logf("info", "  · binary/artifacts %s", fmtBytes(d.BinaryBytes))
 		}
-		m.mu.Lock()
-		_ = m.deleteServiceLocked(ctx, reg, s)
-		m.mu.Unlock()
+		_ = m.deleteServiceResources(ctx, s)
 		freed += d.TotalBytes
 	}
 	m.stepProgress("containers")
@@ -832,12 +834,16 @@ func (m *Manager) createGo(ctx context.Context, group string, in CreateGoRequest
 		envBody = m.injectLinkedDatabase(envBody, group, link)
 	} else if linkURL != "" {
 		envBody = injectDatabaseURL(envBody, linkURL)
+	} else if existIdx >= 0 && existing.LinkedDatabase != "" {
+		envBody = removeLinkedDBEnv(envBody)
 	}
 	if blink != "" {
 		envBody = m.injectLinkedBucket(envBody, group, blink)
+	} else if existIdx >= 0 && existing.LinkedBucket != "" {
+		envBody = removeLinkedBucketEnv(envBody)
 	}
-	envBody, _ = materializeSecrets(envBody)
 	envBody = ensureProductionEnv(envBody)
+	envBody, _ = materializeSecrets(envBody)
 	_ = os.WriteFile(envPath, []byte(normalizeEnv(envBody)), 0o600)
 	m.logf("info", "Port %d · %dMB · %.1f CPU%s", port, mem, cpus, func() string {
 		if link != "" {
@@ -1018,10 +1024,12 @@ func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in Set
 			cur, _ := os.ReadFile(envPath)
 			_ = os.WriteFile(envPath, []byte(m.injectLinkedDatabase(string(cur), group, link)), 0o600)
 		} else {
-			svc.LinkedDatabase = ""
-			envPath := filepath.Join(m.serviceDir(group, slug), "env")
-			cur, _ := os.ReadFile(envPath)
-			_ = os.WriteFile(envPath, []byte(removeLinkedDBEnv(string(cur))), 0o600)
+			cleared, err := m.clearLinkedDatabaseFromService(svc)
+			if err != nil {
+				m.mu.Unlock()
+				return Service{}, err
+			}
+			svc = cleared
 		}
 		recreate = true
 	}
@@ -1043,10 +1051,12 @@ func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in Set
 			}
 			_ = os.WriteFile(envPath, []byte(body), 0o600)
 		} else {
-			svc.LinkedBucket = ""
-			envPath := filepath.Join(m.serviceDir(group, slug), "env")
-			cur, _ := os.ReadFile(envPath)
-			_ = os.WriteFile(envPath, []byte(removeLinkedBucketEnv(string(cur))), 0o600)
+			cleared, err := m.clearLinkedBucketFromService(svc)
+			if err != nil {
+				m.mu.Unlock()
+				return Service{}, err
+			}
+			svc = cleared
 		}
 		recreate = true
 	}
@@ -1430,8 +1440,20 @@ func (m *Manager) Delete(ctx context.Context, group, slug string) error {
 	m.markDeleting(group, slug)
 	defer m.clearDeleting(group, slug)
 
+	// Snapshot before taking the delete job (status used for log copy only).
+	m.mu.Lock()
+	regPeek, errPeek := m.loadRegistry()
+	wasBuilding := false
+	if errPeek == nil {
+		if svcPeek, i := findService(regPeek, group, slug); i >= 0 {
+			wasBuilding = svcPeek.Status == "building"
+		}
+	}
+	m.mu.Unlock()
+
 	// If a deploy is in flight for this service, cancel it and free the job slot.
 	if m.jobBusyScoped(group, slug) {
+		wasBuilding = true
 		m.stopBuildForDelete(ctx, group, slug)
 	} else {
 		// Orphan build containers from a crashed deploy.
@@ -1443,42 +1465,98 @@ func (m *Manager) Delete(ctx context.Context, group, slug string) error {
 	if err := m.acquireJob("Delete · "+slug, group+"/"+slug); err != nil {
 		return err
 	}
+
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	reg, err := m.loadRegistry()
 	if err != nil {
+		m.mu.Unlock()
 		m.releaseJob(false, err.Error())
 		return err
 	}
 	svc, idx := findService(reg, group, slug)
 	if idx < 0 {
+		m.mu.Unlock()
 		err := fmt.Errorf("service not found")
 		m.releaseJob(false, err.Error())
 		return err
 	}
-	wasBuilding := svc.Status == "building" || m.jobBusyScoped(group, slug)
+	svcCopy := svc
+	m.mu.Unlock()
+
 	if wasBuilding {
 		m.logf("step", "Cancelling active build, then removing all resources")
 	} else {
 		m.logf("step", "Removing container, database (if any), and files")
 	}
-	if err := m.deleteServiceLocked(ctx, reg, svc); err != nil {
+
+	// Heavy I/O MUST NOT run under m.mu — StopTunnel / docker / RemoveAll can block,
+	// and StopTunnel itself takes m.mu (deadlock if we held it).
+	if err := m.deleteServiceResources(ctx, svcCopy); err != nil {
 		m.releaseJob(false, err.Error())
 		return err
 	}
-	reg.Services = append(reg.Services[:idx], reg.Services[idx+1:]...)
+
+	m.mu.Lock()
+	reg, err = m.loadRegistry()
+	if err != nil {
+		m.mu.Unlock()
+		m.releaseJob(false, err.Error())
+		return err
+	}
+	_, idx = findService(reg, group, slug)
+	if idx >= 0 {
+		reg.Services = append(reg.Services[:idx], reg.Services[idx+1:]...)
+	}
+	var recreateDeps []Service
 	for i := range reg.Services {
-		if reg.Services[i].Group == group && reg.Services[i].LinkedDatabase == slug {
-			reg.Services[i].LinkedDatabase = ""
+		if reg.Services[i].Group != group {
+			continue
 		}
-		if reg.Services[i].Group == group && reg.Services[i].LinkedBucket == slug {
-			reg.Services[i].LinkedBucket = ""
+		changed := false
+		if reg.Services[i].LinkedDatabase == slug {
+			cleared, err := m.clearLinkedDatabaseFromService(reg.Services[i])
+			if err != nil {
+				m.logf("warn", "unlink database env on %s: %v", reg.Services[i].Slug, err)
+				reg.Services[i].LinkedDatabase = ""
+			} else {
+				reg.Services[i] = cleared
+			}
+			_ = m.writeMeta(reg.Services[i])
+			changed = true
+		}
+		if reg.Services[i].LinkedBucket == slug {
+			cleared, err := m.clearLinkedBucketFromService(reg.Services[i])
+			if err != nil {
+				m.logf("warn", "unlink bucket env on %s: %v", reg.Services[i].Slug, err)
+				reg.Services[i].LinkedBucket = ""
+			} else {
+				reg.Services[i] = cleared
+			}
+			_ = m.writeMeta(reg.Services[i])
+			changed = true
+		}
+		if changed && reg.Services[i].Type == TypeGo {
+			recreateDeps = append(recreateDeps, reg.Services[i])
 		}
 	}
 	if err := m.saveRegistry(reg); err != nil {
+		m.mu.Unlock()
 		m.releaseJob(false, err.Error())
 		return err
 	}
+	m.mu.Unlock()
+
+	for _, dep := range recreateDeps {
+		st := m.inspectContainer(ctx, containerName(dep.Group, dep.Slug))
+		if !st.Running {
+			continue
+		}
+		m.logf("info", "Recreating %s after link target deleted", dep.Slug)
+		if err := m.recreateGo(ctx, dep); err != nil {
+			m.logf("warn", "recreate %s after unlink: %v", dep.Slug, err)
+		}
+	}
+
 	if wasBuilding {
 		m.releaseJob(true, "Removed · build stopped · disk freed")
 	} else {
@@ -1487,11 +1565,15 @@ func (m *Manager) Delete(ctx context.Context, group, slug string) error {
 	return nil
 }
 
-func (m *Manager) deleteServiceLocked(ctx context.Context, reg registry, svc Service) error {
+// deleteServiceResources stops runtime bits and deletes on-disk files.
+// Caller must NOT hold m.mu.
+func (m *Manager) deleteServiceResources(ctx context.Context, svc Service) error {
 	if svc.Type == TypeGo {
-		_, _ = m.StopTunnel(ctx, svc.Group, svc.Slug)
+		m.stopTunnelProcesses(svc.Group, svc.Slug)
 		m.logf("info", "Stopping containers for %s/%s (runtime + build)", svc.Group, svc.Slug)
-		m.removeServiceContainers(ctx, svc.Group, svc.Slug)
+		stopCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+		m.removeServiceContainers(stopCtx, svc.Group, svc.Slug)
+		cancel()
 	}
 	if svc.Type == TypePostgres && m.Postgres != nil && svc.Database != "" {
 		m.logf("info", "Dropping database %s", svc.Database)
@@ -1585,6 +1667,12 @@ func (m *Manager) refreshStatus(ctx context.Context, svc Service) Service {
 			st := m.MinIO.Status(ctx)
 			svc.Running = st.Running
 			svc.EngineImage = st.Image
+			if svc.Running && svc.Bucket != "" {
+				bytes, human := m.MinIO.BucketUsage(ctx, svc.Bucket)
+				svc.Volume = svc.Bucket
+				svc.VolumeBytes = bytes
+				svc.VolumeSize = human
+			}
 		}
 		if u := m.readServiceBUCKETURL(svc.Group, svc.Slug); u != "" {
 			svc.ConnectionURL = u

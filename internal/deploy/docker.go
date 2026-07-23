@@ -783,7 +783,11 @@ func (m *Manager) runGoContainer(ctx context.Context, svc Service) error {
 	}
 	merged = upsertEnv(merged, "PORT", fmt.Sprintf("%d", svc.Port))
 	beforeProd := merged
-	merged = ensureProductionEnv(merged)
+	var secNew bool
+	merged, secNew = m.ensureBootstrapSecrets(svc.Group, svc.Slug, merged, true)
+	if secNew {
+		m.logf("info", "Bootstrapped auth secrets (persisted)")
+	}
 	if overs := productionEnvOverrides(beforeProd, merged); len(overs) > 0 {
 		m.logf("warn", "Forced production env: %s", strings.Join(overs, ", "))
 	} else {
@@ -793,7 +797,7 @@ func (m *Manager) runGoContainer(ctx context.Context, svc Service) error {
 		before := merged
 		merged = m.injectLinkedDatabase(merged, svc.Group, svc.LinkedDatabase)
 		if strings.TrimSpace(parseEnvMap(merged)["DATABASE_URL"]) != "" {
-			m.logf("info", "Injected DB/Postgres refs from %s", svc.LinkedDatabase)
+			m.logf("info", "Copied DB env from %s · group-scoped", svc.LinkedDatabase)
 		} else if before == merged {
 			m.logf("warn", "Linked database %s has no connection env", svc.LinkedDatabase)
 		} else {
@@ -804,7 +808,7 @@ func (m *Manager) runGoContainer(ctx context.Context, svc Service) error {
 		beforeB := merged
 		merged = m.injectLinkedBucket(merged, svc.Group, svc.LinkedBucket)
 		if strings.TrimSpace(parseEnvMap(merged)["BUCKET"]) != "" {
-			m.logf("info", "Injected bucket refs from %s", svc.LinkedBucket)
+			m.logf("info", "Copied bucket env from %s · group-scoped", svc.LinkedBucket)
 		} else if beforeB == merged {
 			m.logf("warn", "Linked bucket %s has no connection env", svc.LinkedBucket)
 		} else {

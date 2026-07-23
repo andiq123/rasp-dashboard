@@ -1,11 +1,11 @@
 package infra
 
 import (
+	"time"
 	"context"
 	"fmt"
 	"os/exec"
 	"strings"
-	"time"
 )
 
 type VolumeInfo struct {
@@ -18,6 +18,24 @@ type VolumeInfo struct {
 
 // VolumeInfo returns the shared engine data volume (all group DBs live here).
 func (p *Postgres) VolumeInfo(ctx context.Context) VolumeInfo {
+	p.volMu.Lock()
+	if time.Since(p.volAt) < 30*time.Second && p.volSnap.Name != "" {
+		st := p.volSnap
+		p.volMu.Unlock()
+		return st
+	}
+	p.volMu.Unlock()
+
+	info := p.volumeInfoSlow(ctx)
+
+	p.volMu.Lock()
+	p.volSnap = info
+	p.volAt = time.Now()
+	p.volMu.Unlock()
+	return info
+}
+
+func (p *Postgres) volumeInfoSlow(ctx context.Context) VolumeInfo {
 	info := VolumeInfo{Name: "infra_firewifi_pgdata", Shared: true}
 	for _, vol := range []string{"infra_firewifi_pgdata", "firewifi_pgdata"} {
 		out, err := exec.CommandContext(ctx, "sudo", "-n", "docker", "volume", "inspect",

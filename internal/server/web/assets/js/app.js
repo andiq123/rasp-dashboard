@@ -48,15 +48,32 @@
   var lastStateAt = 0;
   var toastTimer = null;
 
+  /** Cap concurrent fetches — Chromium throws ERR_INSUFFICIENT_RESOURCES past ~thousands of sockets. */
+  var _apiInflight = 0;
+  var _apiQueue = [];
+  var _API_MAX = 6;
+
   function api(path, opts) {
     opts = opts || {};
-    var init = { method: opts.method || 'GET', headers: {'Content-Type':'application/json'}, body: opts.body };
-    if (opts.signal) init.signal = opts.signal;
-    return fetch(path, init)
-      .then(function(r) {
-        if (!r.ok) return r.text().then(function(t){ throw new Error((t || r.statusText).trim()); });
-        return r.json().catch(function(){ return {}; });
-      });
+    return new Promise(function(resolve, reject) {
+      var run = function() {
+        _apiInflight++;
+        var init = { method: opts.method || 'GET', headers: {'Content-Type':'application/json'}, body: opts.body };
+        if (opts.signal) init.signal = opts.signal;
+        fetch(path, init)
+          .then(function(r) {
+            if (!r.ok) return r.text().then(function(txt){ throw new Error((txt || r.statusText).trim()); });
+            return r.json().catch(function(){ return {}; });
+          })
+          .then(resolve, reject)
+          .finally(function() {
+            _apiInflight--;
+            if (_apiQueue.length && _apiInflight < _API_MAX) (_apiQueue.shift())();
+          });
+      };
+      if (_apiInflight >= _API_MAX) _apiQueue.push(run);
+      else run();
+    });
   }
 
   function sqlBusyKey(slug) { return 'sql:' + slug; }
@@ -1165,13 +1182,9 @@
   }
 
   function linkedEnvMapFromSources(dbMap, envText) {
-    var out = {};
-    var fromEnv = parseEnvMapClient(envText || '');
-    RESERVED_DB_KEYS.forEach(function(k){
-      if (dbMap && dbMap[k] != null && String(dbMap[k]) !== '') out[k] = String(dbMap[k]);
-      else if (fromEnv[k] != null && String(fromEnv[k]) !== '') out[k] = String(fromEnv[k]);
-    });
-    return out;
+    var fromSrc = pickConcreteEnvKeys(dbMap || {}, RESERVED_DB_KEYS);
+    if (RESERVED_DB_KEYS.some(function(k){ return fromSrc[k]; })) return fromSrc;
+    return pickConcreteEnvKeys(parseEnvMapClient(envText || ''), RESERVED_DB_KEYS);
   }
 
   function mergeLinkedPreviewEnv(customText, linkedMap, keyList) {
@@ -1187,83 +1200,71 @@
     return envMapToDotenv(merged);
   }
 
-  /** Bucket vars for the auto board: app env first, else live preview from bucket service. */
-  function bucketLinkBoardMap(bucketSlug, appEnvText, draftBucketEnv) {
-    var fromApp = linkedBucketMapFromEnv(appEnvText || '');
-    if (BUCKET_ENV_KEYS.some(function(k){ return fromApp[k]; })) {
-      return { map: fromApp, ready: true, preview: false };
-    }
-    var src = draftBucketEnv || {};
-    // Also accept bucketEnvMapForService shape
-    if (!BUCKET_ENV_KEYS.some(function(k){ return src[k]; })) {
-      return { map: {}, ready: false, preview: false };
-    }
-    var out = {};
-    var slug = String(bucketSlug || '').trim();
-    BUCKET_ENV_KEYS.forEach(function(k){
-      if (!src[k]) return;
-      // Show the ref that Save will inject (Railway-style).
-      out[k] = slug ? ('${{' + slug + '.' + k + '}}') : String(src[k]);
-    });
-    return { map: out, ready: BUCKET_ENV_KEYS.some(function(k){ return out[k]; }), preview: true };
+  function isEnvRefValue(v) {
+    return /\$\{\{/.test(String(v == null ? '' : v));
   }
 
+  /** Pick non-empty keys from a map; drop unresolved ${{refs}}. */
+  function pickConcreteEnvKeys(src, keys) {
+    var out = {};
+    src = src || {};
+    (keys || []).forEach(function(k){
+      var v = src[k];
+      if (v == null || String(v) === '' || isEnvRefValue(v)) return;
+      out[k] = String(v);
+    });
+    return out;
+  }
 
-  function wizAutoBucketEnvHTML(link, bucketMap, opts) {
-    if (!link) return '';
-    opts = opts || {};
-    bucketMap = bucketMap || {};
-    var ready = BUCKET_ENV_KEYS.some(function(k){ return bucketMap[k]; });
-    if (!ready) {
-      return '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(link)+'</span><span class="ghost">loading…</span></div><div class="ghost" style="font-size:11px">Fetching bucket credentials…</div></div>';
+  /**
+   * Shared link board: show concrete values copied (or about to copy) from a
+   * group-scoped source service. Never display ${{slug.KEY}} as the value.
+   */
+  function linkBoardMap(keys, appEnvText, sourceEnv) {
+    keys = keys || [];
+    var fromApp = pickConcreteEnvKeys(parseEnvMapClient(appEnvText || ''), keys);
+    if (keys.some(function(k){ return fromApp[k]; })) {
+      return { map: fromApp, ready: true, preview: false };
     }
-    var reveal = !!opts.reveal;
-    var action = opts.revealAction || 'wizenvreveal';
-    var rows = BUCKET_ENV_KEYS.map(function(k){
-      var val = bucketMap[k];
-      var empty = (val == null || val === '');
-      var secret = isSecretEnvKey(k);
-      var shown = empty ? '—' : ((secret && !reveal) ? maskEnvValue(val) : String(val));
-      return ''
-        +'<div class="wiz-auto-row'+(empty?' is-empty':'')+'" data-env-key="'+esc(k)+'">'
-          +'<span class="wiz-auto-key">'+esc(k)+'</span>'
-          +'<span class="wiz-auto-val'+(secret && !reveal && !empty?' masked':'')+'">'+esc(shown)+'</span>'
-        +'</div>';
-    }).join('');
-    var status = opts.preview ? 'Preview · save to apply' : '';
-    return ''
-      +'<div class="wiz-auto-env'+(opts.preview?' is-preview':'')+'">'
-        +'<div class="wiz-auto-head">'
-          +'<span>From '+esc(link)+'</span>'
-          +'<div class="wiz-auto-tools" data-stop="1">'
-            +(status ? '<span class="ghost" style="font-size:11px;margin-right:6px">'+esc(status)+'</span>' : '')
-            +'<button type="button" class="btn btn-quiet btn-compact" data-action="'+esc(action)+'">'+(reveal?'Hide':'Show')+'</button>'
-          +'</div>'
-        +'</div>'
-        +'<div class="wiz-auto-list">'+rows+'</div>'
-      +'</div>';
+    var fromSrc = pickConcreteEnvKeys(sourceEnv || {}, keys);
+    if (!keys.some(function(k){ return fromSrc[k]; })) {
+      return { map: {}, ready: false, preview: false };
+    }
+    return { map: fromSrc, ready: true, preview: true };
+  }
+
+  function bucketLinkBoardMap(_bucketSlug, appEnvText, draftBucketEnv) {
+    var src = draftBucketEnv || {};
+    // Normalize legacy / alias shapes into the four app keys.
+    if (!BUCKET_ENV_KEYS.some(function(k){ return src[k]; })) {
+      src = bucketEnvMapForService(null, typeof src === 'string' ? src : '');
+    }
+    return linkBoardMap(BUCKET_ENV_KEYS, appEnvText, src);
   }
 
   function linkedBucketMapFromEnv(envText) {
-    return bucketEnvMapForService(null, envText || '');
+    return pickConcreteEnvKeys(bucketEnvMapForService(null, envText || ''), BUCKET_ENV_KEYS);
   }
 
-  function wizAutoDBEnvHTML(link, dbMap, conflictKeys, opts) {
+  /** Unified “From <service>” board for DB and bucket links. */
+  function wizAutoLinkEnvHTML(link, envMap, keys, opts) {
     if (!link) return '';
     opts = opts || {};
-    dbMap = dbMap || {};
-    conflictKeys = conflictKeys || [];
+    envMap = envMap || {};
+    keys = keys || [];
+    var conflictKeys = opts.conflictKeys || [];
+    var ready = keys.some(function(k){ return envMap[k]; });
+    if (!ready) {
+      return '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(link)+'</span><span class="ghost">loading…</span></div><div class="ghost" style="font-size:11px">'+(opts.pendingHint || 'Fetching linked env…')+'</div></div>';
+    }
     var reveal = !!opts.reveal;
     var showBtn = opts.showToggle !== false;
     var action = opts.revealAction || 'wizenvreveal';
-    var rows = RESERVED_DB_KEYS.map(function(k){
-      var val = dbMap[k];
+    var rows = keys.map(function(k){
+      var val = envMap[k];
       var empty = (val == null || val === '');
       var secret = isSecretEnvKey(k);
-      var shown;
-      if (empty) shown = '—';
-      else if (secret && !reveal) shown = maskEnvValue(val);
-      else shown = String(val);
+      var shown = empty ? '—' : ((secret && !reveal) ? maskEnvValue(val) : String(val));
       var clash = conflictKeys.indexOf(k) >= 0;
       return ''
         +'<div class="wiz-auto-row'+(clash?' is-conflict':'')+(empty?' is-empty':'')+'" data-env-key="'+esc(k)+'">'
@@ -1271,17 +1272,35 @@
           +'<span class="wiz-auto-val'+(secret && !reveal && !empty?' masked':'')+'" title="'+(reveal && !empty ? esc(String(val)) : '')+'">'+esc(shown)+'</span>'
         +'</div>';
     }).join('');
-    var tools = showBtn
-      ? ('<button type="button" class="btn btn-quiet btn-compact" data-action="'+esc(action)+'">'+(reveal?'Hide':'Show')+'</button>')
-      : '<span class="ghost">linked</span>';
+    var status = opts.preview
+      ? 'Preview · save to copy'
+      : ('Copied from '+link+(opts.group ? ' · group '+opts.group : ''));
+    var tools = ''
+      +'<span class="ghost" style="font-size:11px;margin-right:6px">'+esc(status)+'</span>'
+      +(showBtn
+        ? '<button type="button" class="btn btn-quiet btn-compact" data-action="'+esc(action)+'">'+(reveal?'Hide':'Show')+'</button>'
+        : '');
     return ''
-      +'<div class="wiz-auto-env">'
+      +'<div class="wiz-auto-env'+(opts.preview?' is-preview':'')+'">'
         +'<div class="wiz-auto-head">'
           +'<span>From '+esc(link)+'</span>'
           +'<div class="wiz-auto-tools" data-stop="1">'+tools+'</div>'
         +'</div>'
         +'<div class="wiz-auto-list">'+rows+'</div>'
       +'</div>';
+  }
+
+  function wizAutoBucketEnvHTML(link, bucketMap, opts) {
+    opts = opts || {};
+    opts.pendingHint = opts.pendingHint || 'Fetching bucket credentials…';
+    return wizAutoLinkEnvHTML(link, bucketMap, BUCKET_ENV_KEYS, opts);
+  }
+
+  function wizAutoDBEnvHTML(link, dbMap, conflictKeys, opts) {
+    opts = opts || {};
+    opts.conflictKeys = conflictKeys || [];
+    opts.pendingHint = opts.pendingHint || 'Fetching database env…';
+    return wizAutoLinkEnvHTML(link, dbMap, RESERVED_DB_KEYS, opts);
   }
 
 
@@ -1748,6 +1767,36 @@
   function publicURL(svc) {
     return (svc && svc.public_url) ? String(svc.public_url) : '';
   }
+  function publicPath(svc) {
+    var p = svc && svc.public_path ? String(svc.public_path) : '';
+    if (!p || p === '/') return '';
+    return p.charAt(0) === '/' ? p : ('/' + p);
+  }
+  function publicOpenURL(svc) {
+    var base = publicURL(svc);
+    if (!base) return '';
+    var p = publicPath(svc);
+    return p ? (base.replace(/\/$/, '') + p) : base;
+  }
+  // Browser DNS check for public tunnel host (Pi may resolve while LAN DNS does not).
+  function verifyPublicReachable(svc) {
+    var url = publicOpenURL(svc) || publicURL(svc);
+    if (!url || typeof fetch !== 'function') return Promise.resolve(null);
+    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var timer = setTimeout(function(){ try { if (ctrl) ctrl.abort(); } catch (e) {} }, 6000);
+    return fetch(url, {
+      method: 'GET',
+      mode: 'cors',
+      cache: 'no-store',
+      signal: ctrl ? ctrl.signal : undefined
+    }).then(function(){
+      clearTimeout(timer);
+      return true; // resolved + connected; HTTP status irrelevant
+    }).catch(function(){
+      clearTimeout(timer);
+      return false; // DNS/network failure from this device
+    });
+  }
   function accessSummary(svc) {
     if (!svc) return '—';
     if (svc.type === 'postgres') {
@@ -1764,7 +1813,7 @@
   function accessBarHTML(svc) {
     var local = accessURL(svc);
     var pub = publicURL(svc);
-    var primary = pub || local;
+    var primary = pub ? (publicOpenURL(svc) || pub) : local;
     if (!primary) {
       return '<div class="svc-foot empty"><span class="ghost">No endpoint yet</span></div>';
     }
@@ -1821,17 +1870,22 @@
       +'</div>';
     var net;
     if (pub) {
+      var open = publicOpenURL(svc) || pub;
+      var path = publicPath(svc);
+      var note = path
+        ? ('Opens at '+path+' · root / may 404 on APIs · stays until Unexpose')
+        : 'Stays until reboot or Unexpose · if Open fails, try DNS 1.1.1.1 (LAN DNS often blocks trycloudflare.com)';
       net = ''
         +'<div class="access-block is-public">'
-          +'<div class="access-block-head"><span>Internet</span><span class="ghost">public link</span></div>'
+          +'<div class="access-block-head"><span>Internet</span><span class="ghost">'+(path ? ('open '+path) : 'public link')+'</span></div>'
           +'<div class="copy-row">'
-            +'<code id="access-pub-'+esc(svc.slug)+'" data-copy="'+esc(pub)+'">'+esc(pub)+'</code>'
+            +'<code id="access-pub-'+esc(svc.slug)+'" data-copy="'+esc(open)+'">'+esc(open)+'</code>'
             +'<button type="button" class="btn" data-action="copy:access-pub:'+esc(svc.slug)+'">Copy</button>'
-            +'<a class="btn primary" href="'+esc(pub)+'" target="_blank" rel="noopener">Open</a>'
+            +'<a class="btn primary" href="'+esc(open)+'" target="_blank" rel="noopener">Open</a>'
             +'<button type="button" class="btn btn-quiet'+(busyT?' loading':'')+'" data-action="svc:tunnel-stop:'+esc(svc.slug)+'" '+(busyT?'disabled':'')+'>'
               +'<span class="spinner"></span><span>Unexpose</span></button>'
           +'</div>'
-          +'<div class="access-note">Stays until reboot or Unexpose</div>'
+          +'<div class="access-note">'+esc(note)+'</div>'
         +'</div>';
     } else {
       net = ''
@@ -1966,6 +2020,24 @@
   }
 
 
+  function bucketOverviewHTML(svc) {
+    var name = (svc.bucket && String(svc.bucket).trim()) || svc.slug || '—';
+    var sizeRaw = (svc.volume_size && String(svc.volume_size).trim()) || (svc.volume_bytes ? fmtBytes(svc.volume_bytes) : '');
+    var size = sizeRaw || '—';
+    return ''
+      +'<section class="drawer-section drawer-section-card" aria-labelledby="bucket-overview-'+esc(svc.slug)+'">'
+        +'<header class="drawer-section-head">'
+          +'<h3 id="bucket-overview-'+esc(svc.slug)+'" class="drawer-section-title">Overview</h3>'
+          +'<span class="drawer-section-meta ghost">Object storage</span>'
+        +'</header>'
+        +'<dl class="pg-meta pg-meta-grid">'
+          +'<div class="pg-meta-row"><dt class="k">Bucket</dt><dd class="v mono">'+esc(name)+'</dd></div>'
+          +'<div class="pg-meta-row"><dt class="k">Size</dt><dd class="v">'+esc(size)+' · object storage</dd></div>'
+        +'</dl>'
+      +'</section>';
+  }
+
+
   function sqlOutHTML(res) {
     if (!res) return '';
     if (res.error || res.cancelled) {
@@ -2093,11 +2165,11 @@
     var autoDeploy = draft.auto_deploy != null ? !!draft.auto_deploy : !!svc.auto_deploy;
     var memVal = draft.memory_mb != null ? draft.memory_mb : (svc.memory_mb || 512);
     var cpuVal = draft.cpus != null ? draft.cpus : (svc.cpus || 1);
-    var linkVal = (draft.linked_database != null && String(draft.linked_database) !== '')
-      ? draft.linked_database
+    var linkVal = Object.prototype.hasOwnProperty.call(draft, 'linked_database')
+      ? (draft.linked_database || '')
       : (svc.linked_database || '');
-    var bucketVal = (draft.linked_bucket != null && String(draft.linked_bucket) !== '')
-      ? draft.linked_bucket
+    var bucketVal = Object.prototype.hasOwnProperty.call(draft, 'linked_bucket')
+      ? (draft.linked_bucket || '')
       : (svc.linked_bucket || '');
     var envVal = (draft.env != null && String(draft.env).trim() !== '')
       ? draft.env
@@ -2140,6 +2212,7 @@
     if (isBucket) {
       return ''
         +'<div class="settings settings-drawer settings-pg">'
+          +bucketOverviewHTML(svc)
           +pgEnvBoardHTML(svc, envVal)
           +'<section class="drawer-section drawer-section-card drawer-section-compact">'
             +uiField({
@@ -2164,8 +2237,8 @@
       ? cselectHTML('link', linkVal, 'No database', [{value:'',label:'No database'}].concat(dbs.map(function(d){ return {value:d.slug,label:d.name||d.slug,meta:'Postgres'}; })), false, {searchable: (dbs||[]).length > 4, searchPlaceholder:'Filter…'})
       : uiEmpty({ mini: true, body: 'No database in this group yet.' });
     var linkedBlock = !linkVal ? '' : (linkedReady
-      ? wizAutoDBEnvHTML(linkLabel, linkedMap, [], { reveal: !!envReveal[svc.slug + ':env'], revealAction: 'envreveal:' + svc.slug + ':env' })
-      : '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(linkLabel)+'</span><span class="ghost">linking…</span></div><div class="ghost" style="font-size:11px">DB_* / POSTGRES_* / DATABASE_URL refs appear after save</div></div>');
+      ? wizAutoDBEnvHTML(linkLabel, linkedMap, [], { reveal: !!envReveal[svc.slug + ':env'], revealAction: 'envreveal:' + svc.slug + ':env', group: activeGroup || svc.group || '' })
+      : '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(linkLabel)+'</span><span class="ghost">linking…</span></div><div class="ghost" style="font-size:11px">DB_* / POSTGRES_* / DATABASE_URL copy on save</div></div>');
     var bucketPicker = buckets.length
       ? cselectHTML('link-bucket', bucketVal, 'No bucket', [{value:'',label:'No bucket'}].concat(buckets.map(function(d){ return {value:d.slug,label:d.name||d.slug,meta:'Bucket'}; })), false, {searchable: (buckets||[]).length > 4, searchPlaceholder:'Filter…'})
       : uiEmpty({ mini: true, body: 'No bucket in this group yet.' });
@@ -2178,7 +2251,8 @@
       ? wizAutoBucketEnvHTML(linkedBucketName || bucketVal, bucketMap, {
           reveal: !!envReveal[svc.slug + ':bucket'],
           revealAction: 'envreveal:' + svc.slug + ':bucket',
-          preview: !!bucketBoard.preview
+          preview: !!bucketBoard.preview,
+          group: activeGroup || svc.group || ''
         })
       : '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(linkedBucketName || bucketVal)+'</span><span class="ghost">loading…</span></div><div class="ghost" style="font-size:11px">Fetching BUCKET · ENDPOINT · keys</div></div>');
     var envMergedBody = ''
@@ -2249,7 +2323,6 @@
             +resourceControlsHTML({memory_mb: memVal, cpus: cpuVal, excludeSlug: svc.slug})
             +(usageLabel ? '<div class="svc-usage-panel">'+serviceUsagePanelHTML(svc)+'<span class="svc-live-note ghost">Live vs limits</span></div>' : '')
           )
-        +'</div>'
         +'</div>'
         +'<div class="svc-settings-foot" data-stop="1">'
           +'<div class="svc-settings-actions">'
@@ -2332,6 +2405,7 @@
       else if (diskLabel) metaBits.push(diskLabel);
     } else if (isBucket) {
       if (svc.bucket) metaBits.push(svc.bucket);
+      if (svc.volume_size) metaBits.push(svc.volume_size);
       else if (diskLabel) metaBits.push(diskLabel);
     } else {
       if (svc.repo) metaBits.push(svc.repo.split('/').pop() || svc.repo);
@@ -2340,11 +2414,11 @@
       else if (diskLabel) metaBits.push(diskLabel);
     }
     var sub = metaBits.join(' · ');
-    var linkVal = (draft.linked_database != null && String(draft.linked_database) !== '')
-      ? draft.linked_database
+    var linkVal = Object.prototype.hasOwnProperty.call(draft, 'linked_database')
+      ? (draft.linked_database || '')
       : (svc.linked_database || '');
-    var bucketVal = (draft.linked_bucket != null && String(draft.linked_bucket) !== '')
-      ? draft.linked_bucket
+    var bucketVal = Object.prototype.hasOwnProperty.call(draft, 'linked_bucket')
+      ? (draft.linked_bucket || '')
       : (svc.linked_bucket || '');
     var powerBusy = !!(busy['svc:start:'+svc.slug] || busy['svc:stop:'+svc.slug] || building);
     var pgPowerBusy = !!(busy['svc:start:'+svc.slug] || busy['svc:stop:'+svc.slug] || busy['svc:restart:'+svc.slug]);
@@ -3523,12 +3597,11 @@
         : { map: {}, ready: false, preview: false };
       var bucketMap = bucketBoard.map || {};
       var envBody = ''
-        +(link ? wizAutoDBEnvHTML(link, linkedMap, conflictKeys, { reveal: !!wizEnvReveal, revealAction: 'wizenvreveal' }) : '')
+        +(link ? wizAutoDBEnvHTML(link, linkedMap, conflictKeys, { reveal: !!wizEnvReveal, revealAction: 'wizenvreveal', group: activeGroup || '' }) : '')
         +(blink ? wizAutoBucketEnvHTML(blink, bucketMap, {
             reveal: !!wizEnvReveal,
             revealAction: 'wizenvreveal',
-            preview: !!bucketBoard.preview
-          }) : '')
+            preview: !!bucketBoard.preview, group: activeGroup || ''}) : '')
         +'<div class="wiz-custom-env">'
           +'<div class="wiz-custom-head">'
             +'<span>Your variables</span>'
@@ -3736,8 +3809,7 @@
         keepEnv = prev.env;
       }
       var svcNow = (deployed || []).filter(function(x){ return x.slug === slug; })[0];
-      if (!linked && svcNow && svcNow.linked_database) linked = svcNow.linked_database;
-      if (!linkedBucket && svcNow && svcNow.linked_bucket) linkedBucket = svcNow.linked_bucket;
+      // Empty draft linked_* is an explicit unlink — do not restore from svc.
       // Textarea shows custom keys only when DB is linked — merge DB_* back in.
       if (linked) {
         var linkedSrc = linkedEnvMapFromSources(null, prev.env || '');
@@ -4161,7 +4233,7 @@
       var b = 0;
       (s.deployments || []).forEach(function(d){ if (d && (d.status === 'building' || d.status === 'queued')) b++; });
       bits.push([
-        s.slug, s.status || '', s.running ? 1 : 0, s.linked_database || '', s.linked_bucket || '', s.public_url || '',
+        s.slug, s.status || '', s.running ? 1 : 0, s.linked_database || '', s.linked_bucket || '', s.public_url || '', s.public_path || '',
         s.active_deploy_id || '', s.deploy_id || '', b,
         (settingsDraft[s.slug] && countEnvKeys(settingsDraft[s.slug].env || '')) || 0,
         envReveal[s.slug] ? 1 : 0,
@@ -4626,18 +4698,31 @@
     _layoutSaveTimer = setTimeout(run, 280);
   }
 
-  function loadCanvasLayout() {
+  function loadCanvasLayout(opts) {
+    opts = opts || {};
     if (!activeGroup) {
       canvasLayout = { nodes: {} };
+      _layoutCachedGroup = '';
       return Promise.resolve();
     }
-    return api('/api/groups/' + encodeURIComponent(activeGroup) + '/layout')
+    // Soft refreshes reuse a short-lived layout cache (positions rarely change).
+    if (!opts.force && _layoutCachedGroup === activeGroup && (Date.now() - _layoutCachedAt) < 15000) {
+      return Promise.resolve(canvasLayout);
+    }
+    if (_layoutInflight && _layoutCachedGroup === activeGroup) return _layoutInflight;
+    var group = activeGroup;
+    _layoutInflight = api('/api/groups/' + encodeURIComponent(group) + '/layout')
       .then(function(lay){
+        if (activeGroup !== group) return;
         canvasLayout = { nodes: (lay && lay.nodes) || {} };
+        _layoutCachedAt = Date.now();
+        _layoutCachedGroup = group;
       })
       .catch(function(){
         canvasLayout = canvasLayout || { nodes: {} };
-      });
+      })
+      .finally(function(){ _layoutInflight = null; });
+    return _layoutInflight;
   }
 
   function bindCanvasDrag() {
@@ -5068,9 +5153,17 @@
   }
 
   function ensureStatsPoll() {
+    if (!activeGroup) {
+      clearInterval(statsPollTimer);
+      statsPollTimer = null;
+      _statsPollGroup = '';
+      return;
+    }
+    // Keep one timer per group — resetting on every refresh stampeded /stats.
+    if (statsPollTimer && _statsPollGroup === activeGroup) return;
     clearInterval(statsPollTimer);
     statsPollTimer = null;
-    if (!activeGroup) return;
+    _statsPollGroup = activeGroup;
     var tick = function(){
       if (!activeGroup || document.hidden) return;
       api('/api/groups/' + encodeURIComponent(activeGroup) + '/stats').then(function(r){
@@ -5089,28 +5182,44 @@
       }).catch(function(){});
     };
     tick();
-    statsPollTimer = setInterval(tick, 2500);
+    statsPollTimer = setInterval(tick, 4000);
   }
+
+  var _refreshServicesInflight = null;
+  var _statsPollGroup = '';
+  var _layoutInflight = null;
+  var _layoutCachedAt = 0;
+  var _layoutCachedGroup = '';
+  var _githubStatusAt = 0;
 
   function refreshServices(opts) {
     opts = opts || {};
-    // GitHub status is slow (remote) — never block page paint on it.
-    api("/api/github/status").then(function(g){
-      var prevOn = !!(github && github.connected);
-      var prevUser = github && github.user && github.user.login;
-      github = g;
-      var on = !!(g && g.connected);
-      var user = g && g.user && g.user.login;
-      if (picker || wizard) return;
-      if (on === prevOn && user === prevUser) return;
-      renderServices({soft:true});
-    }).catch(function(){
-      var prevOn = !!(github && github.connected);
-      github = {connected:false};
-      if (picker || wizard || !prevOn) return;
-      renderServices({soft:true});
-    });
-    return Promise.all([
+    if (document.hidden && opts.soft) {
+      return _refreshServicesInflight || Promise.resolve();
+    }
+    // Single-flight: overlapping polls were exhausting browser sockets
+    // (ERR_INSUFFICIENT_RESOURCES) while /services waits on docker.
+    if (_refreshServicesInflight) return _refreshServicesInflight;
+    // GitHub status is slow (remote) — throttle + never block paint.
+    if (Date.now() - _githubStatusAt > 30000) {
+      _githubStatusAt = Date.now();
+      api("/api/github/status").then(function(g){
+        var prevOn = !!(github && github.connected);
+        var prevUser = github && github.user && github.user.login;
+        github = g;
+        var on = !!(g && g.connected);
+        var user = g && g.user && g.user.login;
+        if (picker || wizard) return;
+        if (on === prevOn && user === prevUser) return;
+        renderServices({soft:true});
+      }).catch(function(){
+        var prevOn = !!(github && github.connected);
+        github = {connected:false};
+        if (picker || wizard || !prevOn) return;
+        renderServices({soft:true});
+      });
+    }
+    _refreshServicesInflight = Promise.all([
       api("/api/groups").then(function(r){ groups = r.groups || []; groupsError = null; }).catch(function(e){ groupsError = (e && e.message) || "Could not load groups"; }),
       activeGroup
         ? Promise.all([
@@ -5166,8 +5275,9 @@
       if (picker) return;
       if (opts.full) render(opts);
       else renderServices(Object.assign({soft: !!(opts.soft || (!opts.animate && !opts.dir))}, opts));
-    });
+    }).finally(function(){ _refreshServicesInflight = null; });
   }
+
   function loadRepos() {
     return api('/api/github/repos').then(function(r){ repos = r.repos || []; }).catch(function(e){ repos = []; showToast(e.message || 'Could not load repos'); });
   }
@@ -6415,9 +6525,16 @@
       showToast('Exposing via Cloudflare…');
       api('/api/groups/' + encodeURIComponent(activeGroup) + '/services/' + encodeURIComponent(eslug) + '/tunnel', { method: 'POST' })
         .then(function(svc){
-          showToast(svc && svc.public_url ? ('Live · ' + String(svc.public_url).replace(/^https?:\/\//,'')) : 'Exposed');
           deployed = (deployed || []).map(function(s){ return s.slug === eslug ? Object.assign({}, s, svc) : s; });
           folds[eslug + ':access'] = true;
+          var open = (typeof publicOpenURL === 'function') ? publicOpenURL(svc) : (svc && svc.public_url);
+          var host = open ? String(open).replace(/^https?:\/\//,'') : '';
+          showToast(host ? ('Live · ' + host) : 'Exposed');
+          return verifyPublicReachable(svc).then(function(ok){
+            if (ok === false) {
+              showToast('Tunnel is up on Pi, but this device cannot resolve the public host — switch DNS to 1.1.1.1 or try mobile data');
+            }
+          });
         })
         .catch(function(e){ showToast((e && e.message) || 'Expose failed'); })
         .finally(function(){ delete busy['tunnel:'+eslug]; renderServices({ soft: true, force: true }); });
@@ -7120,6 +7237,7 @@
     if (need) {
       if (!activityPoll) {
         activityPoll = setInterval(function(){
+          if (document.hidden) return;
           api('/api/activity').then(function(s){
             var wasActive = activity.active;
             applyActivity(s);
@@ -7129,13 +7247,14 @@
               refreshServices({ soft: true });
             }
           }).catch(function(){});
-          if (busy.deploy || activity.deployment_id || activity.active || anyServiceBuilding()) {
+          if (busy.deploy || activity.active || anyServiceBuilding()) {
             _svcSoftTick++;
-            if (_svcSoftTick % 2 === 0 && typeof refreshServices === 'function') {
+            // ~ every 8s while a job runs (4 * 2s)
+            if (_svcSoftTick % 4 === 0 && typeof refreshServices === 'function') {
               refreshServices({ soft: true });
             }
           }
-        }, 450);
+        }, 2000);
       }
     } else if (activityPoll) {
       clearInterval(activityPoll);
@@ -7519,7 +7638,7 @@
   connectEvents();
   watchActivity();
   document.querySelectorAll('[data-res-panel]').forEach(syncResLabels);
-  setInterval(function(){ if (!wizard && !picker) refreshServices(); }, 8000);
+  setInterval(function(){ if (!wizard && !picker && !document.hidden) refreshServices({ soft: true }); }, 12000);
 
 
   document.getElementById('app').addEventListener('click', function(e){

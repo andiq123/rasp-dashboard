@@ -65,8 +65,7 @@
         keepEnv = prev.env;
       }
       var svcNow = (deployed || []).filter(function(x){ return x.slug === slug; })[0];
-      if (!linked && svcNow && svcNow.linked_database) linked = svcNow.linked_database;
-      if (!linkedBucket && svcNow && svcNow.linked_bucket) linkedBucket = svcNow.linked_bucket;
+      // Empty draft linked_* is an explicit unlink — do not restore from svc.
       // Textarea shows custom keys only when DB is linked — merge DB_* back in.
       if (linked) {
         var linkedSrc = linkedEnvMapFromSources(null, prev.env || '');
@@ -490,7 +489,7 @@
       var b = 0;
       (s.deployments || []).forEach(function(d){ if (d && (d.status === 'building' || d.status === 'queued')) b++; });
       bits.push([
-        s.slug, s.status || '', s.running ? 1 : 0, s.linked_database || '', s.linked_bucket || '', s.public_url || '',
+        s.slug, s.status || '', s.running ? 1 : 0, s.linked_database || '', s.linked_bucket || '', s.public_url || '', s.public_path || '',
         s.active_deploy_id || '', s.deploy_id || '', b,
         (settingsDraft[s.slug] && countEnvKeys(settingsDraft[s.slug].env || '')) || 0,
         envReveal[s.slug] ? 1 : 0,
@@ -955,18 +954,31 @@
     _layoutSaveTimer = setTimeout(run, 280);
   }
 
-  function loadCanvasLayout() {
+  function loadCanvasLayout(opts) {
+    opts = opts || {};
     if (!activeGroup) {
       canvasLayout = { nodes: {} };
+      _layoutCachedGroup = '';
       return Promise.resolve();
     }
-    return api('/api/groups/' + encodeURIComponent(activeGroup) + '/layout')
+    // Soft refreshes reuse a short-lived layout cache (positions rarely change).
+    if (!opts.force && _layoutCachedGroup === activeGroup && (Date.now() - _layoutCachedAt) < 15000) {
+      return Promise.resolve(canvasLayout);
+    }
+    if (_layoutInflight && _layoutCachedGroup === activeGroup) return _layoutInflight;
+    var group = activeGroup;
+    _layoutInflight = api('/api/groups/' + encodeURIComponent(group) + '/layout')
       .then(function(lay){
+        if (activeGroup !== group) return;
         canvasLayout = { nodes: (lay && lay.nodes) || {} };
+        _layoutCachedAt = Date.now();
+        _layoutCachedGroup = group;
       })
       .catch(function(){
         canvasLayout = canvasLayout || { nodes: {} };
-      });
+      })
+      .finally(function(){ _layoutInflight = null; });
+    return _layoutInflight;
   }
 
   function bindCanvasDrag() {
@@ -1397,9 +1409,17 @@
   }
 
   function ensureStatsPoll() {
+    if (!activeGroup) {
+      clearInterval(statsPollTimer);
+      statsPollTimer = null;
+      _statsPollGroup = '';
+      return;
+    }
+    // Keep one timer per group — resetting on every refresh stampeded /stats.
+    if (statsPollTimer && _statsPollGroup === activeGroup) return;
     clearInterval(statsPollTimer);
     statsPollTimer = null;
-    if (!activeGroup) return;
+    _statsPollGroup = activeGroup;
     var tick = function(){
       if (!activeGroup || document.hidden) return;
       api('/api/groups/' + encodeURIComponent(activeGroup) + '/stats').then(function(r){
@@ -1418,28 +1438,44 @@
       }).catch(function(){});
     };
     tick();
-    statsPollTimer = setInterval(tick, 2500);
+    statsPollTimer = setInterval(tick, 4000);
   }
+
+  var _refreshServicesInflight = null;
+  var _statsPollGroup = '';
+  var _layoutInflight = null;
+  var _layoutCachedAt = 0;
+  var _layoutCachedGroup = '';
+  var _githubStatusAt = 0;
 
   function refreshServices(opts) {
     opts = opts || {};
-    // GitHub status is slow (remote) — never block page paint on it.
-    api("/api/github/status").then(function(g){
-      var prevOn = !!(github && github.connected);
-      var prevUser = github && github.user && github.user.login;
-      github = g;
-      var on = !!(g && g.connected);
-      var user = g && g.user && g.user.login;
-      if (picker || wizard) return;
-      if (on === prevOn && user === prevUser) return;
-      renderServices({soft:true});
-    }).catch(function(){
-      var prevOn = !!(github && github.connected);
-      github = {connected:false};
-      if (picker || wizard || !prevOn) return;
-      renderServices({soft:true});
-    });
-    return Promise.all([
+    if (document.hidden && opts.soft) {
+      return _refreshServicesInflight || Promise.resolve();
+    }
+    // Single-flight: overlapping polls were exhausting browser sockets
+    // (ERR_INSUFFICIENT_RESOURCES) while /services waits on docker.
+    if (_refreshServicesInflight) return _refreshServicesInflight;
+    // GitHub status is slow (remote) — throttle + never block paint.
+    if (Date.now() - _githubStatusAt > 30000) {
+      _githubStatusAt = Date.now();
+      api("/api/github/status").then(function(g){
+        var prevOn = !!(github && github.connected);
+        var prevUser = github && github.user && github.user.login;
+        github = g;
+        var on = !!(g && g.connected);
+        var user = g && g.user && g.user.login;
+        if (picker || wizard) return;
+        if (on === prevOn && user === prevUser) return;
+        renderServices({soft:true});
+      }).catch(function(){
+        var prevOn = !!(github && github.connected);
+        github = {connected:false};
+        if (picker || wizard || !prevOn) return;
+        renderServices({soft:true});
+      });
+    }
+    _refreshServicesInflight = Promise.all([
       api("/api/groups").then(function(r){ groups = r.groups || []; groupsError = null; }).catch(function(e){ groupsError = (e && e.message) || "Could not load groups"; }),
       activeGroup
         ? Promise.all([
@@ -1495,8 +1531,9 @@
       if (picker) return;
       if (opts.full) render(opts);
       else renderServices(Object.assign({soft: !!(opts.soft || (!opts.animate && !opts.dir))}, opts));
-    });
+    }).finally(function(){ _refreshServicesInflight = null; });
   }
+
   function loadRepos() {
     return api('/api/github/repos').then(function(r){ repos = r.repos || []; }).catch(function(e){ repos = []; showToast(e.message || 'Could not load repos'); });
   }
@@ -2744,9 +2781,16 @@
       showToast('Exposing via Cloudflare…');
       api('/api/groups/' + encodeURIComponent(activeGroup) + '/services/' + encodeURIComponent(eslug) + '/tunnel', { method: 'POST' })
         .then(function(svc){
-          showToast(svc && svc.public_url ? ('Live · ' + String(svc.public_url).replace(/^https?:\/\//,'')) : 'Exposed');
           deployed = (deployed || []).map(function(s){ return s.slug === eslug ? Object.assign({}, s, svc) : s; });
           folds[eslug + ':access'] = true;
+          var open = (typeof publicOpenURL === 'function') ? publicOpenURL(svc) : (svc && svc.public_url);
+          var host = open ? String(open).replace(/^https?:\/\//,'') : '';
+          showToast(host ? ('Live · ' + host) : 'Exposed');
+          return verifyPublicReachable(svc).then(function(ok){
+            if (ok === false) {
+              showToast('Tunnel is up on Pi, but this device cannot resolve the public host — switch DNS to 1.1.1.1 or try mobile data');
+            }
+          });
         })
         .catch(function(e){ showToast((e && e.message) || 'Expose failed'); })
         .finally(function(){ delete busy['tunnel:'+eslug]; renderServices({ soft: true, force: true }); });

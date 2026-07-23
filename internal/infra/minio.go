@@ -2,6 +2,7 @@ package infra
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,6 +27,17 @@ var bucketNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
 type MinIO struct {
 	ComposeFile string
 	EnvFile     string
+	statusMu   sync.Mutex
+	statusAt   time.Time
+	statusSnap MinIOStatus
+	usageMu    sync.Mutex
+	usageCache map[string]bucketUsageSnap
+}
+
+type bucketUsageSnap struct {
+	at        time.Time
+	sizeBytes int64
+	human     string
 }
 
 func NewMinIO(baseDir string) *MinIO {
@@ -51,6 +64,22 @@ type BucketInfo struct {
 }
 
 func (m *MinIO) Status(ctx context.Context) MinIOStatus {
+	m.statusMu.Lock()
+	if time.Since(m.statusAt) < 2*time.Second {
+		st := m.statusSnap
+		m.statusMu.Unlock()
+		return st
+	}
+	m.statusMu.Unlock()
+	st := m.statusSlow(ctx)
+	m.statusMu.Lock()
+	m.statusSnap = st
+	m.statusAt = time.Now()
+	m.statusMu.Unlock()
+	return st
+}
+
+func (m *MinIO) statusSlow(ctx context.Context) MinIOStatus {
 	st := MinIOStatus{Endpoint: minioEndpoint, Image: m.Image()}
 	if _, err := exec.LookPath("docker"); err != nil {
 		st.Detail = "docker not installed"
@@ -196,6 +225,78 @@ func (m *MinIO) DeleteBucket(ctx context.Context, name string) error {
 	return nil
 }
 
+// BucketUsage returns object-storage usage for one bucket via `mc du --json`.
+// Results are cached briefly per bucket name. On stop/missing/empty, returns 0, "".
+func (m *MinIO) BucketUsage(ctx context.Context, name string) (sizeBytes int64, human string) {
+	name = sanitizeBucketName(name)
+	if name == "" || m == nil {
+		return 0, ""
+	}
+	m.usageMu.Lock()
+	if m.usageCache != nil {
+		if snap, ok := m.usageCache[name]; ok && time.Since(snap.at) < 30*time.Second {
+			m.usageMu.Unlock()
+			return snap.sizeBytes, snap.human
+		}
+	}
+	m.usageMu.Unlock()
+
+	sizeBytes, human = m.bucketUsageSlow(ctx, name)
+
+	m.usageMu.Lock()
+	if m.usageCache == nil {
+		m.usageCache = map[string]bucketUsageSnap{}
+	}
+	m.usageCache[name] = bucketUsageSnap{at: time.Now(), sizeBytes: sizeBytes, human: human}
+	m.usageMu.Unlock()
+	return sizeBytes, human
+}
+
+func (m *MinIO) bucketUsageSlow(ctx context.Context, name string) (int64, string) {
+	if !m.Status(ctx).Running {
+		return 0, ""
+	}
+	user, pass, err := m.RootCreds()
+	if err != nil {
+		return 0, ""
+	}
+	out, err := m.mcOut(ctx, user, pass, "du", "--json", "local/"+name)
+	if err != nil {
+		return 0, ""
+	}
+	n, ok := parseMcDuJSON(out)
+	if !ok || n <= 0 {
+		return 0, ""
+	}
+	return n, formatBytes(n)
+}
+
+// parseMcDuJSON extracts total size from `mc du --json` output.
+// Success lines look like: {"prefix":"b","size":123,"objects":1,"status":"success"}
+func parseMcDuJSON(raw []byte) (int64, bool) {
+	var total int64
+	found := false
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var row struct {
+			Size   int64  `json:"size"`
+			Status string `json:"status"`
+		}
+		if err := json.Unmarshal([]byte(line), &row); err != nil {
+			continue
+		}
+		if row.Status != "" && row.Status != "success" {
+			continue
+		}
+		total += row.Size
+		found = true
+	}
+	return total, found
+}
+
 func (m *MinIO) Image() string {
 	out, err := exec.Command("sudo", "-n", "docker", "inspect", "-f", "{{.Config.Image}}", minioContainer).CombinedOutput()
 	if err != nil {
@@ -260,14 +361,19 @@ func (m *MinIO) compose(ctx context.Context, args ...string) *exec.Cmd {
 }
 
 func (m *MinIO) mc(ctx context.Context, user, pass string, args ...string) error {
+	_, err := m.mcOut(ctx, user, pass, args...)
+	return err
+}
+
+func (m *MinIO) mcOut(ctx context.Context, user, pass string, args ...string) ([]byte, error) {
 	script := "mc alias set local " + minioEndpoint + " " + shellQuote(user) + " " + shellQuote(pass) + " >/dev/null && mc " + strings.Join(shellQuoteAll(args), " ")
 	cmd := exec.CommandContext(ctx, "sudo", "-n", "docker", "run", "--rm", "--network", "host",
 		"--entrypoint", "/bin/sh", "minio/mc", "-c", script)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("mc: %s", strings.TrimSpace(string(out)))
+		return out, fmt.Errorf("mc: %s", strings.TrimSpace(string(out)))
 	}
-	return nil
+	return out, nil
 }
 
 func sanitizeBucketName(name string) string {

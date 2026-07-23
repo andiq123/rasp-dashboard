@@ -45,15 +45,32 @@
   var lastStateAt = 0;
   var toastTimer = null;
 
+  /** Cap concurrent fetches — Chromium throws ERR_INSUFFICIENT_RESOURCES past ~thousands of sockets. */
+  var _apiInflight = 0;
+  var _apiQueue = [];
+  var _API_MAX = 6;
+
   function api(path, opts) {
     opts = opts || {};
-    var init = { method: opts.method || 'GET', headers: {'Content-Type':'application/json'}, body: opts.body };
-    if (opts.signal) init.signal = opts.signal;
-    return fetch(path, init)
-      .then(function(r) {
-        if (!r.ok) return r.text().then(function(t){ throw new Error((t || r.statusText).trim()); });
-        return r.json().catch(function(){ return {}; });
-      });
+    return new Promise(function(resolve, reject) {
+      var run = function() {
+        _apiInflight++;
+        var init = { method: opts.method || 'GET', headers: {'Content-Type':'application/json'}, body: opts.body };
+        if (opts.signal) init.signal = opts.signal;
+        fetch(path, init)
+          .then(function(r) {
+            if (!r.ok) return r.text().then(function(txt){ throw new Error((txt || r.statusText).trim()); });
+            return r.json().catch(function(){ return {}; });
+          })
+          .then(resolve, reject)
+          .finally(function() {
+            _apiInflight--;
+            if (_apiQueue.length && _apiInflight < _API_MAX) (_apiQueue.shift())();
+          });
+      };
+      if (_apiInflight >= _API_MAX) _apiQueue.push(run);
+      else run();
+    });
   }
 
   function sqlBusyKey(slug) { return 'sql:' + slug; }

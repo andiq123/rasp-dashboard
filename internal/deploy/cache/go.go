@@ -32,6 +32,8 @@ func (s *Store) OpenGoModules(group, slug, srcDir string) (Layer, error) {
 func GoDockerArgs(layer Layer) (vols []string, env []string) {
 	buildCache := filepath.Join(filepath.Dir(filepath.Dir(layer.Path)), "go-build")
 	_ = os.MkdirAll(buildCache, 0o755)
+	// Builds run as the dashboard UID; fix root-owned leftovers from older deploys.
+	_ = EnsureWritable(layer.Path, buildCache)
 	vols = []string{
 		layer.Path + ":/go/pkg/mod",
 		buildCache + ":/tmp/go-build",

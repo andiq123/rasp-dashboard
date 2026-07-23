@@ -321,6 +321,36 @@
   function publicURL(svc) {
     return (svc && svc.public_url) ? String(svc.public_url) : '';
   }
+  function publicPath(svc) {
+    var p = svc && svc.public_path ? String(svc.public_path) : '';
+    if (!p || p === '/') return '';
+    return p.charAt(0) === '/' ? p : ('/' + p);
+  }
+  function publicOpenURL(svc) {
+    var base = publicURL(svc);
+    if (!base) return '';
+    var p = publicPath(svc);
+    return p ? (base.replace(/\/$/, '') + p) : base;
+  }
+  // Browser DNS check for public tunnel host (Pi may resolve while LAN DNS does not).
+  function verifyPublicReachable(svc) {
+    var url = publicOpenURL(svc) || publicURL(svc);
+    if (!url || typeof fetch !== 'function') return Promise.resolve(null);
+    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var timer = setTimeout(function(){ try { if (ctrl) ctrl.abort(); } catch (e) {} }, 6000);
+    return fetch(url, {
+      method: 'GET',
+      mode: 'cors',
+      cache: 'no-store',
+      signal: ctrl ? ctrl.signal : undefined
+    }).then(function(){
+      clearTimeout(timer);
+      return true; // resolved + connected; HTTP status irrelevant
+    }).catch(function(){
+      clearTimeout(timer);
+      return false; // DNS/network failure from this device
+    });
+  }
   function accessSummary(svc) {
     if (!svc) return '—';
     if (svc.type === 'postgres') {
@@ -337,7 +367,7 @@
   function accessBarHTML(svc) {
     var local = accessURL(svc);
     var pub = publicURL(svc);
-    var primary = pub || local;
+    var primary = pub ? (publicOpenURL(svc) || pub) : local;
     if (!primary) {
       return '<div class="svc-foot empty"><span class="ghost">No endpoint yet</span></div>';
     }
@@ -394,17 +424,22 @@
       +'</div>';
     var net;
     if (pub) {
+      var open = publicOpenURL(svc) || pub;
+      var path = publicPath(svc);
+      var note = path
+        ? ('Opens at '+path+' · root / may 404 on APIs · stays until Unexpose')
+        : 'Stays until reboot or Unexpose · if Open fails, try DNS 1.1.1.1 (LAN DNS often blocks trycloudflare.com)';
       net = ''
         +'<div class="access-block is-public">'
-          +'<div class="access-block-head"><span>Internet</span><span class="ghost">public link</span></div>'
+          +'<div class="access-block-head"><span>Internet</span><span class="ghost">'+(path ? ('open '+path) : 'public link')+'</span></div>'
           +'<div class="copy-row">'
-            +'<code id="access-pub-'+esc(svc.slug)+'" data-copy="'+esc(pub)+'">'+esc(pub)+'</code>'
+            +'<code id="access-pub-'+esc(svc.slug)+'" data-copy="'+esc(open)+'">'+esc(open)+'</code>'
             +'<button type="button" class="btn" data-action="copy:access-pub:'+esc(svc.slug)+'">Copy</button>'
-            +'<a class="btn primary" href="'+esc(pub)+'" target="_blank" rel="noopener">Open</a>'
+            +'<a class="btn primary" href="'+esc(open)+'" target="_blank" rel="noopener">Open</a>'
             +'<button type="button" class="btn btn-quiet'+(busyT?' loading':'')+'" data-action="svc:tunnel-stop:'+esc(svc.slug)+'" '+(busyT?'disabled':'')+'>'
               +'<span class="spinner"></span><span>Unexpose</span></button>'
           +'</div>'
-          +'<div class="access-note">Stays until reboot or Unexpose</div>'
+          +'<div class="access-note">'+esc(note)+'</div>'
         +'</div>';
     } else {
       net = ''
@@ -539,6 +574,24 @@
   }
 
 
+  function bucketOverviewHTML(svc) {
+    var name = (svc.bucket && String(svc.bucket).trim()) || svc.slug || '—';
+    var sizeRaw = (svc.volume_size && String(svc.volume_size).trim()) || (svc.volume_bytes ? fmtBytes(svc.volume_bytes) : '');
+    var size = sizeRaw || '—';
+    return ''
+      +'<section class="drawer-section drawer-section-card" aria-labelledby="bucket-overview-'+esc(svc.slug)+'">'
+        +'<header class="drawer-section-head">'
+          +'<h3 id="bucket-overview-'+esc(svc.slug)+'" class="drawer-section-title">Overview</h3>'
+          +'<span class="drawer-section-meta ghost">Object storage</span>'
+        +'</header>'
+        +'<dl class="pg-meta pg-meta-grid">'
+          +'<div class="pg-meta-row"><dt class="k">Bucket</dt><dd class="v mono">'+esc(name)+'</dd></div>'
+          +'<div class="pg-meta-row"><dt class="k">Size</dt><dd class="v">'+esc(size)+' · object storage</dd></div>'
+        +'</dl>'
+      +'</section>';
+  }
+
+
   function sqlOutHTML(res) {
     if (!res) return '';
     if (res.error || res.cancelled) {
@@ -666,11 +719,11 @@
     var autoDeploy = draft.auto_deploy != null ? !!draft.auto_deploy : !!svc.auto_deploy;
     var memVal = draft.memory_mb != null ? draft.memory_mb : (svc.memory_mb || 512);
     var cpuVal = draft.cpus != null ? draft.cpus : (svc.cpus || 1);
-    var linkVal = (draft.linked_database != null && String(draft.linked_database) !== '')
-      ? draft.linked_database
+    var linkVal = Object.prototype.hasOwnProperty.call(draft, 'linked_database')
+      ? (draft.linked_database || '')
       : (svc.linked_database || '');
-    var bucketVal = (draft.linked_bucket != null && String(draft.linked_bucket) !== '')
-      ? draft.linked_bucket
+    var bucketVal = Object.prototype.hasOwnProperty.call(draft, 'linked_bucket')
+      ? (draft.linked_bucket || '')
       : (svc.linked_bucket || '');
     var envVal = (draft.env != null && String(draft.env).trim() !== '')
       ? draft.env
@@ -713,6 +766,7 @@
     if (isBucket) {
       return ''
         +'<div class="settings settings-drawer settings-pg">'
+          +bucketOverviewHTML(svc)
           +pgEnvBoardHTML(svc, envVal)
           +'<section class="drawer-section drawer-section-card drawer-section-compact">'
             +uiField({
@@ -737,8 +791,8 @@
       ? cselectHTML('link', linkVal, 'No database', [{value:'',label:'No database'}].concat(dbs.map(function(d){ return {value:d.slug,label:d.name||d.slug,meta:'Postgres'}; })), false, {searchable: (dbs||[]).length > 4, searchPlaceholder:'Filter…'})
       : uiEmpty({ mini: true, body: 'No database in this group yet.' });
     var linkedBlock = !linkVal ? '' : (linkedReady
-      ? wizAutoDBEnvHTML(linkLabel, linkedMap, [], { reveal: !!envReveal[svc.slug + ':env'], revealAction: 'envreveal:' + svc.slug + ':env' })
-      : '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(linkLabel)+'</span><span class="ghost">linking…</span></div><div class="ghost" style="font-size:11px">DB_* / POSTGRES_* / DATABASE_URL refs appear after save</div></div>');
+      ? wizAutoDBEnvHTML(linkLabel, linkedMap, [], { reveal: !!envReveal[svc.slug + ':env'], revealAction: 'envreveal:' + svc.slug + ':env', group: activeGroup || svc.group || '' })
+      : '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(linkLabel)+'</span><span class="ghost">linking…</span></div><div class="ghost" style="font-size:11px">DB_* / POSTGRES_* / DATABASE_URL copy on save</div></div>');
     var bucketPicker = buckets.length
       ? cselectHTML('link-bucket', bucketVal, 'No bucket', [{value:'',label:'No bucket'}].concat(buckets.map(function(d){ return {value:d.slug,label:d.name||d.slug,meta:'Bucket'}; })), false, {searchable: (buckets||[]).length > 4, searchPlaceholder:'Filter…'})
       : uiEmpty({ mini: true, body: 'No bucket in this group yet.' });
@@ -751,7 +805,8 @@
       ? wizAutoBucketEnvHTML(linkedBucketName || bucketVal, bucketMap, {
           reveal: !!envReveal[svc.slug + ':bucket'],
           revealAction: 'envreveal:' + svc.slug + ':bucket',
-          preview: !!bucketBoard.preview
+          preview: !!bucketBoard.preview,
+          group: activeGroup || svc.group || ''
         })
       : '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(linkedBucketName || bucketVal)+'</span><span class="ghost">loading…</span></div><div class="ghost" style="font-size:11px">Fetching BUCKET · ENDPOINT · keys</div></div>');
     var envMergedBody = ''
@@ -822,7 +877,6 @@
             +resourceControlsHTML({memory_mb: memVal, cpus: cpuVal, excludeSlug: svc.slug})
             +(usageLabel ? '<div class="svc-usage-panel">'+serviceUsagePanelHTML(svc)+'<span class="svc-live-note ghost">Live vs limits</span></div>' : '')
           )
-        +'</div>'
         +'</div>'
         +'<div class="svc-settings-foot" data-stop="1">'
           +'<div class="svc-settings-actions">'
@@ -905,6 +959,7 @@
       else if (diskLabel) metaBits.push(diskLabel);
     } else if (isBucket) {
       if (svc.bucket) metaBits.push(svc.bucket);
+      if (svc.volume_size) metaBits.push(svc.volume_size);
       else if (diskLabel) metaBits.push(diskLabel);
     } else {
       if (svc.repo) metaBits.push(svc.repo.split('/').pop() || svc.repo);
@@ -913,11 +968,11 @@
       else if (diskLabel) metaBits.push(diskLabel);
     }
     var sub = metaBits.join(' · ');
-    var linkVal = (draft.linked_database != null && String(draft.linked_database) !== '')
-      ? draft.linked_database
+    var linkVal = Object.prototype.hasOwnProperty.call(draft, 'linked_database')
+      ? (draft.linked_database || '')
       : (svc.linked_database || '');
-    var bucketVal = (draft.linked_bucket != null && String(draft.linked_bucket) !== '')
-      ? draft.linked_bucket
+    var bucketVal = Object.prototype.hasOwnProperty.call(draft, 'linked_bucket')
+      ? (draft.linked_bucket || '')
       : (svc.linked_bucket || '');
     var powerBusy = !!(busy['svc:start:'+svc.slug] || busy['svc:stop:'+svc.slug] || building);
     var pgPowerBusy = !!(busy['svc:start:'+svc.slug] || busy['svc:stop:'+svc.slug] || busy['svc:restart:'+svc.slug]);

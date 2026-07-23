@@ -320,13 +320,9 @@
   }
 
   function linkedEnvMapFromSources(dbMap, envText) {
-    var out = {};
-    var fromEnv = parseEnvMapClient(envText || '');
-    RESERVED_DB_KEYS.forEach(function(k){
-      if (dbMap && dbMap[k] != null && String(dbMap[k]) !== '') out[k] = String(dbMap[k]);
-      else if (fromEnv[k] != null && String(fromEnv[k]) !== '') out[k] = String(fromEnv[k]);
-    });
-    return out;
+    var fromSrc = pickConcreteEnvKeys(dbMap || {}, RESERVED_DB_KEYS);
+    if (RESERVED_DB_KEYS.some(function(k){ return fromSrc[k]; })) return fromSrc;
+    return pickConcreteEnvKeys(parseEnvMapClient(envText || ''), RESERVED_DB_KEYS);
   }
 
   function mergeLinkedPreviewEnv(customText, linkedMap, keyList) {
@@ -342,83 +338,71 @@
     return envMapToDotenv(merged);
   }
 
-  /** Bucket vars for the auto board: app env first, else live preview from bucket service. */
-  function bucketLinkBoardMap(bucketSlug, appEnvText, draftBucketEnv) {
-    var fromApp = linkedBucketMapFromEnv(appEnvText || '');
-    if (BUCKET_ENV_KEYS.some(function(k){ return fromApp[k]; })) {
-      return { map: fromApp, ready: true, preview: false };
-    }
-    var src = draftBucketEnv || {};
-    // Also accept bucketEnvMapForService shape
-    if (!BUCKET_ENV_KEYS.some(function(k){ return src[k]; })) {
-      return { map: {}, ready: false, preview: false };
-    }
-    var out = {};
-    var slug = String(bucketSlug || '').trim();
-    BUCKET_ENV_KEYS.forEach(function(k){
-      if (!src[k]) return;
-      // Show the ref that Save will inject (Railway-style).
-      out[k] = slug ? ('${{' + slug + '.' + k + '}}') : String(src[k]);
-    });
-    return { map: out, ready: BUCKET_ENV_KEYS.some(function(k){ return out[k]; }), preview: true };
+  function isEnvRefValue(v) {
+    return /\$\{\{/.test(String(v == null ? '' : v));
   }
 
+  /** Pick non-empty keys from a map; drop unresolved ${{refs}}. */
+  function pickConcreteEnvKeys(src, keys) {
+    var out = {};
+    src = src || {};
+    (keys || []).forEach(function(k){
+      var v = src[k];
+      if (v == null || String(v) === '' || isEnvRefValue(v)) return;
+      out[k] = String(v);
+    });
+    return out;
+  }
 
-  function wizAutoBucketEnvHTML(link, bucketMap, opts) {
-    if (!link) return '';
-    opts = opts || {};
-    bucketMap = bucketMap || {};
-    var ready = BUCKET_ENV_KEYS.some(function(k){ return bucketMap[k]; });
-    if (!ready) {
-      return '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(link)+'</span><span class="ghost">loading…</span></div><div class="ghost" style="font-size:11px">Fetching bucket credentials…</div></div>';
+  /**
+   * Shared link board: show concrete values copied (or about to copy) from a
+   * group-scoped source service. Never display ${{slug.KEY}} as the value.
+   */
+  function linkBoardMap(keys, appEnvText, sourceEnv) {
+    keys = keys || [];
+    var fromApp = pickConcreteEnvKeys(parseEnvMapClient(appEnvText || ''), keys);
+    if (keys.some(function(k){ return fromApp[k]; })) {
+      return { map: fromApp, ready: true, preview: false };
     }
-    var reveal = !!opts.reveal;
-    var action = opts.revealAction || 'wizenvreveal';
-    var rows = BUCKET_ENV_KEYS.map(function(k){
-      var val = bucketMap[k];
-      var empty = (val == null || val === '');
-      var secret = isSecretEnvKey(k);
-      var shown = empty ? '—' : ((secret && !reveal) ? maskEnvValue(val) : String(val));
-      return ''
-        +'<div class="wiz-auto-row'+(empty?' is-empty':'')+'" data-env-key="'+esc(k)+'">'
-          +'<span class="wiz-auto-key">'+esc(k)+'</span>'
-          +'<span class="wiz-auto-val'+(secret && !reveal && !empty?' masked':'')+'">'+esc(shown)+'</span>'
-        +'</div>';
-    }).join('');
-    var status = opts.preview ? 'Preview · save to apply' : '';
-    return ''
-      +'<div class="wiz-auto-env'+(opts.preview?' is-preview':'')+'">'
-        +'<div class="wiz-auto-head">'
-          +'<span>From '+esc(link)+'</span>'
-          +'<div class="wiz-auto-tools" data-stop="1">'
-            +(status ? '<span class="ghost" style="font-size:11px;margin-right:6px">'+esc(status)+'</span>' : '')
-            +'<button type="button" class="btn btn-quiet btn-compact" data-action="'+esc(action)+'">'+(reveal?'Hide':'Show')+'</button>'
-          +'</div>'
-        +'</div>'
-        +'<div class="wiz-auto-list">'+rows+'</div>'
-      +'</div>';
+    var fromSrc = pickConcreteEnvKeys(sourceEnv || {}, keys);
+    if (!keys.some(function(k){ return fromSrc[k]; })) {
+      return { map: {}, ready: false, preview: false };
+    }
+    return { map: fromSrc, ready: true, preview: true };
+  }
+
+  function bucketLinkBoardMap(_bucketSlug, appEnvText, draftBucketEnv) {
+    var src = draftBucketEnv || {};
+    // Normalize legacy / alias shapes into the four app keys.
+    if (!BUCKET_ENV_KEYS.some(function(k){ return src[k]; })) {
+      src = bucketEnvMapForService(null, typeof src === 'string' ? src : '');
+    }
+    return linkBoardMap(BUCKET_ENV_KEYS, appEnvText, src);
   }
 
   function linkedBucketMapFromEnv(envText) {
-    return bucketEnvMapForService(null, envText || '');
+    return pickConcreteEnvKeys(bucketEnvMapForService(null, envText || ''), BUCKET_ENV_KEYS);
   }
 
-  function wizAutoDBEnvHTML(link, dbMap, conflictKeys, opts) {
+  /** Unified “From <service>” board for DB and bucket links. */
+  function wizAutoLinkEnvHTML(link, envMap, keys, opts) {
     if (!link) return '';
     opts = opts || {};
-    dbMap = dbMap || {};
-    conflictKeys = conflictKeys || [];
+    envMap = envMap || {};
+    keys = keys || [];
+    var conflictKeys = opts.conflictKeys || [];
+    var ready = keys.some(function(k){ return envMap[k]; });
+    if (!ready) {
+      return '<div class="wiz-auto-env wiz-auto-pending"><div class="wiz-auto-head"><span>From '+esc(link)+'</span><span class="ghost">loading…</span></div><div class="ghost" style="font-size:11px">'+(opts.pendingHint || 'Fetching linked env…')+'</div></div>';
+    }
     var reveal = !!opts.reveal;
     var showBtn = opts.showToggle !== false;
     var action = opts.revealAction || 'wizenvreveal';
-    var rows = RESERVED_DB_KEYS.map(function(k){
-      var val = dbMap[k];
+    var rows = keys.map(function(k){
+      var val = envMap[k];
       var empty = (val == null || val === '');
       var secret = isSecretEnvKey(k);
-      var shown;
-      if (empty) shown = '—';
-      else if (secret && !reveal) shown = maskEnvValue(val);
-      else shown = String(val);
+      var shown = empty ? '—' : ((secret && !reveal) ? maskEnvValue(val) : String(val));
       var clash = conflictKeys.indexOf(k) >= 0;
       return ''
         +'<div class="wiz-auto-row'+(clash?' is-conflict':'')+(empty?' is-empty':'')+'" data-env-key="'+esc(k)+'">'
@@ -426,17 +410,35 @@
           +'<span class="wiz-auto-val'+(secret && !reveal && !empty?' masked':'')+'" title="'+(reveal && !empty ? esc(String(val)) : '')+'">'+esc(shown)+'</span>'
         +'</div>';
     }).join('');
-    var tools = showBtn
-      ? ('<button type="button" class="btn btn-quiet btn-compact" data-action="'+esc(action)+'">'+(reveal?'Hide':'Show')+'</button>')
-      : '<span class="ghost">linked</span>';
+    var status = opts.preview
+      ? 'Preview · save to copy'
+      : ('Copied from '+link+(opts.group ? ' · group '+opts.group : ''));
+    var tools = ''
+      +'<span class="ghost" style="font-size:11px;margin-right:6px">'+esc(status)+'</span>'
+      +(showBtn
+        ? '<button type="button" class="btn btn-quiet btn-compact" data-action="'+esc(action)+'">'+(reveal?'Hide':'Show')+'</button>'
+        : '');
     return ''
-      +'<div class="wiz-auto-env">'
+      +'<div class="wiz-auto-env'+(opts.preview?' is-preview':'')+'">'
         +'<div class="wiz-auto-head">'
           +'<span>From '+esc(link)+'</span>'
           +'<div class="wiz-auto-tools" data-stop="1">'+tools+'</div>'
         +'</div>'
         +'<div class="wiz-auto-list">'+rows+'</div>'
       +'</div>';
+  }
+
+  function wizAutoBucketEnvHTML(link, bucketMap, opts) {
+    opts = opts || {};
+    opts.pendingHint = opts.pendingHint || 'Fetching bucket credentials…';
+    return wizAutoLinkEnvHTML(link, bucketMap, BUCKET_ENV_KEYS, opts);
+  }
+
+  function wizAutoDBEnvHTML(link, dbMap, conflictKeys, opts) {
+    opts = opts || {};
+    opts.conflictKeys = conflictKeys || [];
+    opts.pendingHint = opts.pendingHint || 'Fetching database env…';
+    return wizAutoLinkEnvHTML(link, dbMap, RESERVED_DB_KEYS, opts);
   }
 
 

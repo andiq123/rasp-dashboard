@@ -141,9 +141,10 @@ func (m *Manager) keepTunnel(svc Service, public string) (Service, error) {
 	m.writeTunnelURL(svc.Group, svc.Slug, public)
 	svc.PublicURL = public
 	svc.TunnelActive = true
+	m.restorePublicPath(&svc)
 	svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	m.persistService(svc)
-	m.logf("ok", "Tunnel kept %s/%s → %s", svc.Group, svc.Slug, public)
+	m.logf("ok", "Tunnel kept %s/%s → %s", svc.Group, svc.Slug, publicOpenURL(public, svc.PublicPath))
 	return svc, nil
 }
 

@@ -2,8 +2,6 @@ package deploy
 
 import (
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -32,10 +30,7 @@ var linkedBucketKeys = []string{
 }
 
 func removeLinkedBucketEnv(body string) string {
-	for _, k := range linkedBucketKeys {
-		body = removeEnvKey(body, k)
-	}
-	return body
+	return clearEnvKeys(body, linkedBucketKeys...)
 }
 
 // physicalBucketName is the MinIO bucket id for a service.
@@ -144,40 +139,33 @@ func injectBucketCreds(body, bucket, endpoint, accessKey, secretKey, _ string) s
 	return mergeEnvFiles(body, bucketServiceEnv(bucket, endpoint, accessKey, secretKey))
 }
 
-// injectLinkedBucket writes refs for the four keys, plus FORCE_PATH_STYLE=true
-// (literal — MinIO needs path-style; no REGION).
+// bucketLinkSpec copies concrete MinIO credentials from a group bucket service.
+func bucketLinkSpec() linkedEnvSpec {
+	return linkedEnvSpec{
+		Kind:   "bucket",
+		Remove: linkedBucketKeys,
+		Copy: []linkedKeyCopy{
+			{"BUCKET", "BUCKET", "BUCKET_NAME"},
+			{"ENDPOINT", "ENDPOINT", "BUCKET_ENDPOINT"},
+			{"ACCESS_KEY_ID", "ACCESS_KEY_ID", "BUCKET_ACCESS_KEY_ID"},
+			{"SECRET_ACCESS_KEY", "SECRET_ACCESS_KEY", "BUCKET_SECRET_ACCESS_KEY"},
+		},
+		Literals: map[string]string{
+			"FORCE_PATH_STYLE": "true",
+		},
+	}
+}
+
+// injectLinkedBucket copies live BUCKET / ENDPOINT / keys from the linked
+// bucket service in the same group (concrete values, not ${{refs}}).
 func (m *Manager) injectLinkedBucket(body, group, bucketSlug string) string {
 	bucketSlug = strings.TrimSpace(bucketSlug)
 	if group == "" || bucketSlug == "" {
 		return body
 	}
-	b, err := os.ReadFile(filepath.Join(m.serviceDir(group, bucketSlug), "env"))
-	if err != nil {
-		return body
-	}
-	mp := parseEnvMap(string(b))
+	mp := m.readServiceEnvMap(group, bucketSlug)
 	if !bucketHasCreds(mp) {
 		return body
 	}
-	body = removeLinkedBucketEnv(body)
-
-	type pair struct{ app, prefer, fallback string }
-	for _, p := range []pair{
-		{"BUCKET", "BUCKET", "BUCKET_NAME"},
-		{"ENDPOINT", "ENDPOINT", "BUCKET_ENDPOINT"},
-		{"ACCESS_KEY_ID", "ACCESS_KEY_ID", "BUCKET_ACCESS_KEY_ID"},
-		{"SECRET_ACCESS_KEY", "SECRET_ACCESS_KEY", "BUCKET_SECRET_ACCESS_KEY"},
-	} {
-		src := p.prefer
-		if envGet(mp, src) == "" {
-			src = p.fallback
-		}
-		if envGet(mp, src) == "" {
-			continue
-		}
-		body = upsertEnv(body, p.app, refExpr(bucketSlug, src))
-	}
-	// Always on for local MinIO — not a credential, not a ref.
-	body = upsertEnv(body, "FORCE_PATH_STYLE", "true")
-	return body
+	return m.injectLinkedServiceEnvFrom(body, group, bucketSlug, mp, bucketLinkSpec())
 }
