@@ -26,12 +26,12 @@ var identRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
 
 type Postgres struct {
 	ComposeFile string
-	statusMu   sync.Mutex
-	statusAt   time.Time
-	statusSnap Status
-	volMu      sync.Mutex
-	volAt      time.Time
-	volSnap    VolumeInfo
+	statusMu    sync.Mutex
+	statusAt    time.Time
+	statusSnap  Status
+	volMu       sync.Mutex
+	volAt       time.Time
+	volSnap     VolumeInfo
 }
 
 func NewPostgres(baseDir string) *Postgres {
@@ -237,14 +237,7 @@ func (p *Postgres) CreateDatabase(ctx context.Context, name string) (Database, e
 	if err != nil {
 		return Database{}, err
 	}
-	stmts := []string{
-		fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid();`, name),
-		fmt.Sprintf(`DROP DATABASE IF EXISTS %s;`, name),
-		fmt.Sprintf(`DROP ROLE IF EXISTS %s;`, user),
-		fmt.Sprintf(`CREATE ROLE %s LOGIN PASSWORD '%s';`, user, escapeLiteral(pass)),
-		fmt.Sprintf(`CREATE DATABASE %s OWNER %s;`, name, user),
-		fmt.Sprintf(`GRANT ALL PRIVILEGES ON DATABASE %s TO %s;`, name, user),
-	}
+	stmts := createDatabaseStmts(name, user, pass)
 	for _, sql := range stmts {
 		if err := p.psqlReady(ctx, sql); err != nil {
 			if strings.Contains(sql, "pg_terminate_backend") || strings.Contains(sql, "DROP ") {
@@ -322,6 +315,22 @@ func (p *Postgres) compose(ctx context.Context, args ...string) *exec.Cmd {
 	return exec.CommandContext(ctx, "sudo", all...)
 }
 
+// createDatabaseStmts builds the SQL sequence for an isolated DB + role.
+// createDatabaseStmts builds the SQL sequence for an isolated DB + role.
+// CONNECT is revoked from PUBLIC so peer tenants cannot open a session.
+func createDatabaseStmts(name, user, pass string) []string {
+	return []string{
+		fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid();`, name),
+		fmt.Sprintf(`DROP DATABASE IF EXISTS %s;`, name),
+		fmt.Sprintf(`DROP ROLE IF EXISTS %s;`, user),
+		fmt.Sprintf(`CREATE ROLE %s LOGIN PASSWORD '%s';`, user, escapeLiteral(pass)),
+		fmt.Sprintf(`CREATE DATABASE %s OWNER %s;`, name, user),
+		fmt.Sprintf(`GRANT ALL PRIVILEGES ON DATABASE %s TO %s;`, name, user),
+		fmt.Sprintf(`REVOKE CONNECT ON DATABASE %s FROM PUBLIC;`, name),
+		fmt.Sprintf(`GRANT CONNECT ON DATABASE %s TO %s;`, name, user),
+		fmt.Sprintf(`REVOKE TEMPORARY ON DATABASE %s FROM PUBLIC;`, name),
+	}
+}
 func sanitizeIdent(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	s = strings.ReplaceAll(s, "-", "_")

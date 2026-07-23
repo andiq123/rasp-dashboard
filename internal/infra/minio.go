@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	minioContainer = "firewifi-minio"
-	minioAPIAddr   = "127.0.0.1:9000"
-	minioEndpoint  = "http://127.0.0.1:9000"
+	minioContainer   = "firewifi-minio"
+	minioAPIAddr     = "127.0.0.1:9000"
+	minioEndpoint    = "http://127.0.0.1:9000"
 	defaultMinioUser = "firewifi"
 )
 
@@ -27,11 +27,11 @@ var bucketNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
 type MinIO struct {
 	ComposeFile string
 	EnvFile     string
-	statusMu   sync.Mutex
-	statusAt   time.Time
-	statusSnap MinIOStatus
-	usageMu    sync.Mutex
-	usageCache map[string]bucketUsageSnap
+	statusMu    sync.Mutex
+	statusAt    time.Time
+	statusSnap  MinIOStatus
+	usageMu     sync.Mutex
+	usageCache  map[string]bucketUsageSnap
 }
 
 type bucketUsageSnap struct {
@@ -199,11 +199,15 @@ func (m *MinIO) CreateBucket(ctx context.Context, name string) (BucketInfo, erro
 	if err := m.mc(ctx, user, pass, "mb", "--ignore-existing", "local/"+name); err != nil {
 		return BucketInfo{}, err
 	}
+	accessKey, secretKey, err := m.ensureBucketIAM(ctx, user, pass, name)
+	if err != nil {
+		return BucketInfo{}, err
+	}
 	return BucketInfo{
 		Name:      name,
 		Endpoint:  minioEndpoint,
-		AccessKey: user,
-		SecretKey: pass,
+		AccessKey: accessKey,
+		SecretKey: secretKey,
 		Region:    "us-east-1",
 	}, nil
 }
@@ -221,7 +225,9 @@ func (m *MinIO) DeleteBucket(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
+	m.removeBucketIAM(ctx, user, pass, name)
 	_ = m.mc(ctx, user, pass, "rb", "--force", "local/"+name)
+	m.removeBucketIAM(ctx, user, pass, name)
 	return nil
 }
 
@@ -376,6 +382,78 @@ func (m *MinIO) mcOut(ctx context.Context, user, pass string, args ...string) ([
 	return out, nil
 }
 
+const maxMinioAccessKeyLen = 20
+
+// bucketIAMNames returns deterministic per-bucket MinIO access key + policy name.
+func bucketIAMNames(bucket string) (accessKey, policyName string) {
+	san := strings.ToLower(strings.TrimSpace(bucket))
+	var b strings.Builder
+	for _, r := range san {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			b.WriteRune(r)
+		}
+	}
+	san = strings.Trim(b.String(), "-")
+	accessKey = "fwb-" + san
+	if len(accessKey) > maxMinioAccessKeyLen {
+		accessKey = accessKey[:maxMinioAccessKeyLen]
+		accessKey = strings.TrimRight(accessKey, "-")
+	}
+	policyName = "fwb-" + san + "-policy"
+	if len(policyName) > 128 {
+		policyName = policyName[:128]
+		policyName = strings.TrimRight(policyName, "-")
+	}
+	return accessKey, policyName
+}
+
+// bucketPolicyJSON is a bucket-scoped IAM policy (s3:* on bucket + objects).
+func bucketPolicyJSON(bucket string) string {
+	return `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::` + bucket + `","arn:aws:s3:::` + bucket + `/*"]}]}`
+}
+
+// ensureBucketIAM creates (or recreates) a per-bucket user + scoped policy.
+// Root credentials are used only for admin mc calls — never returned to tenants.
+func (m *MinIO) ensureBucketIAM(ctx context.Context, rootUser, rootPass, bucket string) (accessKey, secretKey string, err error) {
+	accessKey, policyName := bucketIAMNames(bucket)
+	secretKey, err = randomPass(24)
+	if err != nil {
+		return "", "", err
+	}
+	m.removeBucketIAM(ctx, rootUser, rootPass, bucket)
+	if err := m.mc(ctx, rootUser, rootPass, "admin", "user", "add", "local", accessKey, secretKey); err != nil {
+		return "", "", err
+	}
+	if err := m.mcPolicyCreate(ctx, rootUser, rootPass, policyName, bucketPolicyJSON(bucket)); err != nil {
+		_ = m.mc(ctx, rootUser, rootPass, "admin", "user", "remove", "local", accessKey)
+		return "", "", err
+	}
+	if err := m.mc(ctx, rootUser, rootPass, "admin", "policy", "attach", "local", policyName, "--user", accessKey); err != nil {
+		m.removeBucketIAM(ctx, rootUser, rootPass, bucket)
+		return "", "", err
+	}
+	return accessKey, secretKey, nil
+}
+
+func (m *MinIO) removeBucketIAM(ctx context.Context, rootUser, rootPass, bucket string) {
+	accessKey, policyName := bucketIAMNames(bucket)
+	_ = m.mc(ctx, rootUser, rootPass, "admin", "policy", "detach", "local", policyName, "--user", accessKey)
+	_ = m.mc(ctx, rootUser, rootPass, "admin", "user", "remove", "local", accessKey)
+	_ = m.mc(ctx, rootUser, rootPass, "admin", "policy", "remove", "local", policyName)
+}
+
+func (m *MinIO) mcPolicyCreate(ctx context.Context, user, pass, policyName, policyJSON string) error {
+	script := "mc alias set local " + minioEndpoint + " " + shellQuote(user) + " " + shellQuote(pass) +
+		" >/dev/null && printf %s " + shellQuote(policyJSON) + " > /tmp/fwb-policy.json && " +
+		"mc admin policy create local " + shellQuote(policyName) + " /tmp/fwb-policy.json"
+	cmd := exec.CommandContext(ctx, "sudo", "-n", "docker", "run", "--rm", "--network", "host",
+		"--entrypoint", "/bin/sh", "minio/mc", "-c", script)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("mc policy create: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
 func sanitizeBucketName(name string) string {
 	name = strings.ToLower(strings.TrimSpace(name))
 	name = strings.ReplaceAll(name, "_", "-")
