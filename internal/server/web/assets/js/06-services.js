@@ -573,12 +573,14 @@
     return acts;
   }
 
-  /** Per-service console chrome (Railway-style). Painted by activity.js. */
+  /** Per-service console. Painted by activity.js — Deploy ↔ Runtime for Go apps. */
   function serviceConsoleHTML(svc) {
     var slug = svc.slug || '';
     var collapsed = !!(typeof svcConsoleCollapsed !== 'undefined' && svcConsoleCollapsed);
+    var mode = (typeof svcConsoleMode !== 'undefined' && svcConsoleMode === 'runtime') ? 'runtime' : 'deploy';
+    var isGo = svc.type === 'go';
     return ''
-      +'<section class="svc-console'+(collapsed?' is-collapsed':'')+'" data-slug="'+esc(slug)+'" aria-label="Service console">'
+      +'<section class="svc-console'+(collapsed?' is-collapsed':'')+'" data-slug="'+esc(slug)+'" data-mode="'+esc(isGo?mode:'deploy')+'" aria-label="Service console">'
         +'<div class="svc-console-grip" aria-hidden="true"><span></span></div>'
         +'<header class="svc-console-head">'
           +'<button type="button" class="svc-console-toggle" data-action="svcconsole:toggle:'+esc(slug)+'"'
@@ -587,14 +589,18 @@
             +ico('chev', 'svc-console-chev')
             +'<span class="svc-console-titles">'
               +'<strong class="svc-console-title">Console</strong>'
-              +'<span class="svc-console-scope ghost" hidden></span>'
             +'</span>'
           +'</button>'
+          +(isGo
+            ? '<div class="svc-console-mode" role="tablist" aria-label="Log source" data-stop="1">'
+                +'<button type="button" role="tab" class="svc-console-mode-btn'+(mode==='deploy'?' is-active':'')+'"'
+                  +' data-action="svcconsole:mode:deploy:'+esc(slug)+'" aria-selected="'+(mode==='deploy'?'true':'false')+'">Deploy</button>'
+                +'<button type="button" role="tab" class="svc-console-mode-btn'+(mode==='runtime'?' is-active':'')+'"'
+                  +' data-action="svcconsole:mode:runtime:'+esc(slug)+'" aria-selected="'+(mode==='runtime'?'true':'false')+'">Runtime</button>'
+              +'</div>'
+            : '')
           +'<div class="svc-console-tools" data-stop="1">'
             +'<span class="svc-console-pill activity-pill"></span>'
-            +(svc.type === 'go'
-              ? '<button type="button" class="btn btn-quiet" data-action="svcconsole:runtime:'+esc(slug)+'" title="Container runtime logs">Runtime</button>'
-              : '')
             +'<button type="button" class="btn btn-quiet" data-action="svcconsole:copy:'+esc(slug)+'" title="Copy logs">Copy</button>'
             +'<button type="button" class="btn btn-quiet svc-console-follow" data-action="svcconsole:follow:'+esc(slug)+'" hidden title="Resume auto-scroll">Follow</button>'
           +'</div>'

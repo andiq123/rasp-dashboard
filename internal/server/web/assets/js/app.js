@@ -1912,12 +1912,14 @@
     }
     return acts;
   }
-  /** Per-service console chrome (Railway-style). Painted by activity.js. */
+  /** Per-service console. Painted by activity.js — Deploy ↔ Runtime for Go apps. */
   function serviceConsoleHTML(svc) {
     var slug = svc.slug || '';
     var collapsed = !!(typeof svcConsoleCollapsed !== 'undefined' && svcConsoleCollapsed);
+    var mode = (typeof svcConsoleMode !== 'undefined' && svcConsoleMode === 'runtime') ? 'runtime' : 'deploy';
+    var isGo = svc.type === 'go';
     return ''
-      +'<section class="svc-console'+(collapsed?' is-collapsed':'')+'" data-slug="'+esc(slug)+'" aria-label="Service console">'
+      +'<section class="svc-console'+(collapsed?' is-collapsed':'')+'" data-slug="'+esc(slug)+'" data-mode="'+esc(isGo?mode:'deploy')+'" aria-label="Service console">'
         +'<div class="svc-console-grip" aria-hidden="true"><span></span></div>'
         +'<header class="svc-console-head">'
           +'<button type="button" class="svc-console-toggle" data-action="svcconsole:toggle:'+esc(slug)+'"'
@@ -1926,14 +1928,18 @@
             +ico('chev', 'svc-console-chev')
             +'<span class="svc-console-titles">'
               +'<strong class="svc-console-title">Console</strong>'
-              +'<span class="svc-console-scope ghost" hidden></span>'
             +'</span>'
           +'</button>'
+          +(isGo
+            ? '<div class="svc-console-mode" role="tablist" aria-label="Log source" data-stop="1">'
+                +'<button type="button" role="tab" class="svc-console-mode-btn'+(mode==='deploy'?' is-active':'')+'"'
+                  +' data-action="svcconsole:mode:deploy:'+esc(slug)+'" aria-selected="'+(mode==='deploy'?'true':'false')+'">Deploy</button>'
+                +'<button type="button" role="tab" class="svc-console-mode-btn'+(mode==='runtime'?' is-active':'')+'"'
+                  +' data-action="svcconsole:mode:runtime:'+esc(slug)+'" aria-selected="'+(mode==='runtime'?'true':'false')+'">Runtime</button>'
+              +'</div>'
+            : '')
           +'<div class="svc-console-tools" data-stop="1">'
             +'<span class="svc-console-pill activity-pill"></span>'
-            +(svc.type === 'go'
-              ? '<button type="button" class="btn btn-quiet" data-action="svcconsole:runtime:'+esc(slug)+'" title="Container runtime logs">Runtime</button>'
-              : '')
             +'<button type="button" class="btn btn-quiet" data-action="svcconsole:copy:'+esc(slug)+'" title="Copy logs">Copy</button>'
             +'<button type="button" class="btn btn-quiet svc-console-follow" data-action="svcconsole:follow:'+esc(slug)+'" hidden title="Resume auto-scroll">Follow</button>'
           +'</div>'
@@ -3711,7 +3717,7 @@
       };
     });
   }
-  /** Open the live console (embedded in the service drawer when scope matches). */
+  /** Open the live console inside the matching service drawer (no global panel). */
   function openActivityConsole(opts) {
     opts = opts || {};
     if (opts.reset || opts.clearPin || opts.forceExpand) {
@@ -3719,7 +3725,7 @@
         resetActivityConsole({
           open: true,
           active: !!opts.active,
-          title: opts.title || 'Activity',
+          title: opts.title || 'Console',
           scope: opts.scope || '',
           deploymentId: opts.deploymentId || '',
           contextKey: opts.contextKey || ('pending:' + Date.now()),
@@ -3730,39 +3736,33 @@
       }
     }
     activity.open = true;
-    if (opts.expand && !activity.userCollapsed) activity.collapsed = false;
-    if (opts.forceExpand) {
-      activity.userCollapsed = false;
-      activity.collapsed = false;
-    }
+    activity.userCollapsed = false;
+    activity.collapsed = false;
     activity.follow = true;
+    var slug = '';
     if (opts.scope && opts.scope.indexOf('/') > 0) {
       var bits = opts.scope.split('/');
       activity.viewGroup = bits[0] || '';
       activity.viewSlug = bits.slice(1).join('/') || '';
+      slug = typeof parseScopeSlug === 'function' ? parseScopeSlug(opts.scope) : '';
+      if (!slug && activity.viewGroup === activeGroup) slug = activity.viewSlug;
+    }
+    if (slug) {
+      svcConsoleMode = 'deploy';
+      openServiceSettings(slug, { force: true });
+      if (typeof setSvcConsoleCollapsed === 'function') setSvcConsoleCollapsed(false);
     }
     syncActivityPoll();
     patchActivity();
   }
   /**
    * Shared deploy/create/redeploy flow:
-   * close wizard → Activity console → optimistic UI → API → wait for job.
+   * close wizard → optimistic UI → service console → API → wait for job.
    */
-  function closeWizardToActivity(opts) {
-    opts = opts || {};
+  function closeWizardOnly() {
     wizard = null;
     picker = null;
     renderModal();
-    activity.userCollapsed = false;
-    openActivityConsole({
-      forceExpand: true,
-      clearPin: true,
-      reset: true,
-      active: true,
-      title: opts.title || 'Activity',
-      scope: opts.scope || '',
-      contextKey: opts.contextKey || ('job:' + Date.now())
-    });
   }
   function waitDeployBusy(pollTimer, timeoutMs) {
     var wait = setInterval(function(){
@@ -3782,27 +3782,20 @@
   function runServiceJob(opts) {
     opts = opts || {};
     if (busy.deploy && !opts.allowParallel) return null;
-    if (opts.closeWizard) {
-      closeWizardToActivity({
-        title: opts.consoleTitle || opts.toast || 'Activity',
-        scope: opts.scope || '',
-        contextKey: opts.contextKey || ('job:' + Date.now())
-      });
-    } else {
-      activity.userCollapsed = false;
-      openActivityConsole({
-        forceExpand: true,
-        clearPin: true,
-        reset: true,
-        active: true,
-        title: opts.consoleTitle || opts.toast || 'Activity',
-        scope: opts.scope || '',
-        contextKey: opts.contextKey || ('job:' + Date.now())
-      });
-    }
+    if (opts.closeWizard) closeWizardOnly();
     busy.deploy = true;
     if (opts.busyKey) busy[opts.busyKey] = true;
     if (opts.beforeRequest) opts.beforeRequest();
+    activity.userCollapsed = false;
+    openActivityConsole({
+      forceExpand: true,
+      clearPin: true,
+      reset: true,
+      active: true,
+      title: opts.consoleTitle || opts.toast || 'Console',
+      scope: opts.scope || '',
+      contextKey: opts.contextKey || ('job:' + Date.now())
+    });
     if (opts.toast) showToast(opts.toast);
     var poll = null;
     if (opts.poll !== false) {
@@ -4316,10 +4309,16 @@
     }
     return '<div class="layout layout-empty"></div>';
   }
-  function openServiceSettings(sslug) {
+  function openServiceSettings(sslug, opts) {
+    opts = opts || {};
     if (!sslug) return;
-    if (settingsSlug === sslug) {
+    if (settingsSlug === sslug && !opts.force) {
       closeSettingsDrawer({ animate: true });
+      return;
+    }
+    if (settingsSlug === sslug && opts.force) {
+      if (typeof setSvcConsoleCollapsed === 'function') setSvcConsoleCollapsed(false);
+      if (typeof patchActivity === 'function') patchActivity();
       return;
     }
     if (_drawerLeaving) {
@@ -6062,7 +6061,7 @@
       }
       var gmeta = (groups || []).filter(function(x){ return x.slug === gs; })[0];
       var gdisk = gmeta && gmeta.disk_bytes ? ('\n\nWill free ~' + fmtBytes(gmeta.disk_bytes) + ' on disk.') : '';
-      if (!confirm('Delete group '+gs+'?\n\nStops containers, drops DBs, deletes clones/binaries/files.'+gdisk+'\n\nWatch Activity for each resource removed.')) return;
+      if (!confirm('Delete group '+gs+'?\n\nStops containers, drops DBs, deletes clones/binaries/files.'+gdisk)) return;
       busy[id] = true;
       openActivityConsole();
       manageTab = 'services'; dockerOpen = false;
@@ -6070,7 +6069,7 @@
       api('/api/groups/' + encodeURIComponent(gs), {method:'DELETE'})
         .then(function(){
           if (activeGroup === gs) activeGroup = null;
-          showToast('Group removed · check Activity for freed disk');
+          showToast('Group removed · disk freed');
           return refreshServices();
         })
         .catch(function(e){ showToast(e.message || 'Failed'); })
@@ -6159,16 +6158,17 @@
         setSvcConsoleCollapsed(!svcConsoleCollapsed);
       }
       return;
-    } else if (id.indexOf('svcconsole:runtime:') === 0) {
+    } else if (id.indexOf('svcconsole:mode:deploy:') === 0) {
       e.stopPropagation();
-      var rtSlug = id.split(':').slice(2).join(':');
-      if (rtSlug) {
-        if (typeof setSvcConsoleCollapsed === 'function' && svcConsoleCollapsed) {
-          setSvcConsoleCollapsed(false);
-        }
-        if (settingsSlug !== rtSlug) openServiceSettings(rtSlug);
-        openServiceCrashLogs(activeGroup, rtSlug);
-      }
+      var mdSlug = id.split(':').slice(3).join(':');
+      if (mdSlug && settingsSlug !== mdSlug) openServiceSettings(mdSlug, { force: true });
+      if (typeof setSvcConsoleMode === 'function') setSvcConsoleMode('deploy', { force: true });
+      return;
+    } else if (id.indexOf('svcconsole:mode:runtime:') === 0) {
+      e.stopPropagation();
+      var mrSlug = id.split(':').slice(3).join(':');
+      if (mrSlug && settingsSlug !== mrSlug) openServiceSettings(mrSlug, { force: true });
+      if (typeof setSvcConsoleMode === 'function') setSvcConsoleMode('runtime', { force: true });
       return;
     } else if (id.indexOf('svcconsole:copy:') === 0) {
       e.stopPropagation();
@@ -6187,8 +6187,8 @@
       e.stopPropagation();
       var logSlug = id.split(':').slice(2).join(':');
       if (logSlug) {
-        if (settingsSlug !== logSlug) openServiceSettings(logSlug);
-        openServiceCrashLogs(activeGroup, logSlug);
+        openServiceSettings(logSlug, { force: true });
+        if (typeof setSvcConsoleMode === 'function') setSvcConsoleMode('runtime', { force: true });
       }
       return;
     } else if (id === 'svc:settings:close') {
@@ -6501,6 +6501,7 @@
   var _apLabelShown = '';
   var _hydratedConsoleSlug = '';
   var svcConsoleCollapsed = false;
+  var svcConsoleMode = 'deploy'; // 'deploy' | 'runtime'
   function openServiceScope() {
     if (!settingsSlug || !activeGroup) return '';
     return String(activeGroup) + '/' + String(settingsSlug);
@@ -6517,28 +6518,21 @@
     if (!root) return null;
     return root.querySelector('.svc-console[data-slug="' + settingsSlug + '"]');
   }
-  /** Prefer the open service’s console; foreign live jobs still use the global panel. */
-  function prefersEmbeddedConsole() {
-    var emb = embeddedConsoleRoot();
-    if (!emb) return false;
-    var openScope = openServiceScope();
-    var disp = activityDisplayScope();
-    if (activity.active && disp && openScope && disp !== openScope) return false;
-    if (activity.viewDeploy && activity.viewSlug && activity.viewSlug !== settingsSlug) return false;
-    return true;
-  }
   function expandSvcConsoleForLive() {
     if (!svcConsoleCollapsed) return;
     var openScope = openServiceScope();
     if (!openScope || activityDisplayScope() !== openScope) return;
-    if (activity.active) setSvcConsoleCollapsed(false);
+    if (activity.active && svcConsoleMode === 'deploy') setSvcConsoleCollapsed(false);
   }
-  function hideGlobalActivityPanel() {
-    var root = document.getElementById('activity');
-    if (!root) return;
-    root.hidden = true;
-    root.className = 'activity';
-    _activityWasOpen = false;
+  function parseScopeSlug(scope) {
+    scope = String(scope || '');
+    var i = scope.indexOf('/');
+    if (i < 1) return '';
+    var group = scope.slice(0, i);
+    var slug = scope.slice(i + 1);
+    if (!slug || (activeGroup && group !== activeGroup)) return '';
+    if (slug.indexOf('engine/') === 0 || group === 'engine') return '';
+    return slug;
   }
   function activityLinesText() {
     return (activity.lines || []).map(function(line){
@@ -6563,15 +6557,11 @@
   }
   function setActivityFollow(on) {
     activity.follow = !!on;
-    var btn = document.getElementById('activity-follow');
-    if (btn) btn.hidden = activity.follow;
-    var root = document.getElementById('activity');
-    if (root) root.classList.toggle('paused', !activity.follow);
     var emb = embeddedConsoleRoot();
     if (emb) {
       emb.classList.toggle('paused', !activity.follow);
       var ebtn = emb.querySelector('.svc-console-follow');
-      if (ebtn) ebtn.hidden = activity.follow;
+      if (ebtn) ebtn.hidden = activity.follow || svcConsoleCollapsed;
     }
   }
   function activityLogCanScroll(log) {
@@ -6771,21 +6761,72 @@
     }
     if (drawer) drawer.classList.toggle('console-collapsed', svcConsoleCollapsed);
   }
+  function setSvcConsoleMode(mode, opts) {
+    opts = opts || {};
+    mode = mode === 'runtime' ? 'runtime' : 'deploy';
+    if (svcConsoleMode === mode && !opts.force) return;
+    svcConsoleMode = mode;
+    var slug = settingsSlug || activity.viewSlug || '';
+    var group = activeGroup || activity.viewGroup || '';
+    if (!slug || !group) {
+      patchActivity();
+      return;
+    }
+    setSvcConsoleCollapsed(false);
+    if (mode === 'runtime') {
+      openServiceCrashLogs(group, slug);
+      return;
+    }
+    var svc = (deployed || []).filter(function(s){ return s.slug === slug; })[0];
+    var building = svc && (svc.deployments || []).filter(function(d){
+      return d.status === 'building' || d.status === 'queued';
+    })[0];
+    var latest = building
+      || (svc && (svc.deployments || []).filter(function(d){ return d.status === 'active' || d.active; })[0])
+      || (svc && (svc.deployments || [])[0]);
+    if (latest && latest.id) {
+      openDeployLogs(group, slug, latest.id, {
+        title: (latest.commit ? latest.commit + ' · ' : '') + (latest.message || latest.id)
+      });
+      return;
+    }
+    if (activity.active && activity.scope === group + '/' + slug) {
+      activity.viewDeploy = activity.deployment_id || '';
+      activity.viewGroup = group;
+      activity.viewSlug = slug;
+      patchActivity();
+      return;
+    }
+    resetActivityConsole({
+      open: true,
+      title: 'Deploy',
+      scope: group + '/' + slug,
+      contextKey: 'deploy:' + group + '/' + slug,
+      active: false
+    });
+    activity.viewGroup = group;
+    activity.viewSlug = slug;
+    activity.lines = [{
+      seq: 1, at: '', level: 'info',
+      text: 'No deployments yet — Redeploy to build history.'
+    }];
+    patchActivity();
+  }
   function patchEmbeddedConsole(emb) {
     if (!emb) return;
     bindSvcConsoleScroll(emb);
     var tone = activityTone();
     emb.className = 'svc-console'
       + (svcConsoleCollapsed ? ' is-collapsed' : '')
-      + (activity.active ? ' running' : '')
+      + (activity.active && svcConsoleMode === 'deploy' ? ' running' : '')
       + (tone === 'ok' ? ' ok' : '')
       + (tone === 'err' ? ' err' : '')
       + (tone === 'warn' ? ' warn' : '')
       + (activity.follow ? '' : ' paused');
+    emb.setAttribute('data-mode', svcConsoleMode);
     var drawer = emb.closest('.svc-drawer');
     if (drawer) drawer.classList.toggle('console-collapsed', svcConsoleCollapsed);
     var title = emb.querySelector('.svc-console-title');
-    var scope = emb.querySelector('.svc-console-scope');
     var status = emb.querySelector('.svc-console-pill');
     var log = emb.querySelector('.svc-console-log');
     var followBtn = emb.querySelector('.svc-console-follow');
@@ -6794,24 +6835,27 @@
     var disp = activityDisplayScope();
     var belongs = !disp || disp === openScope;
     if (title) {
-      title.textContent = belongs && activity.title
-        ? activity.title
-        : 'Console';
+      if (!belongs) title.textContent = 'Console';
+      else if (svcConsoleMode === 'runtime') title.textContent = 'Runtime';
+      else if (activity.active) title.textContent = activity.title || 'Deploy';
+      else title.textContent = activity.title || 'Deploy';
     }
-    if (scope) {
-      scope.textContent = belongs ? (activity.scope || openScope || '') : (openScope || '');
-      scope.hidden = !scope.textContent;
-    }
+    emb.querySelectorAll('.svc-console-mode-btn').forEach(function(btn){
+      var isDeploy = (btn.getAttribute('data-action') || '').indexOf(':mode:deploy:') > 0;
+      var active = svcConsoleMode === (isDeploy ? 'deploy' : 'runtime');
+      btn.classList.toggle('is-active', active);
+      btn.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
     if (status) {
       status.classList.remove('pct');
-      if (!belongs) status.textContent = '';
+      if (!belongs || svcConsoleMode === 'runtime') status.textContent = '';
       else if (activity.active && activity.progress && typeof activity.progress.percent === 'number') {
         status.textContent = activity.progress.percent + '%';
         status.classList.add('pct');
-      } else if (activity.active) status.textContent = 'Running';
+      } else if (activity.active) status.textContent = 'Live';
       else if (activity.ok === true || tone === 'ok') status.textContent = 'Done';
       else if (activity.ok === false || tone === 'err') status.textContent = 'Failed';
-      else if (tone === 'warn') status.textContent = 'Warnings';
+      else if (tone === 'warn') status.textContent = 'Warn';
       else status.textContent = '';
     }
     if (followBtn) followBtn.hidden = activity.follow || svcConsoleCollapsed;
@@ -6820,15 +6864,20 @@
       tog.title = svcConsoleCollapsed ? 'Expand console' : 'Collapse console';
     }
     if (belongs && !svcConsoleCollapsed) {
-      patchProgressInto({
-        wrap: emb.querySelector('.svc-console-progress'),
-        step: emb.querySelector('.svc-console-step'),
-        remain: emb.querySelector('.svc-console-remain'),
-        pct: emb.querySelector('.svc-console-pct'),
-        fill: emb.querySelector('.svc-console-fill'),
-        bar: emb.querySelector('.svc-console-bar'),
-        list: emb.querySelector('.svc-console-steps')
-      });
+      if (svcConsoleMode === 'deploy') {
+        patchProgressInto({
+          wrap: emb.querySelector('.svc-console-progress'),
+          step: emb.querySelector('.svc-console-step'),
+          remain: emb.querySelector('.svc-console-remain'),
+          pct: emb.querySelector('.svc-console-pct'),
+          fill: emb.querySelector('.svc-console-fill'),
+          bar: emb.querySelector('.svc-console-bar'),
+          list: emb.querySelector('.svc-console-steps')
+        });
+      } else {
+        var prog = emb.querySelector('.svc-console-progress');
+        if (prog) prog.hidden = true;
+      }
       if (log) {
         var updated = renderActivityLines(log, false);
         if (updated !== false && activity.follow) {
@@ -6902,21 +6951,16 @@
         _activityWasOpen = false;
         _actRendered = 0;
         _actSeqRendered = -1;
-        var root = document.getElementById('activity');
-        if (root) {
-          root.hidden = true;
-          root.className = 'activity';
-          var log = document.getElementById('activity-log');
-          if (log) log.innerHTML = '';
-          var prog = document.getElementById('activity-progress');
-          if (prog) prog.hidden = true;
-        }
         try { sessionStorage.removeItem('fw.deployLogs'); } catch (e) {}
-        patchActivity();
         syncActivityPoll();
         return;
       }
       activity.contextKey = 'live:' + (snap.scope || snap.deployment_id || snap.title || 'job');
+      svcConsoleMode = 'deploy';
+      var bootSlug = parseScopeSlug(snap.scope || '');
+      if (bootSlug && typeof openServiceSettings === 'function') {
+        openServiceSettings(bootSlug, { force: true });
+      }
     }
     if (!opts.boot && !opts.fromHistory && !snap.active && !(snap.lines && snap.lines.length)) {
       if (activity.open && activity.lines && activity.lines.length) return;
@@ -6929,6 +6973,7 @@
     if (openScope && !opts.boot && !opts.fromHistory) {
       if (snapScope && snapScope !== openScope) return;
       if (!snap.active && !snapScope && activityDisplayScope() === openScope) return;
+      if (svcConsoleMode === 'runtime') return;
     }
     if (activity.viewDeploy && !opts.fromHistory) {
       var liveId = snap.deployment_id || '';
@@ -6985,6 +7030,7 @@
     }
     if (snap.active || opts.forceOpen || opts.fromHistory) {
       activity.open = true;
+      if (snap.active) svcConsoleMode = 'deploy';
       if (!activity.userCollapsed) activity.collapsed = false;
     }
     patchActivity();
@@ -7008,6 +7054,7 @@
     slug = String(slug || '');
     deployId = String(deployId || '');
     if (!group || !slug || !deployId) return;
+    svcConsoleMode = 'deploy';
     _hydratedConsoleSlug = slug;
     resetActivityConsole({
       open: true,
@@ -7090,10 +7137,11 @@
     group = String(group || activeGroup || '');
     slug = String(slug || '');
     if (!group || !slug) return;
+    svcConsoleMode = 'runtime';
     _hydratedConsoleSlug = slug;
     resetActivityConsole({
       open: true,
-      title: 'Runtime · ' + slug,
+      title: 'Runtime',
       scope: group + '/' + slug,
       contextKey: 'logs:' + group + '/' + slug,
       active: false
@@ -7106,6 +7154,7 @@
     var path = '/api/groups/' + encodeURIComponent(group)
       + '/services/' + encodeURIComponent(slug) + '/logs?lines=200';
     api(path).then(function(r){
+      if (svcConsoleMode !== 'runtime' || settingsSlug !== slug) return;
       var text = (r && r.logs) || '';
       var lines = linesFromText(text);
       if (!lines.length) {
@@ -7114,7 +7163,7 @@
       applyActivity({
         seq: (activity.seq || 0) + 1,
         active: false,
-        title: 'Runtime · ' + slug,
+        title: 'Runtime',
         scope: group + '/' + slug,
         ok: activityOkFromLines(lines),
         progress: null,
@@ -7166,92 +7215,25 @@
     }
   }
   function closeActivityAnimated() {
-    var root = document.getElementById('activity');
-    if (!activity.open) return;
-    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (!root || reduce || root.hidden) {
-      activity.open = false;
-      if (typeof clearDeployLogView === 'function') clearDeployLogView();
-      activity.userCollapsed = false;
-      _activityWasOpen = false;
-      patchActivity();
+    if (embeddedConsoleRoot()) {
+      setSvcConsoleCollapsed(true);
       return;
     }
-    if (root.classList.contains('closing')) return;
-    root.classList.add('closing');
-    setTimeout(function(){
-      activity.open = false;
-      if (typeof clearDeployLogView === 'function') clearDeployLogView();
-      activity.userCollapsed = false;
-      _activityWasOpen = false;
-      root.classList.remove('closing');
-      patchActivity();
-    }, 360);
+    activity.open = false;
+    if (typeof clearDeployLogView === 'function') clearDeployLogView();
   }
   function patchActivity() {
-    if (prefersEmbeddedConsole()) {
-      hideGlobalActivityPanel();
-      expandSvcConsoleForLive();
-      patchEmbeddedConsole(embeddedConsoleRoot());
+    var emb = embeddedConsoleRoot();
+    if (!emb) {
+      _activityWasOpen = false;
       return;
     }
-    var root = document.getElementById('activity');
-    if (!root) return;
-    bindActivityScroll();
-    var has = activity.lines && activity.lines.length;
-    var hasProg = !!(activity.progress && activity.progress.steps && activity.progress.steps.length);
-    var show = activity.open && (has || activity.active || hasProg);
-    var wasClosing = root.classList.contains('closing');
-    var revealing = show && !_activityWasOpen;
-    var tone = activityTone();
-    root.className = 'activity'
-      + (show || wasClosing ? ' open' : '')
-      + (wasClosing ? ' closing' : '')
-      + (revealing ? ' reveal' : '')
-      + (activity.collapsed ? ' collapsed' : '')
-      + (activity.active ? ' running' : '')
-      + (tone === 'ok' ? ' ok' : '')
-      + (tone === 'err' ? ' err' : '')
-      + (tone === 'warn' ? ' warn' : '')
-      + (activity.follow ? '' : ' paused');
-    if (!wasClosing) {
-      root.hidden = !show;
-    }
-    if (revealing) {
-      setTimeout(function(){ root.classList.remove('reveal'); }, 460);
-    }
-    _activityWasOpen = !!show;
-    var title = document.getElementById('activity-title');
-    var scope = document.getElementById('activity-scope');
-    var status = document.getElementById('activity-status');
-    var log = document.getElementById('activity-log');
-    var followBtn = document.getElementById('activity-follow');
-    if (title) title.textContent = activity.title || 'Activity';
-    if (scope) {
-      scope.textContent = activity.scope || '';
-      scope.hidden = !activity.scope;
-    }
-    if (status) {
-      status.classList.remove('pct');
-      if (activity.active && activity.progress && typeof activity.progress.percent === 'number') {
-        status.textContent = activity.progress.percent + '%';
-        status.classList.add('pct');
-      } else if (activity.active) status.textContent = 'Running';
-      else if (activity.ok === true || tone === 'ok') status.textContent = 'Done';
-      else if (activity.ok === false || tone === 'err') status.textContent = 'Failed';
-      else if (tone === 'warn') status.textContent = 'Warnings';
-      else status.textContent = '';
-    }
-    var tog = root.querySelector('[data-action="activity:toggle"]');
-    if (tog) tog.textContent = activity.collapsed ? 'Expand' : 'Collapse';
-    if (followBtn) followBtn.hidden = activity.follow;
-    patchActivityProgress();
-    if (log && !activity.collapsed) {
-      var updated = renderActivityLines(log, false);
-      if (updated !== false && activity.follow) {
-        log.scrollTop = log.scrollHeight;
-      }
-    }
+    var openScope = openServiceScope();
+    var disp = activityDisplayScope();
+    if (disp && openScope && disp !== openScope) return;
+    expandSvcConsoleForLive();
+    patchEmbeddedConsole(emb);
+    _activityWasOpen = true;
   }
   /** Load this service’s console when the drawer opens (isolated from other services). */
   function hydrateServiceConsole(svc, opts) {
@@ -7270,15 +7252,41 @@
     }
     _hydratedConsoleSlug = svc.slug;
     if (activity.active && activity.scope === scope) {
+      svcConsoleMode = 'deploy';
+      activity.open = true;
+      patchActivity();
+      return;
+    }
+    if (svcConsoleMode === 'runtime' && activity.viewSlug === svc.slug) {
       activity.open = true;
       patchActivity();
       return;
     }
     if (activity.viewDeploy && activity.viewSlug === svc.slug && activity.viewGroup === activeGroup) {
+      svcConsoleMode = 'deploy';
       activity.open = true;
       patchActivity();
       return;
     }
+    if (svc.type !== 'go') {
+      svcConsoleMode = 'deploy';
+      resetActivityConsole({
+        open: true,
+        title: 'Console',
+        scope: scope,
+        contextKey: 'idle:' + scope,
+        active: false
+      });
+      activity.viewGroup = activeGroup;
+      activity.viewSlug = svc.slug;
+      activity.lines = [{
+        seq: 1, at: '', level: 'info',
+        text: 'Engine events for this service appear here.'
+      }];
+      patchActivity();
+      return;
+    }
+    svcConsoleMode = 'deploy';
     var building = (svc.deployments || []).filter(function(d){
       return d.status === 'building' || d.status === 'queued';
     })[0];
@@ -7294,20 +7302,18 @@
       });
       return;
     }
-    if (svc.type === 'go') {
-      openServiceCrashLogs(activeGroup, svc.slug);
-      return;
-    }
     resetActivityConsole({
       open: true,
-      title: 'Console',
+      title: 'Deploy',
       scope: scope,
-      contextKey: 'idle:' + scope,
+      contextKey: 'deploy:' + scope,
       active: false
     });
+    activity.viewGroup = activeGroup;
+    activity.viewSlug = svc.slug;
     activity.lines = [{
       seq: 1, at: '', level: 'info',
-      text: 'Events for ' + scope + ' appear here.'
+      text: 'No deployments yet — Redeploy to build, or switch to Runtime.'
     }];
     patchActivity();
   }
@@ -7505,32 +7511,6 @@
       .catch(function(err){ showToast(err.message || 'Save failed'); })
       .finally(function(){ delete busy.config; render(); });
   });
-  var actEl = document.getElementById('activity');
-  if (actEl) {
-    actEl.addEventListener('click', function(e) {
-      var el = e.target.closest('[data-action]');
-      if (!el) return;
-      var id = el.dataset.action;
-      if (id === 'activity:toggle') {
-        activity.collapsed = !activity.collapsed;
-        activity.userCollapsed = !!activity.collapsed;
-        var btn = el;
-        if (btn && btn.tagName === 'BUTTON') btn.textContent = activity.collapsed ? 'Expand' : 'Collapse';
-        patchActivity();
-      } else if (id === 'activity:copy') {
-        var text = activityLinesText();
-        if (!text) { showToast('No logs yet'); return; }
-        copyText(text).then(function(){ showToast('Logs copied'); }).catch(function(){ showToast('Copy failed'); });
-      } else if (id === 'activity:follow') {
-        setActivityFollow(true);
-        var logEl = document.getElementById('activity-log');
-        if (logEl) logEl.scrollTop = logEl.scrollHeight;
-        patchActivity();
-      } else if (id === 'activity:close') {
-        closeActivityAnimated();
-      }
-    });
-  }
   document.getElementById('app').addEventListener('toggle', function(e) {
     if (!e.target || e.target.tagName !== 'DETAILS') return;
     if (!e.target.closest('#panel-vpn')) return;
@@ -7542,13 +7522,6 @@
   }, true);
   (function(){
     try { sessionStorage.removeItem('fw.deployLogs'); } catch (e) {}
-    var root = document.getElementById('activity');
-    if (root) {
-      root.hidden = true;
-      root.className = 'activity';
-      var log = document.getElementById('activity-log');
-      if (log) log.innerHTML = '';
-    }
   })();
   document.documentElement.dataset.motion = 'off';
   document.documentElement.dataset.boot = 'off';

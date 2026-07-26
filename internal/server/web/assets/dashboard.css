@@ -9399,8 +9399,9 @@ html.drawer-open body {
 #drawer-root .svc-console-head {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px 10px;
   padding: 4px 12px 10px;
   border-bottom: 1px solid rgba(148,163,184,.1);
   flex-shrink: 0;
@@ -9463,6 +9464,44 @@ html.drawer-open body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+#drawer-root .svc-console-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(148,163,184,.14);
+  flex-shrink: 0;
+}
+#drawer-root .svc-console-mode-btn {
+  appearance: none;
+  border: 0;
+  margin: 0;
+  padding: 5px 10px;
+  min-height: 28px;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(226,232,240,.62);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .01em;
+  cursor: pointer;
+  transition: background .16s ease, color .16s ease;
+}
+#drawer-root .svc-console-mode-btn:hover {
+  color: #f8fafc;
+}
+#drawer-root .svc-console-mode-btn.is-active {
+  background: rgba(255,255,255,.12);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,.2);
+}
+#drawer-root .svc-console-mode-btn:focus-visible {
+  outline: 2px solid rgba(96, 165, 250, .55);
+  outline-offset: 1px;
 }
 #drawer-root .svc-console-tools {
   display: flex;

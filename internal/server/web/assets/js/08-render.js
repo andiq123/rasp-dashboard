@@ -100,7 +100,7 @@
     });
   }
 
-  /** Open the live console (embedded in the service drawer when scope matches). */
+  /** Open the live console inside the matching service drawer (no global panel). */
   function openActivityConsole(opts) {
     opts = opts || {};
     if (opts.reset || opts.clearPin || opts.forceExpand) {
@@ -108,7 +108,7 @@
         resetActivityConsole({
           open: true,
           active: !!opts.active,
-          title: opts.title || 'Activity',
+          title: opts.title || 'Console',
           scope: opts.scope || '',
           deploymentId: opts.deploymentId || '',
           contextKey: opts.contextKey || ('pending:' + Date.now()),
@@ -119,17 +119,21 @@
       }
     }
     activity.open = true;
-    if (opts.expand && !activity.userCollapsed) activity.collapsed = false;
-    if (opts.forceExpand) {
-      activity.userCollapsed = false;
-      activity.collapsed = false;
-    }
+    activity.userCollapsed = false;
+    activity.collapsed = false;
     activity.follow = true;
-    // Keep view pin aligned with the job scope so the embedded console claims it.
+    var slug = '';
     if (opts.scope && opts.scope.indexOf('/') > 0) {
       var bits = opts.scope.split('/');
       activity.viewGroup = bits[0] || '';
       activity.viewSlug = bits.slice(1).join('/') || '';
+      slug = typeof parseScopeSlug === 'function' ? parseScopeSlug(opts.scope) : '';
+      if (!slug && activity.viewGroup === activeGroup) slug = activity.viewSlug;
+    }
+    if (slug) {
+      svcConsoleMode = 'deploy';
+      openServiceSettings(slug, { force: true });
+      if (typeof setSvcConsoleCollapsed === 'function') setSvcConsoleCollapsed(false);
     }
     syncActivityPoll();
     patchActivity();
@@ -138,23 +142,12 @@
 
   /**
    * Shared deploy/create/redeploy flow:
-   * close wizard → Activity console → optimistic UI → API → wait for job.
+   * close wizard → optimistic UI → service console → API → wait for job.
    */
-  function closeWizardToActivity(opts) {
-    opts = opts || {};
+  function closeWizardOnly() {
     wizard = null;
     picker = null;
     renderModal();
-    activity.userCollapsed = false;
-    openActivityConsole({
-      forceExpand: true,
-      clearPin: true,
-      reset: true,
-      active: true,
-      title: opts.title || 'Activity',
-      scope: opts.scope || '',
-      contextKey: opts.contextKey || ('job:' + Date.now())
-    });
   }
 
   function waitDeployBusy(pollTimer, timeoutMs) {
@@ -176,27 +169,21 @@
   function runServiceJob(opts) {
     opts = opts || {};
     if (busy.deploy && !opts.allowParallel) return null;
-    if (opts.closeWizard) {
-      closeWizardToActivity({
-        title: opts.consoleTitle || opts.toast || 'Activity',
-        scope: opts.scope || '',
-        contextKey: opts.contextKey || ('job:' + Date.now())
-      });
-    } else {
-      activity.userCollapsed = false;
-      openActivityConsole({
-        forceExpand: true,
-        clearPin: true,
-        reset: true,
-        active: true,
-        title: opts.consoleTitle || opts.toast || 'Activity',
-        scope: opts.scope || '',
-        contextKey: opts.contextKey || ('job:' + Date.now())
-      });
-    }
+    if (opts.closeWizard) closeWizardOnly();
     busy.deploy = true;
     if (opts.busyKey) busy[opts.busyKey] = true;
+    // Optimistic registry/drawer first so the embedded console has a host.
     if (opts.beforeRequest) opts.beforeRequest();
+    activity.userCollapsed = false;
+    openActivityConsole({
+      forceExpand: true,
+      clearPin: true,
+      reset: true,
+      active: true,
+      title: opts.consoleTitle || opts.toast || 'Console',
+      scope: opts.scope || '',
+      contextKey: opts.contextKey || ('job:' + Date.now())
+    });
     if (opts.toast) showToast(opts.toast);
     var poll = null;
     if (opts.poll !== false) {
@@ -745,10 +732,16 @@
     return '<div class="layout layout-empty"></div>';
   }
 
-  function openServiceSettings(sslug) {
+  function openServiceSettings(sslug, opts) {
+    opts = opts || {};
     if (!sslug) return;
-    if (settingsSlug === sslug) {
+    if (settingsSlug === sslug && !opts.force) {
       closeSettingsDrawer({ animate: true });
+      return;
+    }
+    if (settingsSlug === sslug && opts.force) {
+      if (typeof setSvcConsoleCollapsed === 'function') setSvcConsoleCollapsed(false);
+      if (typeof patchActivity === 'function') patchActivity();
       return;
     }
     if (_drawerLeaving) {
@@ -2569,7 +2562,7 @@
       }
       var gmeta = (groups || []).filter(function(x){ return x.slug === gs; })[0];
       var gdisk = gmeta && gmeta.disk_bytes ? ('\n\nWill free ~' + fmtBytes(gmeta.disk_bytes) + ' on disk.') : '';
-      if (!confirm('Delete group '+gs+'?\n\nStops containers, drops DBs, deletes clones/binaries/files.'+gdisk+'\n\nWatch Activity for each resource removed.')) return;
+      if (!confirm('Delete group '+gs+'?\n\nStops containers, drops DBs, deletes clones/binaries/files.'+gdisk)) return;
       busy[id] = true;
       openActivityConsole();
       manageTab = 'services'; dockerOpen = false;
@@ -2577,7 +2570,7 @@
       api('/api/groups/' + encodeURIComponent(gs), {method:'DELETE'})
         .then(function(){
           if (activeGroup === gs) activeGroup = null;
-          showToast('Group removed · check Activity for freed disk');
+          showToast('Group removed · disk freed');
           return refreshServices();
         })
         .catch(function(e){ showToast(e.message || 'Failed'); })
@@ -2668,16 +2661,17 @@
         setSvcConsoleCollapsed(!svcConsoleCollapsed);
       }
       return;
-    } else if (id.indexOf('svcconsole:runtime:') === 0) {
+    } else if (id.indexOf('svcconsole:mode:deploy:') === 0) {
       e.stopPropagation();
-      var rtSlug = id.split(':').slice(2).join(':');
-      if (rtSlug) {
-        if (typeof setSvcConsoleCollapsed === 'function' && svcConsoleCollapsed) {
-          setSvcConsoleCollapsed(false);
-        }
-        if (settingsSlug !== rtSlug) openServiceSettings(rtSlug);
-        openServiceCrashLogs(activeGroup, rtSlug);
-      }
+      var mdSlug = id.split(':').slice(3).join(':');
+      if (mdSlug && settingsSlug !== mdSlug) openServiceSettings(mdSlug, { force: true });
+      if (typeof setSvcConsoleMode === 'function') setSvcConsoleMode('deploy', { force: true });
+      return;
+    } else if (id.indexOf('svcconsole:mode:runtime:') === 0) {
+      e.stopPropagation();
+      var mrSlug = id.split(':').slice(3).join(':');
+      if (mrSlug && settingsSlug !== mrSlug) openServiceSettings(mrSlug, { force: true });
+      if (typeof setSvcConsoleMode === 'function') setSvcConsoleMode('runtime', { force: true });
       return;
     } else if (id.indexOf('svcconsole:copy:') === 0) {
       e.stopPropagation();
@@ -2696,8 +2690,8 @@
       e.stopPropagation();
       var logSlug = id.split(':').slice(2).join(':');
       if (logSlug) {
-        if (settingsSlug !== logSlug) openServiceSettings(logSlug);
-        openServiceCrashLogs(activeGroup, logSlug);
+        openServiceSettings(logSlug, { force: true });
+        if (typeof setSvcConsoleMode === 'function') setSvcConsoleMode('runtime', { force: true });
       }
       return;
     } else if (id === 'svc:settings:close') {

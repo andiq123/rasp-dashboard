@@ -193,34 +193,6 @@
       .finally(function(){ delete busy.config; render(); });
   });
 
-  var actEl = document.getElementById('activity');
-  if (actEl) {
-    actEl.addEventListener('click', function(e) {
-      var el = e.target.closest('[data-action]');
-      if (!el) return;
-      var id = el.dataset.action;
-      if (id === 'activity:toggle') {
-        activity.collapsed = !activity.collapsed;
-        activity.userCollapsed = !!activity.collapsed;
-        var btn = el;
-        if (btn && btn.tagName === 'BUTTON') btn.textContent = activity.collapsed ? 'Expand' : 'Collapse';
-        patchActivity();
-      } else if (id === 'activity:copy') {
-        var text = activityLinesText();
-        if (!text) { showToast('No logs yet'); return; }
-        copyText(text).then(function(){ showToast('Logs copied'); }).catch(function(){ showToast('Copy failed'); });
-      } else if (id === 'activity:follow') {
-        setActivityFollow(true);
-        var logEl = document.getElementById('activity-log');
-        if (logEl) logEl.scrollTop = logEl.scrollHeight;
-        patchActivity();
-      } else if (id === 'activity:close') {
-        closeActivityAnimated();
-      }
-    });
-  }
-
-  
   document.getElementById('app').addEventListener('toggle', function(e) {
     if (!e.target || e.target.tagName !== 'DETAILS') return;
     if (!e.target.closest('#panel-vpn')) return;
@@ -232,16 +204,9 @@
     }
   }, true);
 
-  // Clean Activity on every full page load — never show a previous job.
+  // Clean console pin on every full page load.
   (function(){
     try { sessionStorage.removeItem('fw.deployLogs'); } catch (e) {}
-    var root = document.getElementById('activity');
-    if (root) {
-      root.hidden = true;
-      root.className = 'activity';
-      var log = document.getElementById('activity-log');
-      if (log) log.innerHTML = '';
-    }
   })();
 
   document.documentElement.dataset.motion = 'off';
