@@ -9166,23 +9166,23 @@ html.drawer-open body {
 
 
 #drawer-root .svc-drawer-body {
-  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)) !important;
+  padding-bottom: 12px !important;
 }
+
 
 #drawer-root .svc-drawer .ui-footer,
 #drawer-root .svc-drawer .svc-settings-foot {
-  position: sticky !important;
-  bottom: 0 !important;
-  z-index: 5 !important;
-  margin-top: auto !important;
-  padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px)) !important;
-  background: var(--drawer-surface, #fff) !important;
-  background-color: #ffffff !important;
+  position: static !important;
+  bottom: auto !important;
+  z-index: 1 !important;
+  margin-top: 18px !important;
+  padding: 14px 0 4px !important;
+  background: transparent !important;
   background-image: none !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
   border-top: 1px solid var(--drawer-border, rgba(15, 23, 42, .08)) !important;
-  box-shadow: 0 -8px 24px rgba(15, 23, 42, .04) !important;
+  box-shadow: none !important;
 }
 
 #drawer-root .svc-drawer .svc-settings-actions {
@@ -9350,26 +9350,98 @@ html.drawer-open body {
 
 #drawer-root .svc-drawer-body {
   min-height: 0;
+  flex: 1 1 auto;
 }
 #drawer-root .svc-console {
+  --svc-console-h: min(40vh, 320px);
   flex: 0 0 auto;
-  height: min(42vh, 340px);
-  min-height: 180px;
+  height: var(--svc-console-h);
+  min-height: 168px;
   display: flex;
   flex-direction: column;
-  border-top: 1px solid rgba(255,255,255,.08);
-  background: #0b1220;
+  border-top: 1px solid rgba(148, 163, 184, .18);
+  background:
+    linear-gradient(180deg, #121a2b 0%, #0b1220 28%, #0b1220 100%);
   color: #e2e8f0;
-  z-index: 2;
+  z-index: 3;
+  box-shadow: 0 -10px 28px rgba(15, 23, 42, .12);
+  transition:
+    height .28s var(--ease-out-soft, cubic-bezier(.16, 1, .3, 1)),
+    min-height .28s var(--ease-out-soft, cubic-bezier(.16, 1, .3, 1)),
+    box-shadow .22s var(--ease-smooth, ease);
+}
+#drawer-root .svc-console.is-collapsed {
+  height: 48px;
+  min-height: 48px;
+  box-shadow: 0 -4px 16px rgba(15, 23, 42, .08);
+}
+#drawer-root .svc-console-grip {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 0;
+  flex-shrink: 0;
+}
+#drawer-root .svc-console-grip span {
+  width: 36px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, .35);
+  transition: background .18s ease, width .18s ease;
+}
+#drawer-root .svc-console:hover .svc-console-grip span,
+#drawer-root .svc-console-toggle:hover .svc-console-chev {
+  color: rgba(248, 250, 252, .9);
+}
+#drawer-root .svc-console:hover .svc-console-grip span {
+  background: rgba(148, 163, 184, .55);
+  width: 44px;
 }
 #drawer-root .svc-console-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid rgba(148,163,184,.12);
+  gap: 10px;
+  padding: 4px 12px 10px;
+  border-bottom: 1px solid rgba(148,163,184,.1);
   flex-shrink: 0;
+}
+#drawer-root .svc-console.is-collapsed .svc-console-head {
+  border-bottom-color: transparent;
+  padding-bottom: 8px;
+}
+#drawer-root .svc-console-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  padding: 4px 6px 4px 2px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background .16s ease;
+}
+#drawer-root .svc-console-toggle:hover {
+  background: rgba(255,255,255,.04);
+}
+#drawer-root .svc-console-toggle:focus-visible {
+  outline: 2px solid rgba(96, 165, 250, .55);
+  outline-offset: 1px;
+}
+#drawer-root .svc-console-chev {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: rgba(226,232,240,.7);
+  transform: rotate(90deg);
+  transition: transform .22s var(--ease-out-soft, cubic-bezier(.16, 1, .3, 1)), color .16s ease;
+}
+#drawer-root .svc-console.is-collapsed .svc-console-chev {
+  transform: rotate(0deg);
 }
 #drawer-root .svc-console-titles {
   min-width: 0;
@@ -9377,9 +9449,9 @@ html.drawer-open body {
   gap: 1px;
 }
 #drawer-root .svc-console-title {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: .02em;
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: .01em;
   color: #f8fafc;
   white-space: nowrap;
   overflow: hidden;
@@ -9387,33 +9459,54 @@ html.drawer-open body {
 }
 #drawer-root .svc-console-scope {
   font-size: 11px;
-  color: rgba(226,232,240,.65) !important;
+  color: rgba(226,232,240,.58) !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 #drawer-root .svc-console-tools {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   flex-shrink: 0;
 }
 #drawer-root .svc-console-tools .btn-quiet {
-  color: rgba(226,232,240,.78) !important;
+  color: rgba(226,232,240,.72) !important;
   border-color: transparent !important;
   background: transparent !important;
   font-size: 11px;
-  padding: 4px 8px;
-  min-height: 28px;
+  font-weight: 600;
+  padding: 5px 8px;
+  min-height: 30px;
+  border-radius: 7px;
+  transition: background .16s ease, color .16s ease !important;
 }
 #drawer-root .svc-console-tools .btn-quiet:hover {
   color: #fff !important;
-  background: rgba(255,255,255,.06) !important;
+  background: rgba(255,255,255,.07) !important;
 }
 #drawer-root .svc-console .activity-pill {
   font-size: 10px;
-  padding: 2px 7px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
 }
 #drawer-root .svc-console.running .activity-pill { color: #93c5fd; background: rgba(147,197,253,.14); border-color: rgba(147,197,253,.22); }
 #drawer-root .svc-console.ok .activity-pill { color: #86efac; background: rgba(134,239,172,.14); border-color: rgba(134,239,172,.24); }
 #drawer-root .svc-console.err .activity-pill { color: #fca5a5; background: rgba(252,165,165,.14); border-color: rgba(252,165,165,.24); }
+#drawer-root .svc-console-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  opacity: 1;
+  transition: opacity .18s ease;
+}
+#drawer-root .svc-console.is-collapsed .svc-console-body {
+  display: none;
+  opacity: 0;
+}
 #drawer-root .svc-console-progress {
   flex-shrink: 0;
   padding: 8px 12px 10px;
@@ -9424,22 +9517,66 @@ html.drawer-open body {
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  padding: 8px 12px 12px;
+  padding: 10px 14px 14px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11.5px;
-  line-height: 1.45;
+  line-height: 1.5;
   background: #070b14;
 }
-#drawer-root .svc-console-log .alog { color: #cbd5e1; }
+#drawer-root .svc-console-log .alog {
+  color: #cbd5e1;
+  padding: 1px 0;
+}
 #drawer-root .svc-console-log .alog.ok .tx { color: #86efac; }
 #drawer-root .svc-console-log .alog.err .tx { color: #fca5a5; }
 #drawer-root .svc-console-log .alog.warn .tx { color: #fcd34d; }
 #drawer-root .svc-console-log .alog.step .tx { color: #93c5fd; }
-#drawer-root .svc-console-log .at { color: rgba(148,163,184,.7); margin-right: 8px; }
+#drawer-root .svc-console-log .at {
+  color: rgba(148,163,184,.65);
+  margin-right: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+#drawer-root .svc-drawer .deploy-err {
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  background: rgba(225, 29, 72, .08);
+  border: 1px solid rgba(225, 29, 72, .14);
+  color: #9f1239 !important;
+  font-size: 11.5px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+#drawer-root .svc-drawer .svc-banner {
+  margin: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--drawer-border);
+  animation: svcBannerIn .22s var(--ease-out-soft, ease) both;
+}
+@keyframes svcBannerIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
 
 @media (max-width: 720px) {
   #drawer-root .svc-console {
-    height: min(36vh, 280px);
-    min-height: 160px;
+    --svc-console-h: min(34vh, 260px);
+    min-height: 150px;
+  }
+  #drawer-root .svc-console.is-collapsed {
+    height: 46px;
+    min-height: 46px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #drawer-root .svc-console,
+  #drawer-root .svc-console-chev,
+  #drawer-root .svc-console-body,
+  #drawer-root .svc-drawer .svc-banner {
+    transition: none !important;
+    animation: none !important;
   }
 }

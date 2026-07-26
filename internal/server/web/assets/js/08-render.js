@@ -2662,10 +2662,19 @@
         openDeployLogs(activeGroup, dslug, did);
       }
       return;
+    } else if (id.indexOf('svcconsole:toggle:') === 0) {
+      e.stopPropagation();
+      if (typeof setSvcConsoleCollapsed === 'function') {
+        setSvcConsoleCollapsed(!svcConsoleCollapsed);
+      }
+      return;
     } else if (id.indexOf('svcconsole:runtime:') === 0) {
       e.stopPropagation();
       var rtSlug = id.split(':').slice(2).join(':');
       if (rtSlug) {
+        if (typeof setSvcConsoleCollapsed === 'function' && svcConsoleCollapsed) {
+          setSvcConsoleCollapsed(false);
+        }
         if (settingsSlug !== rtSlug) openServiceSettings(rtSlug);
         openServiceCrashLogs(activeGroup, rtSlug);
       }

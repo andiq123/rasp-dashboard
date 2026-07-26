@@ -1887,7 +1887,7 @@
     var isPg = svc.type === 'postgres';
     var isBucket = svc.type === 'bucket';
     var building = !isPg && !isBucket && (svc.status === 'building' || !!(svc.deployments || []).some(function(d){ return d.status === 'building' || d.status === 'queued'; }));
-    var failed = !isPg && !isBucket && !building && (svc.status === 'failed' || !!svc.last_error);
+    var failed = !isPg && !isBucket && !building && svc.status === 'failed';
     var isUp = !!svc.running && !failed && !building;
     var startStopBusy = !!(busy['svc:start:'+svc.slug] || busy['svc:stop:'+svc.slug]);
     var restartBusy = !!(busy['svc:restart:'+svc.slug]);
@@ -1909,21 +1909,27 @@
         acts = btn('Start', 'svc:start:'+svc.slug, 'primary ' + toolCls, startStopBusy, 'play');
       }
       acts += btn('Restart', 'svc:restart:'+svc.slug, toolCls, restartBusy || !isUp, 'refresh');
-      acts += btn('Runtime', 'svc:logs:'+svc.slug, toolCls, false, 'logs');
     }
     return acts;
   }
   /** Per-service console chrome (Railway-style). Painted by activity.js. */
   function serviceConsoleHTML(svc) {
     var slug = svc.slug || '';
+    var collapsed = !!(typeof svcConsoleCollapsed !== 'undefined' && svcConsoleCollapsed);
     return ''
-      +'<section class="svc-console" data-slug="'+esc(slug)+'" aria-label="Service console">'
+      +'<section class="svc-console'+(collapsed?' is-collapsed':'')+'" data-slug="'+esc(slug)+'" aria-label="Service console">'
+        +'<div class="svc-console-grip" aria-hidden="true"><span></span></div>'
         +'<header class="svc-console-head">'
-          +'<div class="svc-console-titles">'
-            +'<strong class="svc-console-title">Console</strong>'
-            +'<span class="svc-console-scope ghost" hidden></span>'
-          +'</div>'
-          +'<div class="svc-console-tools">'
+          +'<button type="button" class="svc-console-toggle" data-action="svcconsole:toggle:'+esc(slug)+'"'
+            +' aria-expanded="'+(collapsed?'false':'true')+'"'
+            +' title="'+(collapsed?'Expand console':'Collapse console')+'">'
+            +ico('chev', 'svc-console-chev')
+            +'<span class="svc-console-titles">'
+              +'<strong class="svc-console-title">Console</strong>'
+              +'<span class="svc-console-scope ghost" hidden></span>'
+            +'</span>'
+          +'</button>'
+          +'<div class="svc-console-tools" data-stop="1">'
             +'<span class="svc-console-pill activity-pill"></span>'
             +(svc.type === 'go'
               ? '<button type="button" class="btn btn-quiet" data-action="svcconsole:runtime:'+esc(slug)+'" title="Container runtime logs">Runtime</button>'
@@ -1932,20 +1938,22 @@
             +'<button type="button" class="btn btn-quiet svc-console-follow" data-action="svcconsole:follow:'+esc(slug)+'" hidden title="Resume auto-scroll">Follow</button>'
           +'</div>'
         +'</header>'
-        +'<div class="svc-console-progress activity-progress" hidden>'
-          +'<div class="ap-top">'
-            +'<div class="ap-meta">'
-              +'<span class="svc-console-step ap-step">Starting…</span>'
-              +'<span class="svc-console-remain ap-remain" hidden></span>'
+        +'<div class="svc-console-body">'
+          +'<div class="svc-console-progress activity-progress" hidden>'
+            +'<div class="ap-top">'
+              +'<div class="ap-meta">'
+                +'<span class="svc-console-step ap-step">Starting…</span>'
+                +'<span class="svc-console-remain ap-remain" hidden></span>'
+              +'</div>'
+              +'<span class="svc-console-pct ap-pct" aria-live="polite">0%</span>'
             +'</div>'
-            +'<span class="svc-console-pct ap-pct" aria-live="polite">0%</span>'
+            +'<div class="svc-console-bar ap-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">'
+              +'<div class="svc-console-fill ap-fill"></div>'
+            +'</div>'
+            +'<ol class="svc-console-steps ap-steps"></ol>'
           +'</div>'
-          +'<div class="svc-console-bar ap-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">'
-            +'<div class="svc-console-fill ap-fill"></div>'
-          +'</div>'
-          +'<ol class="svc-console-steps ap-steps"></ol>'
+          +'<div class="svc-console-log activity-log" aria-live="polite"></div>'
         +'</div>'
-        +'<div class="svc-console-log activity-log" aria-live="polite"></div>'
       +'</section>';
   }
   function pgVolumeHTML(svc) {
@@ -2097,7 +2105,7 @@
     var isPg = svc.type === 'postgres';
     var isBucket = svc.type === 'bucket';
     var building = !isPg && !isBucket && (svc.status === 'building' || !!(svc.deployments || []).some(function(d){ return d.status === 'building' || d.status === 'queued'; }));
-    var failed = !isPg && !isBucket && !building && (svc.status === 'failed' || !!svc.last_error);
+    var failed = !isPg && !isBucket && !building && svc.status === 'failed';
     var isUp = !!svc.running && !failed && !building;
     var usageLabel = serviceUsageLabel(svc);
     var mode = envMode[svc.slug] || 'text';
@@ -2293,7 +2301,7 @@
     var kind = svcKindMeta(svc);
     var isPg = svc.type === 'postgres';
     var building = !isPg && (svc.status === 'building' || !!(svc.deployments || []).some(function(d){ return d.status === 'building' || d.status === 'queued'; }));
-    var failed = !isPg && !building && (svc.status === 'failed' || !!svc.last_error);
+    var failed = !isPg && !building && svc.status === 'failed';
     var isUp = !!svc.running && !failed && !building;
     var st = statusMeta(svc, building, failed, isUp);
     var banner = '';
@@ -2301,17 +2309,17 @@
       banner = ''
         +'<div class="svc-banner fail" data-stop="1">'
           +'<div class="svc-banner-text">'+esc(String(svc.last_error).slice(0,200))+'</div>'
-          +'<button type="button" class="btn btn-quiet btn-compact has-ico" data-action="svc:logs:'+esc(svc.slug)+'">'+ico('logs')+'<span>Runtime</span></button>'
+          +'<button type="button" class="btn btn-quiet btn-compact has-ico" data-action="svcconsole:runtime:'+esc(svc.slug)+'">'+ico('logs')+'<span>Logs</span></button>'
         +'</div>';
     } else if (!isPg && building) {
       banner = ''
         +'<div class="svc-banner build" data-stop="1">'
           +'<div class="svc-build-track"><span class="svc-build-fill"></span></div>'
-          +'<div class="svc-banner-text">Deploying — progress streams in this service’s console</div>'
+          +'<div class="svc-banner-text">Deploying — watch the console below</div>'
         +'</div>';
     }
     return ''
-      +'<aside class="svc-drawer" role="dialog" aria-modal="true" aria-labelledby="svc-drawer-title-'+esc(svc.slug)+'" data-slug="'+esc(svc.slug)+'">'
+      +'<aside class="svc-drawer'+(typeof svcConsoleCollapsed !== 'undefined' && svcConsoleCollapsed ? ' console-collapsed' : '')+'" role="dialog" aria-modal="true" aria-labelledby="svc-drawer-title-'+esc(svc.slug)+'" data-slug="'+esc(svc.slug)+'">'
         +'<header class="svc-drawer-head">'
           +'<span class="svc-drawer-icon kind-'+kind.kind+'" aria-hidden="true">'+ico(kind.ico)+'</span>'
           +'<div class="svc-drawer-titles">'
@@ -2336,7 +2344,7 @@
     var isBucket = svc.type === 'bucket';
     var isEngine = isPg || isBucket;
     var building = !isEngine && (svc.status === 'building' || !!(svc.deployments || []).some(function(d){ return d.status === 'building' || d.status === 'queued'; }));
-    var failed = !isEngine && !building && (svc.status === 'failed' || !!svc.last_error);
+    var failed = !isEngine && !building && svc.status === 'failed';
     var isUp = !!svc.running && !failed && !building;
     var diskLabel = svc.disk_bytes ? fmtBytes(svc.disk_bytes) : '';
     var kind = svcKindMeta(svc);
@@ -6145,10 +6153,19 @@
         openDeployLogs(activeGroup, dslug, did);
       }
       return;
+    } else if (id.indexOf('svcconsole:toggle:') === 0) {
+      e.stopPropagation();
+      if (typeof setSvcConsoleCollapsed === 'function') {
+        setSvcConsoleCollapsed(!svcConsoleCollapsed);
+      }
+      return;
     } else if (id.indexOf('svcconsole:runtime:') === 0) {
       e.stopPropagation();
       var rtSlug = id.split(':').slice(2).join(':');
       if (rtSlug) {
+        if (typeof setSvcConsoleCollapsed === 'function' && svcConsoleCollapsed) {
+          setSvcConsoleCollapsed(false);
+        }
         if (settingsSlug !== rtSlug) openServiceSettings(rtSlug);
         openServiceCrashLogs(activeGroup, rtSlug);
       }
@@ -6483,6 +6500,7 @@
   var _apPctShown = -1;
   var _apLabelShown = '';
   var _hydratedConsoleSlug = '';
+  var svcConsoleCollapsed = false;
   function openServiceScope() {
     if (!settingsSlug || !activeGroup) return '';
     return String(activeGroup) + '/' + String(settingsSlug);
@@ -6508,6 +6526,12 @@
     if (activity.active && disp && openScope && disp !== openScope) return false;
     if (activity.viewDeploy && activity.viewSlug && activity.viewSlug !== settingsSlug) return false;
     return true;
+  }
+  function expandSvcConsoleForLive() {
+    if (!svcConsoleCollapsed) return;
+    var openScope = openServiceScope();
+    if (!openScope || activityDisplayScope() !== openScope) return;
+    if (activity.active) setSvcConsoleCollapsed(false);
   }
   function hideGlobalActivityPanel() {
     var root = document.getElementById('activity');
@@ -6733,21 +6757,39 @@
     if (sawWarn) return 'warn';
     return '';
   }
+  function setSvcConsoleCollapsed(on) {
+    svcConsoleCollapsed = !!on;
+    var emb = embeddedConsoleRoot();
+    var drawer = document.querySelector('#drawer-root .svc-drawer');
+    if (emb) {
+      emb.classList.toggle('is-collapsed', svcConsoleCollapsed);
+      var tog = emb.querySelector('.svc-console-toggle');
+      if (tog) {
+        tog.setAttribute('aria-expanded', svcConsoleCollapsed ? 'false' : 'true');
+        tog.title = svcConsoleCollapsed ? 'Expand console' : 'Collapse console';
+      }
+    }
+    if (drawer) drawer.classList.toggle('console-collapsed', svcConsoleCollapsed);
+  }
   function patchEmbeddedConsole(emb) {
     if (!emb) return;
     bindSvcConsoleScroll(emb);
     var tone = activityTone();
     emb.className = 'svc-console'
+      + (svcConsoleCollapsed ? ' is-collapsed' : '')
       + (activity.active ? ' running' : '')
       + (tone === 'ok' ? ' ok' : '')
       + (tone === 'err' ? ' err' : '')
       + (tone === 'warn' ? ' warn' : '')
       + (activity.follow ? '' : ' paused');
+    var drawer = emb.closest('.svc-drawer');
+    if (drawer) drawer.classList.toggle('console-collapsed', svcConsoleCollapsed);
     var title = emb.querySelector('.svc-console-title');
     var scope = emb.querySelector('.svc-console-scope');
     var status = emb.querySelector('.svc-console-pill');
     var log = emb.querySelector('.svc-console-log');
     var followBtn = emb.querySelector('.svc-console-follow');
+    var tog = emb.querySelector('.svc-console-toggle');
     var openScope = openServiceScope();
     var disp = activityDisplayScope();
     var belongs = !disp || disp === openScope;
@@ -6772,8 +6814,12 @@
       else if (tone === 'warn') status.textContent = 'Warnings';
       else status.textContent = '';
     }
-    if (followBtn) followBtn.hidden = activity.follow;
-    if (belongs) {
+    if (followBtn) followBtn.hidden = activity.follow || svcConsoleCollapsed;
+    if (tog) {
+      tog.setAttribute('aria-expanded', svcConsoleCollapsed ? 'false' : 'true');
+      tog.title = svcConsoleCollapsed ? 'Expand console' : 'Collapse console';
+    }
+    if (belongs && !svcConsoleCollapsed) {
       patchProgressInto({
         wrap: emb.querySelector('.svc-console-progress'),
         step: emb.querySelector('.svc-console-step'),
@@ -7145,6 +7191,7 @@
   function patchActivity() {
     if (prefersEmbeddedConsole()) {
       hideGlobalActivityPanel();
+      expandSvcConsoleForLive();
       patchEmbeddedConsole(embeddedConsoleRoot());
       return;
     }

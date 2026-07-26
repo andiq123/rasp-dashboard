@@ -15,6 +15,7 @@
   var _apPctShown = -1;
   var _apLabelShown = '';
   var _hydratedConsoleSlug = '';
+  var svcConsoleCollapsed = false;
 
   function openServiceScope() {
     if (!settingsSlug || !activeGroup) return '';
@@ -44,6 +45,13 @@
     if (activity.active && disp && openScope && disp !== openScope) return false;
     if (activity.viewDeploy && activity.viewSlug && activity.viewSlug !== settingsSlug) return false;
     return true;
+  }
+
+  function expandSvcConsoleForLive() {
+    if (!svcConsoleCollapsed) return;
+    var openScope = openServiceScope();
+    if (!openScope || activityDisplayScope() !== openScope) return;
+    if (activity.active) setSvcConsoleCollapsed(false);
   }
 
   function hideGlobalActivityPanel() {
@@ -300,22 +308,41 @@
     return '';
   }
 
+  function setSvcConsoleCollapsed(on) {
+    svcConsoleCollapsed = !!on;
+    var emb = embeddedConsoleRoot();
+    var drawer = document.querySelector('#drawer-root .svc-drawer');
+    if (emb) {
+      emb.classList.toggle('is-collapsed', svcConsoleCollapsed);
+      var tog = emb.querySelector('.svc-console-toggle');
+      if (tog) {
+        tog.setAttribute('aria-expanded', svcConsoleCollapsed ? 'false' : 'true');
+        tog.title = svcConsoleCollapsed ? 'Expand console' : 'Collapse console';
+      }
+    }
+    if (drawer) drawer.classList.toggle('console-collapsed', svcConsoleCollapsed);
+  }
+
   function patchEmbeddedConsole(emb) {
     if (!emb) return;
     bindSvcConsoleScroll(emb);
     var tone = activityTone();
     emb.className = 'svc-console'
+      + (svcConsoleCollapsed ? ' is-collapsed' : '')
       + (activity.active ? ' running' : '')
       + (tone === 'ok' ? ' ok' : '')
       + (tone === 'err' ? ' err' : '')
       + (tone === 'warn' ? ' warn' : '')
       + (activity.follow ? '' : ' paused');
+    var drawer = emb.closest('.svc-drawer');
+    if (drawer) drawer.classList.toggle('console-collapsed', svcConsoleCollapsed);
 
     var title = emb.querySelector('.svc-console-title');
     var scope = emb.querySelector('.svc-console-scope');
     var status = emb.querySelector('.svc-console-pill');
     var log = emb.querySelector('.svc-console-log');
     var followBtn = emb.querySelector('.svc-console-follow');
+    var tog = emb.querySelector('.svc-console-toggle');
     var openScope = openServiceScope();
     var disp = activityDisplayScope();
     var belongs = !disp || disp === openScope;
@@ -341,9 +368,13 @@
       else if (tone === 'warn') status.textContent = 'Warnings';
       else status.textContent = '';
     }
-    if (followBtn) followBtn.hidden = activity.follow;
+    if (followBtn) followBtn.hidden = activity.follow || svcConsoleCollapsed;
+    if (tog) {
+      tog.setAttribute('aria-expanded', svcConsoleCollapsed ? 'false' : 'true');
+      tog.title = svcConsoleCollapsed ? 'Expand console' : 'Collapse console';
+    }
 
-    if (belongs) {
+    if (belongs && !svcConsoleCollapsed) {
       patchProgressInto({
         wrap: emb.querySelector('.svc-console-progress'),
         step: emb.querySelector('.svc-console-step'),
@@ -756,6 +787,7 @@
   function patchActivity() {
     if (prefersEmbeddedConsole()) {
       hideGlobalActivityPanel();
+      expandSvcConsoleForLive();
       patchEmbeddedConsole(embeddedConsoleRoot());
       return;
     }
