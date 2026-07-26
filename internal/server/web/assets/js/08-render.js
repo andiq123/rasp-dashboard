@@ -100,8 +100,7 @@
     });
   }
 
-  /** Open the live Activity console without remounting the page.
-   *  Respects user collapse — never force-expands after they minimize. */
+  /** Open the live console (embedded in the service drawer when scope matches). */
   function openActivityConsole(opts) {
     opts = opts || {};
     if (opts.reset || opts.clearPin || opts.forceExpand) {
@@ -126,9 +125,13 @@
       activity.collapsed = false;
     }
     activity.follow = true;
+    // Keep view pin aligned with the job scope so the embedded console claims it.
+    if (opts.scope && opts.scope.indexOf('/') > 0) {
+      var bits = opts.scope.split('/');
+      activity.viewGroup = bits[0] || '';
+      activity.viewSlug = bits.slice(1).join('/') || '';
+    }
     syncActivityPoll();
-    // Do not call watchActivity() here — that would re-apply stale hub state
-    // over the clean context we just prepared. SSE/poll will attach live lines.
     patchActivity();
   }
 
@@ -714,6 +717,11 @@
     applyDrawerFolds(settingsSlug);
     document.querySelectorAll('[data-res-panel]').forEach(syncResLabels);
     placeOpenCselect();
+    if (!(opts.patchBody && sameSlug) && typeof hydrateServiceConsole === 'function') {
+      hydrateServiceConsole(svc, { force: opening || !sameSlug });
+    } else if (typeof patchActivity === 'function') {
+      patchActivity();
+    }
   }
 
   function mainContentHTML(s, c) {
@@ -829,12 +837,14 @@
       if (_drawerLeaveTimer) { clearTimeout(_drawerLeaveTimer); _drawerLeaveTimer = null; }
       var prev = settingsSlug;
       settingsSlug = null;
+      if (typeof _hydratedConsoleSlug !== 'undefined') _hydratedConsoleSlug = '';
       if (prev) {
         Object.keys(folds).forEach(function(k){ if (k.indexOf(prev+':')===0) delete folds[k]; });
       }
       renderDrawerPortal();
       renderServices(opts.renderOpts || { animate: true });
       syncRouteFromState();
+      if (typeof patchActivity === 'function') patchActivity();
     }
 
     if (!animate) {
@@ -2641,7 +2651,6 @@
       var did = parts.slice(3).join(':');
       if (dslug && did) {
         if (settingsSlug !== dslug) {
-          // Enter service first so Deployments context is visible
           settingsSlug = dslug;
           Object.keys(folds).forEach(function(k){ if (k.indexOf(dslug+':')===0) folds[k] = false; });
           folds[dslug + ':deploys'] = true;
@@ -2653,10 +2662,34 @@
         openDeployLogs(activeGroup, dslug, did);
       }
       return;
+    } else if (id.indexOf('svcconsole:runtime:') === 0) {
+      e.stopPropagation();
+      var rtSlug = id.split(':').slice(2).join(':');
+      if (rtSlug) {
+        if (settingsSlug !== rtSlug) openServiceSettings(rtSlug);
+        openServiceCrashLogs(activeGroup, rtSlug);
+      }
+      return;
+    } else if (id.indexOf('svcconsole:copy:') === 0) {
+      e.stopPropagation();
+      var text = activityLinesText();
+      if (!text) { showToast('No logs yet'); return; }
+      copyText(text).then(function(){ showToast('Logs copied'); }).catch(function(){ showToast('Copy failed'); });
+      return;
+    } else if (id.indexOf('svcconsole:follow:') === 0) {
+      e.stopPropagation();
+      setActivityFollow(true);
+      var elog = document.querySelector('#drawer-root .svc-console-log');
+      if (elog) elog.scrollTop = elog.scrollHeight;
+      patchActivity();
+      return;
     } else if (id.indexOf('svc:logs:') === 0) {
       e.stopPropagation();
       var logSlug = id.split(':').slice(2).join(':');
-      if (logSlug) openServiceCrashLogs(activeGroup, logSlug);
+      if (logSlug) {
+        if (settingsSlug !== logSlug) openServiceSettings(logSlug);
+        openServiceCrashLogs(activeGroup, logSlug);
+      }
       return;
     } else if (id === 'svc:settings:close') {
       e.stopPropagation();

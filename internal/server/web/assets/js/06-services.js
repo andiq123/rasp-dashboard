@@ -569,9 +569,45 @@
         acts = btn('Start', 'svc:start:'+svc.slug, 'primary ' + toolCls, startStopBusy, 'play');
       }
       acts += btn('Restart', 'svc:restart:'+svc.slug, toolCls, restartBusy || !isUp, 'refresh');
-      acts += btn('Logs', 'svc:logs:'+svc.slug, toolCls, false, 'logs');
+      acts += btn('Runtime', 'svc:logs:'+svc.slug, toolCls, false, 'logs');
     }
     return acts;
+  }
+
+  /** Per-service console chrome (Railway-style). Painted by activity.js. */
+  function serviceConsoleHTML(svc) {
+    var slug = svc.slug || '';
+    return ''
+      +'<section class="svc-console" data-slug="'+esc(slug)+'" aria-label="Service console">'
+        +'<header class="svc-console-head">'
+          +'<div class="svc-console-titles">'
+            +'<strong class="svc-console-title">Console</strong>'
+            +'<span class="svc-console-scope ghost" hidden></span>'
+          +'</div>'
+          +'<div class="svc-console-tools">'
+            +'<span class="svc-console-pill activity-pill"></span>'
+            +(svc.type === 'go'
+              ? '<button type="button" class="btn btn-quiet" data-action="svcconsole:runtime:'+esc(slug)+'" title="Container runtime logs">Runtime</button>'
+              : '')
+            +'<button type="button" class="btn btn-quiet" data-action="svcconsole:copy:'+esc(slug)+'" title="Copy logs">Copy</button>'
+            +'<button type="button" class="btn btn-quiet svc-console-follow" data-action="svcconsole:follow:'+esc(slug)+'" hidden title="Resume auto-scroll">Follow</button>'
+          +'</div>'
+        +'</header>'
+        +'<div class="svc-console-progress activity-progress" hidden>'
+          +'<div class="ap-top">'
+            +'<div class="ap-meta">'
+              +'<span class="svc-console-step ap-step">Starting…</span>'
+              +'<span class="svc-console-remain ap-remain" hidden></span>'
+            +'</div>'
+            +'<span class="svc-console-pct ap-pct" aria-live="polite">0%</span>'
+          +'</div>'
+          +'<div class="svc-console-bar ap-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">'
+            +'<div class="svc-console-fill ap-fill"></div>'
+          +'</div>'
+          +'<ol class="svc-console-steps ap-steps"></ol>'
+        +'</div>'
+        +'<div class="svc-console-log activity-log" aria-live="polite"></div>'
+      +'</section>';
   }
 
   function pgVolumeHTML(svc) {
@@ -916,7 +952,7 @@
           +'</div>'
           +'<p class="svc-settings-hint">'
             +(building
-              ? 'Watch Activity for clone · build · start'
+              ? 'Watch the console below for clone · build · start'
               : (failed ? 'Fix the error, then Redeploy' : 'Save applies config · Redeploy rebuilds · Auto-deploy watches GitHub'))
           +'</p>'
         +'</div>'
@@ -935,13 +971,13 @@
       banner = ''
         +'<div class="svc-banner fail" data-stop="1">'
           +'<div class="svc-banner-text">'+esc(String(svc.last_error).slice(0,200))+'</div>'
-          +'<button type="button" class="btn btn-quiet btn-compact has-ico" data-action="svc:logs:'+esc(svc.slug)+'">'+ico('logs')+'<span>Logs</span></button>'
+          +'<button type="button" class="btn btn-quiet btn-compact has-ico" data-action="svc:logs:'+esc(svc.slug)+'">'+ico('logs')+'<span>Runtime</span></button>'
         +'</div>';
     } else if (!isPg && building) {
       banner = ''
         +'<div class="svc-banner build" data-stop="1">'
           +'<div class="svc-build-track"><span class="svc-build-fill"></span></div>'
-          +'<div class="svc-banner-text">Deploying — files appear in Activity as clone · build · start run</div>'
+          +'<div class="svc-banner-text">Deploying — progress streams in this service’s console</div>'
         +'</div>';
     }
     return ''
@@ -960,6 +996,7 @@
         +'<div class="svc-drawer-toolbar" data-stop="1" role="toolbar" aria-label="Service actions">'+drawerToolbarHTML(svc)+'</div>'
         +banner
         +'<div class="svc-drawer-body">'+serviceSettingsHTML(svc, dbs)+'</div>'
+        +serviceConsoleHTML(svc)
       +'</aside>';
   }
   function serviceCard(svc, dbs) {

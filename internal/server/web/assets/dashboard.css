@@ -9346,3 +9346,100 @@ html.drawer-open body {
   border-color: rgba(139, 92, 246, .35);
   background: rgba(139, 92, 246, .04);
 }
+
+/* —— Per-service console (Railway-style, embedded in drawer) —— */
+#drawer-root .svc-drawer-body {
+  min-height: 0;
+}
+#drawer-root .svc-console {
+  flex: 0 0 auto;
+  height: min(42vh, 340px);
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid rgba(255,255,255,.08);
+  background: #0b1220;
+  color: #e2e8f0;
+  z-index: 2;
+}
+#drawer-root .svc-console-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(148,163,184,.12);
+  flex-shrink: 0;
+}
+#drawer-root .svc-console-titles {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+#drawer-root .svc-console-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  color: #f8fafc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#drawer-root .svc-console-scope {
+  font-size: 11px;
+  color: rgba(226,232,240,.65) !important;
+}
+#drawer-root .svc-console-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+#drawer-root .svc-console-tools .btn-quiet {
+  color: rgba(226,232,240,.78) !important;
+  border-color: transparent !important;
+  background: transparent !important;
+  font-size: 11px;
+  padding: 4px 8px;
+  min-height: 28px;
+}
+#drawer-root .svc-console-tools .btn-quiet:hover {
+  color: #fff !important;
+  background: rgba(255,255,255,.06) !important;
+}
+#drawer-root .svc-console .activity-pill {
+  font-size: 10px;
+  padding: 2px 7px;
+}
+#drawer-root .svc-console.running .activity-pill { color: #93c5fd; background: rgba(147,197,253,.14); border-color: rgba(147,197,253,.22); }
+#drawer-root .svc-console.ok .activity-pill { color: #86efac; background: rgba(134,239,172,.14); border-color: rgba(134,239,172,.24); }
+#drawer-root .svc-console.err .activity-pill { color: #fca5a5; background: rgba(252,165,165,.14); border-color: rgba(252,165,165,.24); }
+#drawer-root .svc-console-progress {
+  flex-shrink: 0;
+  padding: 8px 12px 10px;
+  border-bottom: 1px solid rgba(148,163,184,.1);
+}
+#drawer-root .svc-console-log {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 8px 12px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.45;
+  background: #070b14;
+}
+#drawer-root .svc-console-log .alog { color: #cbd5e1; }
+#drawer-root .svc-console-log .alog.ok .tx { color: #86efac; }
+#drawer-root .svc-console-log .alog.err .tx { color: #fca5a5; }
+#drawer-root .svc-console-log .alog.warn .tx { color: #fcd34d; }
+#drawer-root .svc-console-log .alog.step .tx { color: #93c5fd; }
+#drawer-root .svc-console-log .at { color: rgba(148,163,184,.7); margin-right: 8px; }
+
+@media (max-width: 720px) {
+  #drawer-root .svc-console {
+    height: min(36vh, 280px);
+    min-height: 160px;
+  }
+}

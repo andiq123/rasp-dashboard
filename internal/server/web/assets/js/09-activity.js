@@ -10,9 +10,49 @@
   var _actRendered = 0;
   var _actSeqRendered = -1;
   var _actScrollBound = false;
+  var _svcScrollSlug = '';
   var _apStepsKey = '';
   var _apPctShown = -1;
   var _apLabelShown = '';
+  var _hydratedConsoleSlug = '';
+
+  function openServiceScope() {
+    if (!settingsSlug || !activeGroup) return '';
+    return String(activeGroup) + '/' + String(settingsSlug);
+  }
+
+  function activityDisplayScope() {
+    if (activity.viewGroup && activity.viewSlug) {
+      return String(activity.viewGroup) + '/' + String(activity.viewSlug);
+    }
+    return activity.scope || '';
+  }
+
+  function embeddedConsoleRoot() {
+    if (!settingsSlug) return null;
+    var root = document.getElementById('drawer-root');
+    if (!root) return null;
+    return root.querySelector('.svc-console[data-slug="' + settingsSlug + '"]');
+  }
+
+  /** Prefer the open service’s console; foreign live jobs still use the global panel. */
+  function prefersEmbeddedConsole() {
+    var emb = embeddedConsoleRoot();
+    if (!emb) return false;
+    var openScope = openServiceScope();
+    var disp = activityDisplayScope();
+    if (activity.active && disp && openScope && disp !== openScope) return false;
+    if (activity.viewDeploy && activity.viewSlug && activity.viewSlug !== settingsSlug) return false;
+    return true;
+  }
+
+  function hideGlobalActivityPanel() {
+    var root = document.getElementById('activity');
+    if (!root) return;
+    root.hidden = true;
+    root.className = 'activity';
+    _activityWasOpen = false;
+  }
 
   function activityLinesText() {
     return (activity.lines || []).map(function(line){
@@ -44,6 +84,12 @@
     if (btn) btn.hidden = activity.follow;
     var root = document.getElementById('activity');
     if (root) root.classList.toggle('paused', !activity.follow);
+    var emb = embeddedConsoleRoot();
+    if (emb) {
+      emb.classList.toggle('paused', !activity.follow);
+      var ebtn = emb.querySelector('.svc-console-follow');
+      if (ebtn) ebtn.hidden = activity.follow;
+    }
   }
 
   function activityLogCanScroll(log) {
@@ -75,18 +121,16 @@
     }
   }
 
-  function bindActivityScroll() {
-    if (_actScrollBound) return;
-    var log = document.getElementById('activity-log');
-    if (!log) return;
-    _actScrollBound = true;
+  function bindLogScroll(log, root) {
+    if (!log || log._fwScrollBound) return;
+    log._fwScrollBound = true;
     var ticking = false;
     log.addEventListener('scroll', function(){
       if (ticking) return;
       ticking = true;
       requestAnimationFrame(function(){
         ticking = false;
-        if (!document.getElementById('activity-log')) return;
+        if (!log.isConnected) return;
         if (nearBottom(log, 48)) {
           if (!activity.follow) setActivityFollow(true);
         } else if (activity.follow) {
@@ -94,20 +138,34 @@
         }
       });
     }, {passive: true});
-    // passive:false required so preventDefault can stop page scroll.
     log.addEventListener('wheel', function(e){
       lockActivityWheel(e, log);
     }, {passive: false});
-    // Also trap wheel on the activity chrome (header/progress) so page doesn't jump.
-    var root = document.getElementById('activity');
     if (root && !root._fwWheelLock) {
       root._fwWheelLock = true;
       root.addEventListener('wheel', function(e){
-        if (e.target === log || (log && log.contains(e.target))) return; // handled above
+        if (e.target === log || (log && log.contains(e.target))) return;
         e.preventDefault();
         e.stopPropagation();
       }, {passive: false});
     }
+  }
+
+  function bindActivityScroll() {
+    if (_actScrollBound) return;
+    var log = document.getElementById('activity-log');
+    if (!log) return;
+    _actScrollBound = true;
+    bindLogScroll(log, document.getElementById('activity'));
+  }
+
+  function bindSvcConsoleScroll(emb) {
+    if (!emb) return;
+    var slug = emb.getAttribute('data-slug') || '';
+    if (_svcScrollSlug === slug && emb._fwConsoleBound) return;
+    _svcScrollSlug = slug;
+    emb._fwConsoleBound = true;
+    bindLogScroll(emb.querySelector('.svc-console-log'), emb);
   }
 
   function alogHTML(line) {
@@ -156,12 +214,11 @@
     return (p.steps || []).map(function(s){ return (s.id || '') + ':' + (s.status || ''); }).join('|');
   }
 
-  function patchActivityProgress() {
-    var wrap = document.getElementById('activity-progress');
-    if (!wrap) return;
+  function patchProgressInto(els) {
+    if (!els || !els.wrap) return;
     var p = activity.progress;
     var show = !!(p && p.steps && p.steps.length);
-    wrap.hidden = !show;
+    els.wrap.hidden = !show;
     if (!show) {
       _apStepsKey = '';
       _apPctShown = -1;
@@ -177,50 +234,131 @@
       if (p.detail) label += ' · ' + p.detail;
     }
 
-    var stepEl = document.getElementById('ap-step');
-    var remainEl = document.getElementById('ap-remain');
-    var pctEl = document.getElementById('ap-pct');
-    var fill = document.getElementById('ap-fill');
-    var bar = document.getElementById('ap-bar');
-    var list = document.getElementById('ap-steps');
-
     function bump(el) {
       if (!el) return;
       el.classList.remove('bump');
       void el.offsetWidth;
       el.classList.add('bump');
     }
-    if (stepEl) {
+    if (els.step) {
       if (label !== _apLabelShown) {
-        stepEl.textContent = label;
-        bump(stepEl);
+        els.step.textContent = label;
+        bump(els.step);
         _apLabelShown = label;
       }
     }
-    if (remainEl) {
-      remainEl.textContent = activity.active ? (p.remaining || '') : '';
-      remainEl.hidden = !activity.active || !p.remaining;
+    if (els.remain) {
+      els.remain.textContent = activity.active ? (p.remaining || '') : '';
+      els.remain.hidden = !activity.active || !p.remaining;
     }
-    if (pctEl && _apPctShown !== pct) {
-      pctEl.textContent = pct + '%';
-      bump(pctEl);
+    if (els.pct && _apPctShown !== pct) {
+      els.pct.textContent = pct + '%';
+      bump(els.pct);
       _apPctShown = pct;
     }
-    if (fill) fill.style.width = pct + '%';
-    if (bar) bar.setAttribute('aria-valuenow', String(pct));
+    if (els.fill) els.fill.style.width = pct + '%';
+    if (els.bar) els.bar.setAttribute('aria-valuenow', String(pct));
 
     var key = progressStepsKey(p);
-    if (list && key !== _apStepsKey) {
+    if (els.list && key !== _apStepsKey) {
       _apStepsKey = key;
-      list.innerHTML = (p.steps || []).map(function(s){
+      els.list.innerHTML = (p.steps || []).map(function(s){
         var st = s.status || 'pending';
         return '<li class="'+esc(st)+'" title="'+esc(s.label || '')+'">'
           +'<span class="dot" aria-hidden="true"></span>'
           +'<span>'+esc(s.label || s.id || '')+'</span>'
           +'</li>';
       }).join('');
-      var activeLi = list.querySelector('li.active');
-      bump(activeLi);
+      bump(els.list.querySelector('li.active'));
+    }
+  }
+
+  function patchActivityProgress() {
+    patchProgressInto({
+      wrap: document.getElementById('activity-progress'),
+      step: document.getElementById('ap-step'),
+      remain: document.getElementById('ap-remain'),
+      pct: document.getElementById('ap-pct'),
+      fill: document.getElementById('ap-fill'),
+      bar: document.getElementById('ap-bar'),
+      list: document.getElementById('ap-steps')
+    });
+  }
+
+  function activityTone() {
+    if (activity.ok === true) return 'ok';
+    if (activity.ok === false) return 'err';
+    var sawErr = false;
+    var sawWarn = false;
+    (activity.lines || []).forEach(function(line){
+      if (!line) return;
+      if (line.level === 'err') sawErr = true;
+      else if (line.level === 'warn') sawWarn = true;
+    });
+    if (sawErr) return 'err';
+    if (sawWarn) return 'warn';
+    return '';
+  }
+
+  function patchEmbeddedConsole(emb) {
+    if (!emb) return;
+    bindSvcConsoleScroll(emb);
+    var tone = activityTone();
+    emb.className = 'svc-console'
+      + (activity.active ? ' running' : '')
+      + (tone === 'ok' ? ' ok' : '')
+      + (tone === 'err' ? ' err' : '')
+      + (tone === 'warn' ? ' warn' : '')
+      + (activity.follow ? '' : ' paused');
+
+    var title = emb.querySelector('.svc-console-title');
+    var scope = emb.querySelector('.svc-console-scope');
+    var status = emb.querySelector('.svc-console-pill');
+    var log = emb.querySelector('.svc-console-log');
+    var followBtn = emb.querySelector('.svc-console-follow');
+    var openScope = openServiceScope();
+    var disp = activityDisplayScope();
+    var belongs = !disp || disp === openScope;
+
+    if (title) {
+      title.textContent = belongs && activity.title
+        ? activity.title
+        : 'Console';
+    }
+    if (scope) {
+      scope.textContent = belongs ? (activity.scope || openScope || '') : (openScope || '');
+      scope.hidden = !scope.textContent;
+    }
+    if (status) {
+      status.classList.remove('pct');
+      if (!belongs) status.textContent = '';
+      else if (activity.active && activity.progress && typeof activity.progress.percent === 'number') {
+        status.textContent = activity.progress.percent + '%';
+        status.classList.add('pct');
+      } else if (activity.active) status.textContent = 'Running';
+      else if (activity.ok === true || tone === 'ok') status.textContent = 'Done';
+      else if (activity.ok === false || tone === 'err') status.textContent = 'Failed';
+      else if (tone === 'warn') status.textContent = 'Warnings';
+      else status.textContent = '';
+    }
+    if (followBtn) followBtn.hidden = activity.follow;
+
+    if (belongs) {
+      patchProgressInto({
+        wrap: emb.querySelector('.svc-console-progress'),
+        step: emb.querySelector('.svc-console-step'),
+        remain: emb.querySelector('.svc-console-remain'),
+        pct: emb.querySelector('.svc-console-pct'),
+        fill: emb.querySelector('.svc-console-fill'),
+        bar: emb.querySelector('.svc-console-bar'),
+        list: emb.querySelector('.svc-console-steps')
+      });
+      if (log) {
+        var updated = renderActivityLines(log, false);
+        if (updated !== false && activity.follow) {
+          log.scrollTop = log.scrollHeight;
+        }
+      }
     }
   }
 
@@ -258,6 +396,13 @@
     if (log) log.innerHTML = '';
     var prog = document.getElementById('activity-progress');
     if (prog) prog.hidden = true;
+    var emb = embeddedConsoleRoot();
+    if (emb) {
+      var elog = emb.querySelector('.svc-console-log');
+      if (elog) elog.innerHTML = '';
+      var eprog = emb.querySelector('.svc-console-progress');
+      if (eprog) eprog.hidden = true;
+    }
     if (opts.patch !== false) patchActivity();
   }
 
@@ -313,6 +458,16 @@
       if (!activity.open) return;
     }
 
+    // Drawer focus isolates the console: ignore hub updates for other services.
+    var openScope = openServiceScope();
+    var snapScope = (opts.viewGroup && opts.viewSlug)
+      ? (String(opts.viewGroup) + '/' + String(opts.viewSlug))
+      : (snap.scope || '');
+    if (openScope && !opts.boot && !opts.fromHistory) {
+      if (snapScope && snapScope !== openScope) return;
+      if (!snap.active && !snapScope && activityDisplayScope() === openScope) return;
+    }
+
     // Pinned deploy history: only accept matching live stream.
     if (activity.viewDeploy && !opts.fromHistory) {
       var liveId = snap.deployment_id || '';
@@ -354,11 +509,13 @@
     activity.lines = snap.lines || [];
     activity.progress = snap.progress || null;
     activity.deployment_id = snap.deployment_id || '';
-    if (opts.fromHistory && opts.viewDeploy) {
-      activity.viewDeploy = opts.viewDeploy;
+    if (opts.fromHistory && (opts.viewDeploy || opts.viewSlug)) {
+      activity.viewDeploy = opts.viewDeploy || '';
       activity.viewGroup = opts.viewGroup || '';
       activity.viewSlug = opts.viewSlug || '';
-      activity.contextKey = 'history:' + opts.viewDeploy;
+      activity.contextKey = opts.viewDeploy
+        ? ('history:' + opts.viewDeploy)
+        : ('logs:' + (opts.viewGroup || '') + '/' + (opts.viewSlug || ''));
     } else if (snap.active) {
       activity.contextKey = 'live:' + (snap.scope || snap.deployment_id || snap.title || 'job');
     }
@@ -396,13 +553,14 @@
     } catch (e) {}
   }
 
-  /** Open Activity with durable logs for one deployment (explicit click only). */
+  /** Open durable logs for one deployment into that service’s console. */
   function openDeployLogs(group, slug, deployId, meta) {
     meta = meta || {};
     group = String(group || activeGroup || '');
     slug = String(slug || '');
     deployId = String(deployId || '');
     if (!group || !slug || !deployId) return;
+    _hydratedConsoleSlug = slug;
     resetActivityConsole({
       open: true,
       keepPin: true,
@@ -415,7 +573,6 @@
     activity.viewDeploy = deployId;
     activity.viewGroup = group;
     activity.viewSlug = slug;
-    // Do not persist across full page refresh — refresh stays clean.
     try { sessionStorage.removeItem('fw.deployLogs'); } catch (e) {}
     syncActivityPoll();
     var path = '/api/groups/' + encodeURIComponent(group)
@@ -423,22 +580,20 @@
       + '/deployments/' + encodeURIComponent(deployId) + '/logs';
     api(path).then(function(r){
       var lines = (r && r.lines) || [];
-      var liveSame = !!(activity.active && activity.deployment_id === deployId);
-      // Prefer live ring if this deploy is currently building and has more lines.
+      var liveSame = !!(activity.deployment_id === deployId && activity.active);
       if (liveSame && activity.lines && activity.lines.length > lines.length) {
         lines = activity.lines;
       }
       applyActivity({
         seq: (activity.seq || 0) + 1,
         active: liveSame,
-        title: 'Deploy · ' + deployId,
+        title: meta.title || ('Deploy · ' + deployId),
         scope: group + '/' + slug,
         deployment_id: deployId,
         ok: liveSame ? activity.ok : null,
         progress: liveSame ? activity.progress : null,
         lines: lines
       }, { fromHistory: true, forceOpen: true, viewDeploy: deployId, viewGroup: group, viewSlug: slug });
-      // If live, refresh from /api/activity so SSE/poll keeps appending.
       if (liveSame) {
         api('/api/activity').then(function(s){
           if (s && s.deployment_id === deployId) applyActivity(s);
@@ -491,17 +646,21 @@
     group = String(group || activeGroup || '');
     slug = String(slug || '');
     if (!group || !slug) return;
+    _hydratedConsoleSlug = slug;
     resetActivityConsole({
       open: true,
-      title: 'App logs · ' + slug,
+      title: 'Runtime · ' + slug,
       scope: group + '/' + slug,
       contextKey: 'logs:' + group + '/' + slug,
       active: false
     });
+    activity.viewDeploy = '';
+    activity.viewGroup = group;
+    activity.viewSlug = slug;
     activity.lines = [{ seq: 1, at: '', level: 'info', text: 'Fetching container logs…' }];
     patchActivity();
     var path = '/api/groups/' + encodeURIComponent(group)
-      + '/services/' + encodeURIComponent(slug) + '/logs?lines=120';
+      + '/services/' + encodeURIComponent(slug) + '/logs?lines=200';
     api(path).then(function(r){
       var text = (r && r.logs) || '';
       var lines = linesFromText(text);
@@ -511,12 +670,12 @@
       applyActivity({
         seq: (activity.seq || 0) + 1,
         active: false,
-        title: 'App logs · ' + slug,
+        title: 'Runtime · ' + slug,
         scope: group + '/' + slug,
         ok: activityOkFromLines(lines),
         progress: null,
         lines: lines
-      }, { fromHistory: true, forceOpen: true });
+      }, { fromHistory: true, forceOpen: true, viewGroup: group, viewSlug: slug });
     }).catch(function(e){
       showToast((e && e.message) || 'Failed to load logs');
     });
@@ -595,6 +754,12 @@
   }
 
   function patchActivity() {
+    if (prefersEmbeddedConsole()) {
+      hideGlobalActivityPanel();
+      patchEmbeddedConsole(embeddedConsoleRoot());
+      return;
+    }
+
     var root = document.getElementById('activity');
     if (!root) return;
     bindActivityScroll();
@@ -603,20 +768,7 @@
     var show = activity.open && (has || activity.active || hasProg);
     var wasClosing = root.classList.contains('closing');
     var revealing = show && !_activityWasOpen;
-    var tone = '';
-    if (activity.ok === true) tone = 'ok';
-    else if (activity.ok === false) tone = 'err';
-    else {
-      var sawErr = false;
-      var sawWarn = false;
-      (activity.lines || []).forEach(function(line){
-        if (!line) return;
-        if (line.level === 'err') sawErr = true;
-        else if (line.level === 'warn') sawWarn = true;
-      });
-      if (sawErr) tone = 'err';
-      else if (sawWarn) tone = 'warn';
-    }
+    var tone = activityTone();
     root.className = 'activity'
       + (show || wasClosing ? ' open' : '')
       + (wasClosing ? ' closing' : '')
@@ -634,7 +786,6 @@
       setTimeout(function(){ root.classList.remove('reveal'); }, 460);
     }
     _activityWasOpen = !!show;
-
 
     var title = document.getElementById('activity-title');
     var scope = document.getElementById('activity-scope');
@@ -669,6 +820,68 @@
         log.scrollTop = log.scrollHeight;
       }
     }
+  }
+
+  /** Load this service’s console when the drawer opens (isolated from other services). */
+  function hydrateServiceConsole(svc, opts) {
+    opts = opts || {};
+    if (!svc || !svc.slug || !activeGroup) return;
+    var scope = activeGroup + '/' + svc.slug;
+    var emb = embeddedConsoleRoot();
+    if (!emb) return;
+    bindSvcConsoleScroll(emb);
+
+    if (!opts.force && _hydratedConsoleSlug === svc.slug
+        && activityDisplayScope() === scope
+        && ((activity.lines && activity.lines.length) || activity.active)) {
+      activity.open = true;
+      patchActivity();
+      return;
+    }
+    _hydratedConsoleSlug = svc.slug;
+
+    if (activity.active && activity.scope === scope) {
+      activity.open = true;
+      patchActivity();
+      return;
+    }
+    if (activity.viewDeploy && activity.viewSlug === svc.slug && activity.viewGroup === activeGroup) {
+      activity.open = true;
+      patchActivity();
+      return;
+    }
+
+    var building = (svc.deployments || []).filter(function(d){
+      return d.status === 'building' || d.status === 'queued';
+    })[0];
+    if (building) {
+      openDeployLogs(activeGroup, svc.slug, building.id, { title: 'Deploy · ' + building.id });
+      return;
+    }
+    var latest = (svc.deployments || []).filter(function(d){ return d.status === 'active' || d.active; })[0]
+      || (svc.deployments || [])[0];
+    if (latest && latest.id) {
+      openDeployLogs(activeGroup, svc.slug, latest.id, {
+        title: (latest.commit ? latest.commit + ' · ' : '') + (latest.message || latest.id)
+      });
+      return;
+    }
+    if (svc.type === 'go') {
+      openServiceCrashLogs(activeGroup, svc.slug);
+      return;
+    }
+    resetActivityConsole({
+      open: true,
+      title: 'Console',
+      scope: scope,
+      contextKey: 'idle:' + scope,
+      active: false
+    });
+    activity.lines = [{
+      seq: 1, at: '', level: 'info',
+      text: 'Events for ' + scope + ' appear here.'
+    }];
+    patchActivity();
   }
 
   function watchActivity() {
