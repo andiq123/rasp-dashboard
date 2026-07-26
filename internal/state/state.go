@@ -38,6 +38,7 @@ type State struct {
 	ProxyRunning   bool          `json:"proxy_running"`
 	SyncroxRunning bool          `json:"syncrox_running"`
 	DeviceMetrics  DeviceMetrics `json:"device_metrics"`
+	FilesRoot      string        `json:"files_root,omitempty"`
 	GeneratedAt    string        `json:"generated_at"`
 }
 
@@ -82,14 +83,15 @@ type NetworkMetrics struct {
 // Config holds editable hotspot settings persisted in config/env.
 type Config struct {
 	SSID        string `json:"ssid"`
-	Password    string `json:"password"`
+	Password    string `json:"password,omitempty"`
+	PasswordSet bool   `json:"password_set,omitempty"`
 	HotspotIP   string `json:"hotspot_ip"`
 	DHCPStart   string `json:"dhcp_start"`
 	DHCPEnd     string `json:"dhcp_end"`
 	WGInterface string `json:"-"`
 }
 
-const shellStateCacheTTL = 2 * time.Second
+const shellStateCacheTTL = 5 * time.Second
 
 type shellCache struct {
 	at    time.Time
@@ -104,6 +106,7 @@ type Reader struct {
 	prev    metricsSample
 	cacheMu sync.Mutex
 	shell   shellCache
+	shellCh chan struct{} // closed when in-flight ReadShellCached finishes
 }
 
 type metricsSample struct {
@@ -384,8 +387,14 @@ func LoadConfig(baseDir string) (Config, error) {
 }
 
 // SaveConfig updates only the known keys in baseDir/config/env, preserving all others.
+// Empty Password keeps the previously stored value.
 func SaveConfig(baseDir string, c Config) error {
 	path := filepath.Join(baseDir, "config", "env")
+	if strings.TrimSpace(c.Password) == "" {
+		if prev, err := LoadConfig(baseDir); err == nil {
+			c.Password = prev.Password
+		}
+	}
 	lines, err := readLines(path)
 	if err != nil {
 		return err
@@ -453,20 +462,30 @@ func readLines(path string) ([]string, error) {
 }
 
 func writeLines(path string, lines []string) error {
-	f, err := os.Create(path)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	for _, line := range lines {
 		if _, err := f.WriteString(line + "\n"); err != nil {
+			_ = f.Close()
+			_ = os.Remove(tmp)
 			return err
 		}
 	}
-	return nil
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // ReadShellCached returns a short-lived cached snapshot for SPA shell and SSE polls.
+// Concurrent callers share one in-flight Read (singleflight).
 func (r *Reader) ReadShellCached() (State, error) {
 	r.cacheMu.Lock()
 	if !r.shell.at.IsZero() && time.Since(r.shell.at) < shellStateCacheTTL {
@@ -474,11 +493,24 @@ func (r *Reader) ReadShellCached() (State, error) {
 		r.cacheMu.Unlock()
 		return st, err
 	}
+	if ch := r.shellCh; ch != nil {
+		r.cacheMu.Unlock()
+		<-ch
+		r.cacheMu.Lock()
+		st, err := r.shell.state, r.shell.err
+		r.cacheMu.Unlock()
+		return st, err
+	}
+	ch := make(chan struct{})
+	r.shellCh = ch
 	r.cacheMu.Unlock()
 
 	st, err := r.Read()
+
 	r.cacheMu.Lock()
 	r.shell = shellCache{at: time.Now(), state: st, err: err}
+	r.shellCh = nil
+	close(ch)
 	r.cacheMu.Unlock()
 	return st, err
 }

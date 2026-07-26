@@ -4,11 +4,13 @@ import "testing"
 
 func TestPhysicalBucketName(t *testing.T) {
 	cases := []struct{ group, slug, want string }{
-		{"driver-logs", "uploads", "driver-logs-uploads"},
-		{"driver-logs", "driver-logs", "driver-logs"},
-		{"driver-logs", "driver-logs-files", "driver-logs-files"},
-		{"find-vibe", "media", "find-vibe-media"},
+		{"driver-logs", "uploads", "driver-logs--uploads"},
+		{"driver-logs", "driver-logs", "driver-logs--driver-logs"},
+		{"driver-logs", "driver-logs-files", "driver-logs--driver-logs-files"},
+		{"find-vibe", "media", "find-vibe--media"},
 		{"", "uploads", "uploads"},
+		{"a", "b-c", "a--b-c"},
+		{"a-b", "c", "a-b--c"},
 	}
 	for _, c := range cases {
 		got := physicalBucketName(c.group, c.slug)

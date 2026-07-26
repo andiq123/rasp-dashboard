@@ -1,6 +1,8 @@
 # Binaries / build output
 /firewifi-dashboard
 /dashboard
+/tmp/
+/.devdata/
 *.exe
 *.test
 *.out

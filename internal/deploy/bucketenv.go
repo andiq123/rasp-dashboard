@@ -33,29 +33,6 @@ func removeLinkedBucketEnv(body string) string {
 	return clearEnvKeys(body, linkedBucketKeys...)
 }
 
-// physicalBucketName is the MinIO bucket id for a service.
-// Pattern: <group>-<slug>, but never group-group when the label matches the group.
-func physicalBucketName(group, slug string) string {
-	g := strings.ReplaceAll(strings.TrimSpace(group), "_", "-")
-	s := strings.ReplaceAll(strings.TrimSpace(slug), "_", "-")
-	g = strings.Trim(g, "-")
-	s = strings.Trim(s, "-")
-	if s == "" {
-		return ""
-	}
-	var phys string
-	switch {
-	case g == "", s == g, strings.HasPrefix(s, g+"-"):
-		phys = s
-	default:
-		phys = g + "-" + s
-	}
-	if len(phys) > 60 {
-		phys = phys[:60]
-	}
-	return phys
-}
-
 func buildBucketURL(endpoint, accessKey, secretKey, bucket string) string {
 	endpoint = strings.TrimSpace(endpoint)
 	accessKey = strings.TrimSpace(accessKey)

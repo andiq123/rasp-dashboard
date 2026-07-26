@@ -28,7 +28,14 @@ func New(envPrefix, defaultBin, defaultScreen string, extraEnv ...string) *Runne
 		}
 		return fallback
 	}
-	dir := get("WORKING_DIR", "/home/andiq/apps")
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		home = os.Getenv("HOME")
+	}
+	if home == "" {
+		home = "/home/andiq"
+	}
+	dir := get("WORKING_DIR", filepath.Join(home, "apps"))
 	bin := get("PATH", defaultBin)
 	if !filepath.IsAbs(bin) {
 		bin = filepath.Join(dir, bin)

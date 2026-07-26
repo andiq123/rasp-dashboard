@@ -1,5 +1,8 @@
-  /* Files explorer — home-rooted browser with preview + clipboard ops. */
-  var FILES_HOME = '/home/andiq';
+  /* Files explorer — rooted at deployments (or server files_root). */
+  function filesHome() {
+    return (state && state.files_root) || FILES_HOME || '/home/andiq';
+  }
+  var FILES_HOME = filesHome();
   var filesPath = FILES_HOME;
   var filesListing = null;
   var filesLoading = false;
@@ -14,7 +17,7 @@
 
   function filesIsUnder(path, root) {
     path = path || '';
-    root = root || FILES_HOME;
+    root = root || filesHome();
     if (path === root) return true;
     return path.indexOf(root + '/') === 0;
   }
@@ -28,12 +31,9 @@
   }
 
   function filesCanUp(path) {
-    path = path || FILES_HOME;
-    if (path === '/') return false;
-    // Stay inside home by default; only leave via System shortcut.
-    if (filesIsUnder(path, FILES_HOME) && path !== FILES_HOME) return true;
-    if (!filesIsUnder(path, FILES_HOME) && path !== '/') return true;
-    return false;
+    var home = filesHome();
+    path = path || home;
+    return filesIsUnder(path, home) && path !== home;
   }
 
   function filesFmtWhen(ms) {
@@ -87,38 +87,21 @@
   }
 
   function filesBreadcrumbs(path) {
-    path = path || FILES_HOME;
-    var under = filesIsUnder(path, FILES_HOME);
-    var html = '';
-    if (under) {
-      html += '<button type="button" class="fe-crumb'+(path===FILES_HOME?' is-current':'')+'" data-action="files:go" data-path="'+esc(FILES_HOME)+'" title="'+esc(FILES_HOME)+'">'
-        +'<span class="fe-crumb-ico" aria-hidden="true"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5z"/></svg></span>'
-        +'<span>Home</span>'
-      +'</button>';
-      var rest = path === FILES_HOME ? [] : path.slice(FILES_HOME.length).replace(/^\/+/, '').split('/').filter(Boolean);
-      var acc = FILES_HOME;
-      for (var i = 0; i < rest.length; i++) {
-        acc += '/' + rest[i];
-        var cur = i === rest.length - 1;
-        html += '<span class="fe-crumb-sep" aria-hidden="true">/</span>'
-          +'<button type="button" class="fe-crumb'+(cur?' is-current':'')+'" data-action="files:go" data-path="'+esc(acc)+'" title="'+esc(acc)+'">'
-            +'<span>'+esc(rest[i])+'</span>'
-          +'</button>';
-      }
-      return html;
-    }
-    html += '<button type="button" class="fe-crumb'+(path==='/'?' is-current':'')+'" data-action="files:go" data-path="/" title="/">'
-      +'<span class="fe-crumb-ico" aria-hidden="true"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></span>'
-      +'<span>System</span>'
+    var home = filesHome();
+    path = path || home;
+    if (!filesIsUnder(path, home)) path = home;
+    var html = '<button type="button" class="fe-crumb'+(path===home?' is-current':'')+'" data-action="files:go" data-path="'+esc(home)+'" title="'+esc(home)+'">'
+      +'<span class="fe-crumb-ico" aria-hidden="true">'+ico('folder')+'</span>'
+      +'<span>Root</span>'
     +'</button>';
-    var parts = path === '/' ? [] : path.replace(/^\/+/, '').split('/').filter(Boolean);
-    var a = '';
-    for (var j = 0; j < parts.length; j++) {
-      a += '/' + parts[j];
-      var c = j === parts.length - 1;
+    var rest = path === home ? [] : path.slice(home.length).replace(/^\/+/, '').split('/').filter(Boolean);
+    var acc = home;
+    for (var i = 0; i < rest.length; i++) {
+      acc += '/' + rest[i];
+      var cur = i === rest.length - 1;
       html += '<span class="fe-crumb-sep" aria-hidden="true">/</span>'
-        +'<button type="button" class="fe-crumb'+(c?' is-current':'')+'" data-action="files:go" data-path="'+esc(a)+'" title="'+esc(a)+'">'
-          +'<span>'+esc(parts[j])+'</span>'
+        +'<button type="button" class="fe-crumb'+(cur?' is-current':'')+'" data-action="files:go" data-path="'+esc(acc)+'" title="'+esc(acc)+'">'
+          +'<span>'+esc(rest[i])+'</span>'
         +'</button>';
     }
     return html;
@@ -280,6 +263,7 @@
   }
 
   function filesExplorerView() {
+    FILES_HOME = filesHome();
     var list = filesListing;
     var path = (list && list.path) || filesPath || FILES_HOME;
     var canUp = filesCanUp(path);
@@ -291,14 +275,13 @@
             +'<div class="fe-main">'
               +'<header class="fe-head">'
                 +'<div class="fe-title-block">'
-                  +'<h2><span class="ws-title-ico" aria-hidden="true">'+filesRowIco({type:'dir'})+'</span> Files</h2>'
-                  +'<p class="ghost">Home starts at '+esc(FILES_HOME)+'</p>'
+                  +'<h2><span class="ws-title-ico" aria-hidden="true">'+ico('folder')+'</span> Files</h2>'
+                  +'<p class="ghost mono">'+esc(FILES_HOME)+'</p>'
                 +'</div>'
                 +'<div class="fe-toolbar">'
                   +'<div class="fe-nav-btns">'
                     +'<button type="button" class="btn btn-quiet btn-compact btn-icon" data-action="files:up" '+(canUp?'':'disabled')+' title="Enclosing folder" aria-label="Up">'+ico('back')+'</button>'
-                    +'<button type="button" class="btn btn-quiet btn-compact" data-action="files:go" data-path="'+esc(FILES_HOME)+'" title="'+esc(FILES_HOME)+'">Home</button>'
-                    +'<button type="button" class="btn btn-quiet btn-compact" data-action="files:go" data-path="/" title="/">System</button>'
+                    +'<button type="button" class="btn btn-quiet btn-compact" data-action="files:go" data-path="'+esc(FILES_HOME)+'" title="'+esc(FILES_HOME)+'">Root</button>'
                     +'<button type="button" class="btn btn-quiet btn-compact has-ico" data-action="files:refresh" '+(filesLoading?'disabled':'')+'>'+ico('refresh')+'<span>Refresh</span></button>'
                     +(filesClip
                       ? '<button type="button" class="btn primary btn-compact" data-action="files:paste" title="'+esc(clipLabel)+'">Paste</button>'
@@ -326,6 +309,7 @@
 
   function loadFiles(path, opts) {
     opts = opts || {};
+    FILES_HOME = filesHome();
     path = path || filesPath || FILES_HOME;
     filesPath = path;
     filesSelected = null;

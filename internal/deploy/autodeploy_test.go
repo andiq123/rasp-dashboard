@@ -83,3 +83,14 @@ func TestValidGitHubSignature(t *testing.T) {
 		t.Fatal("empty sig should fail")
 	}
 }
+
+func TestPublicGitHubHookURL(t *testing.T) {
+	t.Setenv("FIREWIFI_PUBLIC_URL", "")
+	if got := publicGitHubHookURL(); got != "" {
+		t.Fatalf("empty env: got %q", got)
+	}
+	t.Setenv("FIREWIFI_PUBLIC_URL", "https://pi.example.com/")
+	if got := publicGitHubHookURL(); got != "https://pi.example.com/api/hooks/github" {
+		t.Fatalf("got %q", got)
+	}
+}

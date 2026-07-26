@@ -91,15 +91,39 @@ func (m *Manager) ValidateDeployToken(r *http.Request) error {
 	return nil
 }
 
-// BootstrapAutoDeploy enables defaults and starts the commit watcher.
+// BootstrapAutoDeploy enables defaults, backfills push webhooks, and starts the commit watcher.
 func (m *Manager) BootstrapAutoDeploy() {
 	autoDeployOnce.Do(func() {
 		if _, err := m.EnsureDeployToken(); err != nil {
 			m.logf("warn", "Auto-deploy token: %v", err)
 		}
 		m.enableAutoDeployDefaults()
+		go m.ensureAutoDeployHooksForRegistry()
 		go m.autoDeployLoop()
 	})
+}
+
+// ensureAutoDeployHooksForRegistry installs GitHub push webhooks for existing Go services.
+// Idempotent: skips repos that already have the FireWifi hook.
+func (m *Manager) ensureAutoDeployHooksForRegistry() {
+	m.mu.Lock()
+	reg, err := m.loadRegistry()
+	m.mu.Unlock()
+	if err != nil {
+		return
+	}
+	seen := map[string]bool{}
+	for _, svc := range reg.Services {
+		if svc.Type != TypeGo || !svc.AutoDeploy {
+			continue
+		}
+		repo := normalizeRepo(svc.Repo)
+		if repo == "" || seen[repo] {
+			continue
+		}
+		seen[repo] = true
+		m.ensureAutoDeployGitHub(repo)
+	}
 }
 
 func (m *Manager) enableAutoDeployDefaults() {
@@ -137,9 +161,13 @@ func (m *Manager) autoDeployLoop() {
 	timer := time.NewTimer(20 * time.Second)
 	defer timer.Stop()
 	for {
-		<-timer.C
-		m.pollAutoDeploys()
-		timer.Reset(autoDeployInterval)
+		select {
+		case <-m.bgDone():
+			return
+		case <-timer.C:
+			m.pollAutoDeploys()
+			timer.Reset(autoDeployInterval)
+		}
 	}
 }
 
@@ -392,4 +420,104 @@ func validGitHubSignature(body []byte, header, secret string) bool {
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = mac.Write(body)
 	return hmac.Equal(got, mac.Sum(nil))
+}
+
+// ensureAutoDeployGitHub installs a push webhook when FIREWIFI_PUBLIC_URL is set.
+// Polling remains the fallback so auto-deploy still works on LAN-only Pis.
+func (m *Manager) ensureAutoDeployGitHub(repo string) {
+	repo = normalizeRepo(repo)
+	if repo == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	if err := m.EnsureGitHubPushHook(ctx, repo); err != nil {
+		m.logf("info", "Auto-deploy %s · %v · polling every %s", repo, err, autoDeployInterval)
+		return
+	}
+	m.logf("ok", "Auto-deploy %s · GitHub push webhook ready", repo)
+}
+
+func publicGitHubHookURL() string {
+	base := strings.TrimSpace(os.Getenv("FIREWIFI_PUBLIC_URL"))
+	if base == "" {
+		return ""
+	}
+	return strings.TrimRight(base, "/") + "/api/hooks/github"
+}
+
+// EnsureGitHubPushHook creates (or reuses) a repo webhook that hits /api/hooks/github.
+func (m *Manager) EnsureGitHubPushHook(ctx context.Context, repo string) error {
+	hookURL := publicGitHubHookURL()
+	if hookURL == "" {
+		return fmt.Errorf("set FIREWIFI_PUBLIC_URL for instant push redeploy")
+	}
+	token, err := m.readToken()
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(token) == "" {
+		return fmt.Errorf("GitHub not connected")
+	}
+	secret, err := m.EnsureDeployToken()
+	if err != nil {
+		return err
+	}
+	listURL := fmt.Sprintf("https://api.github.com/repos/%s/hooks?per_page=100", repo)
+	body, code, err := m.ghDo(ctx, http.MethodGet, listURL, token, nil)
+	if err != nil {
+		return err
+	}
+	if code != http.StatusOK {
+		return fmt.Errorf("list webhooks (%d)", code)
+	}
+	var hooks []struct {
+		ID     int64 `json:"id"`
+		Active bool  `json:"active"`
+		Config struct {
+			URL string `json:"url"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal(body, &hooks); err != nil {
+		return err
+	}
+	for _, h := range hooks {
+		if strings.TrimRight(strings.TrimSpace(h.Config.URL), "/") == strings.TrimRight(hookURL, "/") {
+			if !h.Active {
+				_, code, err := m.ghDo(ctx, http.MethodPatch,
+					fmt.Sprintf("https://api.github.com/repos/%s/hooks/%d", repo, h.ID),
+					token, map[string]any{"active": true})
+				if err != nil {
+					return err
+				}
+				if code != http.StatusOK {
+					return fmt.Errorf("activate webhook (%d)", code)
+				}
+			}
+			return nil
+		}
+	}
+	insecure := "0"
+	if strings.HasPrefix(strings.ToLower(hookURL), "http://") {
+		insecure = "1"
+	}
+	payload := map[string]any{
+		"name":   "web",
+		"active": true,
+		"events": []string{"push"},
+		"config": map[string]string{
+			"url":          hookURL,
+			"content_type": "json",
+			"secret":       secret,
+			"insecure_ssl": insecure,
+		},
+	}
+	_, code, err = m.ghDo(ctx, http.MethodPost, fmt.Sprintf("https://api.github.com/repos/%s/hooks", repo), token, payload)
+	if err != nil {
+		return err
+	}
+	if code != http.StatusCreated && code != http.StatusOK {
+		return fmt.Errorf("create webhook (%d)", code)
+	}
+	return nil
 }

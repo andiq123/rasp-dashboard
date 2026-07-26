@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -15,8 +14,6 @@ var pathSlug = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 func badSlug(w http.ResponseWriter, label string) {
 	http.Error(w, "invalid "+label, http.StatusBadRequest)
 }
-
-
 
 func (s *Server) handlePorts(w http.ResponseWriter, r *http.Request) {
 	if s.Deploy == nil {
@@ -85,7 +82,7 @@ func (s *Server) handleGitHub(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Token string `json:"token"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := decodeJSONBody(r, &body); err != nil {
 			http.Error(w, "bad json", http.StatusBadRequest)
 			return
 		}
@@ -151,7 +148,7 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 			jsonReply(w, map[string]interface{}{"groups": list})
 		case http.MethodPost:
 			var body deploy.CreateGroupRequest
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			if err := decodeJSONBody(r, &body); err != nil {
 				http.Error(w, "bad json", http.StatusBadRequest)
 				return
 			}
@@ -182,7 +179,7 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 			okReply(w)
 		case http.MethodPut, http.MethodPost:
 			var body deploy.GroupSettingsUpdate
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			if err := decodeJSONBody(r, &body); err != nil {
 				http.Error(w, "bad json", http.StatusBadRequest)
 				return
 			}
@@ -218,7 +215,7 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 			jsonReply(w, lay)
 		case http.MethodPut, http.MethodPost:
 			var body deploy.CanvasLayout
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			if err := decodeJSONBody(r, &body); err != nil {
 				http.Error(w, "bad json", http.StatusBadRequest)
 				return
 			}
@@ -247,7 +244,7 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 			var body struct {
 				Env string `json:"env"`
 			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			if err := decodeJSONBody(r, &body); err != nil {
 				http.Error(w, "bad json", http.StatusBadRequest)
 				return
 			}
@@ -291,10 +288,10 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 				GoToolchain    string  `json:"go_toolchain"`
 				Version        string  `json:"version"`
 				MemoryMB       int     `json:"memory_mb"`
-				CPUs         float64 `json:"cpus"`
+				CPUs           float64 `json:"cpus"`
 				Env            string  `json:"env"`
 			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			if err := decodeJSONBody(r, &body); err != nil {
 				http.Error(w, "bad json", http.StatusBadRequest)
 				return
 			}
@@ -409,7 +406,7 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			SQL string `json:"sql"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := decodeJSONBody(r, &body); err != nil {
 			http.Error(w, "bad json", http.StatusBadRequest)
 			return
 		}
@@ -464,7 +461,7 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 		jsonReply(w, map[string]string{"env": text, "env_json": js})
 	case action == "settings" && (r.Method == http.MethodPut || r.Method == http.MethodPost):
 		var body deploy.SettingsUpdate
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := decodeJSONBody(r, &body); err != nil {
 			http.Error(w, "bad json", http.StatusBadRequest)
 			return
 		}

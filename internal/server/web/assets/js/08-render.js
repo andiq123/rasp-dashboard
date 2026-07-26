@@ -530,34 +530,43 @@
 
   function shellRailHTML() {
     var active = railActiveView();
-    function item(view, label, icon) {
+    function item(view, label, shortLabel, iconName) {
       var on = active === view;
       return ''
-        +'<button type="button" class="rail-item'+(on?' active':'')+'" data-action="nav:view:'+view+'" title="'+esc(label)+'"'+(on?' aria-current="page"':'')+'>'
-          +'<span class="rail-ico" aria-hidden="true">'+icon+'</span>'
-          +'<span class="rail-label">'+esc(label)+'</span>'
+        +'<button type="button" class="rail-item'+(on?' active':'')+'" data-action="nav:view:'+view+'" title="'+esc(label)+'" aria-label="'+esc(label)+'"'+(on?' aria-current="page"':'')+'>'
+          +'<span class="rail-ico" aria-hidden="true">'+ico(iconName)+'</span>'
+          +'<span class="rail-label">'+esc(shortLabel)+'</span>'
         +'</button>';
     }
-    var icons = {
-      overview: '<svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
-      projects: '<svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>',
-      files: '<svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><path d="M3 11h18"/></svg>',
-      settings: '<svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>'
-    };
     return ''
-      +'<div class="rail-brand" title="FireWifi"><span class="rail-mark">FW</span><span class="rail-name">FireWifi</span></div>'
-      +'<div class="rail-nav">'
-        +item('overview', 'Overview', icons.overview)
-        +item('projects', 'Projects', icons.projects)
-        +item('files', 'Files', icons.files)
-        +item('settings', 'Settings', icons.settings)
-      +'</div>';
+      +'<div class="rail-brand" title="FireWifi"><span class="rail-mark" aria-hidden="true">FW</span><span class="rail-name">FireWifi</span></div>'
+      +'<nav class="rail-nav" aria-label="Main">'
+        +item('overview', 'Overview', 'Home', 'grid')
+        +item('projects', 'Projects', 'Apps', 'folder')
+        +item('files', 'Files', 'Files', 'files')
+        +item('settings', 'Settings', 'Setup', 'settings')
+      +'</nav>';
   }
 
   function renderRail() {
     var rail = document.getElementById('app-rail');
     if (!rail) return;
     rail.innerHTML = shellRailHTML();
+  }
+
+  function scrollbarWidth() {
+    return Math.max(0, window.innerWidth - document.documentElement.clientWidth);
+  }
+
+  function applyScrollLockPad(on) {
+    var html = document.documentElement;
+    if (on) {
+      html.style.setProperty('--sbw', scrollbarWidth() + 'px');
+      return;
+    }
+    if (!html.classList.contains('modal-open') && !html.classList.contains('drawer-open')) {
+      html.style.removeProperty('--sbw');
+    }
   }
 
   function setDrawerScrollLock(lock) {
@@ -567,6 +576,7 @@
       var y = window.scrollY || window.pageYOffset || 0;
       html.dataset.drawerLockY = String(y);
       html.style.setProperty('--drawer-lock-y', '-' + y + 'px');
+      applyScrollLockPad(true);
       html.classList.add('drawer-open');
       return;
     }
@@ -575,6 +585,7 @@
     html.classList.remove('drawer-open');
     html.style.removeProperty('--drawer-lock-y');
     delete html.dataset.drawerLockY;
+    applyScrollLockPad(false);
     window.scrollTo(0, restore);
   }
 
@@ -1211,6 +1222,7 @@
       var y = window.scrollY || window.pageYOffset || 0;
       html.dataset.scrollLockY = String(y);
       html.style.setProperty('--scroll-lock-y', '-' + y + 'px');
+      applyScrollLockPad(true);
       html.classList.add('modal-open');
       return;
     }
@@ -1219,6 +1231,7 @@
     html.classList.remove('modal-open');
     html.style.removeProperty('--scroll-lock-y');
     delete html.dataset.scrollLockY;
+    applyScrollLockPad(false);
     window.scrollTo(0, restore);
   }
 

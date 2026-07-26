@@ -49,7 +49,7 @@
             +'<form id="config-form">'
               +'<div class="fields">'
                 +field('SSID', 'ssid', c.ssid || s.ssid || '')
-                +field('Password', 'password', c.password || '')
+                +field('Password', 'password', '', 'password', c.password_set ? 'Unchanged if left blank' : '')
                 +field('Gateway IP', 'hotspot_ip', c.hotspot_ip || s.hotspot_ip || '')
                 +field('DHCP start', 'dhcp_start', c.dhcp_start || s.dhcp_start || '')
                 +field('DHCP end', 'dhcp_end', c.dhcp_end || s.dhcp_end || '')

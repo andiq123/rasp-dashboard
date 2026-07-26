@@ -1,7 +1,4 @@
-(function () {
-
-  /* === 01-core.js === */
-  var state = JSON.parse(document.getElementById('initial-state').textContent);
+(function(){  var state = JSON.parse(document.getElementById('initial-state').textContent);
   var config = null;
   var busy = {};
   var formDirty = false;
@@ -47,18 +44,21 @@
   var statsPollTimer = null;
   var lastStateAt = 0;
   var toastTimer = null;
-
   /** Cap concurrent fetches — Chromium throws ERR_INSUFFICIENT_RESOURCES past ~thousands of sockets. */
   var _apiInflight = 0;
   var _apiQueue = [];
   var _API_MAX = 6;
-
   function api(path, opts) {
     opts = opts || {};
     return new Promise(function(resolve, reject) {
       var run = function() {
         _apiInflight++;
-        var init = { method: opts.method || 'GET', headers: {'Content-Type':'application/json'}, body: opts.body };
+        var init = {
+          method: opts.method || 'GET',
+          headers: {'Content-Type':'application/json'},
+          body: opts.body,
+          credentials: 'same-origin'
+        };
         if (opts.signal) init.signal = opts.signal;
         fetch(path, init)
           .then(function(r) {
@@ -75,16 +75,13 @@
       else run();
     });
   }
-
   function sqlBusyKey(slug) { return 'sql:' + slug; }
-
   function sqlResultKey(slug) {
     var r = sqlResult[slug];
     if (!r) return '0';
     if (r.error || r.cancelled) return 'e:' + String(r.error || 'cancelled').slice(0, 40);
     return 'ok:' + (r.row_count || 0) + ':' + (r.duration_ms || 0) + ':' + (r.message || '').slice(0, 24);
   }
-
   function patchSqlChrome(slug) {
     var root = document.getElementById('sql-box-' + slug);
     if (!root) return false;
@@ -130,14 +127,32 @@
     return (n / 1073741824).toFixed(1) + ' GB';
   }
   function fmtRate(n) { return fmtBytes(n) + '/s'; }
+  /** Relative time for deploy history (Railway-style). */
+  function fmtRelative(iso) {
+    if (!iso) return '';
+    var t = Date.parse(iso);
+    if (!isFinite(t)) return '';
+    var sec = Math.round((Date.now() - t) / 1000);
+    if (sec < 45) return 'just now';
+    if (sec < 3600) return Math.max(1, Math.round(sec / 60)) + 'm ago';
+    if (sec < 86400) return Math.max(1, Math.round(sec / 3600)) + 'h ago';
+    if (sec < 86400 * 30) return Math.max(1, Math.round(sec / 86400)) + 'd ago';
+    try {
+      return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    } catch (e) {
+      return '';
+    }
+  }
   function clamp(n) { n = Number(n || 0); return Math.max(0, Math.min(100, n)); }
-
   function ico(name, cls) {
     var c = 'ico' + (cls ? (' ' + cls) : '');
-    var common = ' class="'+c+'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+    var common = ' class="'+c+'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
     var paths = {
       db: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
-      app: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6M9 13h6M9 17h4"/>',
+      app: '<rect x="4" y="4" width="16" height="16" rx="2.5"/><path d="M8 9h8M8 12h8M8 15h5"/>',
+      grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+      folder: '<path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>',
+      files: '<path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><path d="M3 11h18"/>',
       play: '<polygon points="8,5 19,12 8,19" fill="currentColor" stroke="none"/>',
       stop: '<rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" stroke="none"/>',
       refresh: '<path d="M21 12a9 9 0 1 1-2.6-6.2"/><polyline points="21,3 21,9 15,9"/>',
@@ -160,7 +175,7 @@
       download: '<path d="M12 4v12"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/>',
       upload: '<path d="M12 20V8"/><path d="M7 13l5-5 5 5"/><path d="M5 4h14"/>',
       shield: '<path d="M12 3l8 3v6c0 5-3.4 8.4-8 9-4.6-.6-8-4-8-9V6l8-3z"/>',
-      settings: '<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.86 1.01 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+      settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>',
       arrange: '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/>',
       zoomin: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/>',
       zoomout: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/>',
@@ -169,7 +184,6 @@
     };
     return '<svg'+common+'>'+(paths[name] || '')+'</svg>';
   }
-
   function metric(label, value, detail, percent, cls, icon) {
     var p = clamp(percent).toFixed(0) + '%';
     var key = cls || String(label || '').toLowerCase();
@@ -180,8 +194,9 @@
     var ic = icon ? ico(icon) : '';
     return '<button type="button" class="btn '+(cls||'')+(busy[id]?' loading':'')+(icon?' has-ico':'')+'" data-action="'+esc(id)+'" '+(disabled || busy[id] ? 'disabled' : '')+'><span class="spinner"></span>'+ic+'<span>'+esc(label)+'</span></button>';
   }
-  function field(label, name, value, type) {
-    return '<label>'+esc(label)+'<input type="'+esc(type||'text')+'" name="'+esc(name)+'" value="'+esc(value)+'" autocomplete="off"></label>';
+  function field(label, name, value, type, placeholder) {
+    var ph = placeholder ? ' placeholder="'+esc(placeholder)+'"' : '';
+    return '<label>'+esc(label)+'<input type="'+esc(type||'text')+'" name="'+esc(name)+'" value="'+esc(value)+'" autocomplete="off"'+ph+'></label>';
   }
   function publicHost() {
     try {
@@ -233,7 +248,6 @@
       : 'Reconnecting';
   }
 
-  /* === 02-live-panels.js === */
   function monitoring(s) {
     var d = s.device_metrics || {};
     var cpu = d.cpu || {}, mem = d.memory || {}, thermal = d.thermal || {}, storage = d.storage || {}, net = d.network || {};
@@ -285,7 +299,7 @@
             +'<form id="config-form">'
               +'<div class="fields">'
                 +field('SSID', 'ssid', c.ssid || s.ssid || '')
-                +field('Password', 'password', c.password || '')
+                +field('Password', 'password', '', 'password', c.password_set ? 'Unchanged if left blank' : '')
                 +field('Gateway IP', 'hotspot_ip', c.hotspot_ip || s.hotspot_ip || '')
                 +field('DHCP start', 'dhcp_start', c.dhcp_start || s.dhcp_start || '')
                 +field('DHCP end', 'dhcp_end', c.dhcp_end || s.dhcp_end || '')
@@ -296,16 +310,12 @@
         +'</section>';
   }
 
-
-  /* === 02b-ui.js === */
   /** Shared compact UI primitives for wizard + settings. */
-
   function uiHint(text, allowHtml) {
     text = String(text || '').trim();
     if (!text) return '';
     return '<p class="ui-hint">'+(allowHtml ? text : esc(text))+'</p>';
   }
-
   function uiEmpty(opts) {
     opts = opts || {};
     var title = opts.title != null ? String(opts.title) : '';
@@ -318,7 +328,6 @@
         +(body ? '<p>'+body+'</p>' : '')
       +'</div>';
   }
-
   /**
    * Compact labeled control.
    * uiField({label, meta, control, tip, tipHtml})
@@ -343,18 +352,16 @@
       +'<div class="ui-field wiz-field">'
         +'<div class="label-row">'
           +'<strong>'+esc(label)+'</strong>'
-          +(meta ? '<span>'+esc(meta)+'</span>' : '')
+          +(meta ? '<span class="ui-field-meta">'+esc(meta)+'</span>' : '')
         +'</div>'
         +control
         +(tipHtml ? uiHint(tipHtml, true) : (tip ? uiHint(tip, false) : ''))
       +'</div>';
   }
-
   /** Alias kept for call sites still using wizField(label, hint, control, tip). */
   function wizField(label, hint, controlHtml, tip) {
     return uiField({ label: label, meta: hint, control: controlHtml, tip: tip || '' });
   }
-
   function uiHead(opts) {
     opts = opts || {};
     var title = opts.title || '';
@@ -371,12 +378,10 @@
         +(actions || '')
       +'</div>';
   }
-
   function uiActions(html) {
     if (!html) return '';
     return '<div class="ui-actions wizard-actions">'+html+'</div>';
   }
-
   function uiFooter(opts) {
     opts = opts || {};
     var left = opts.left || '';
@@ -389,7 +394,6 @@
       +'</div>'
       +(hint ? '<p class="ui-hint footer-hint" data-stop="1">'+hint+'</p>' : '');
   }
-
   function uiInput(opts) {
     opts = opts || {};
     var name = opts.name || '';
@@ -407,7 +411,6 @@
     attrs += ' autocomplete="'+(opts.autocomplete != null ? esc(opts.autocomplete) : 'off')+'"';
     return '<input type="'+esc(type)+'" value="'+esc(value)+'"'+attrs+'>';
   }
-
   /**
    * Slugify for previews — mirrors backend deploy.slugify (client-side).
    */
@@ -417,14 +420,12 @@
     if (s && /^[0-9]/.test(s)) s = 'app-' + s;
     return s.slice(0, 48);
   }
-
   /** Group prefix stamped onto physical Postgres names: find-vibe → find_vibe_ */
   function pgIdentPrefix(group) {
     group = String(group || '').trim();
     if (!group) return '';
     return group.replace(/-/g, '_') + '_';
   }
-
   /**
    * Physical DB name FireWifi creates: group_slug with dashes → underscores.
    * Keep in sync with Manager.createPostgres (group+"_"+slug, then - → _).
@@ -437,20 +438,17 @@
     if (raw.length > 60) raw = raw.slice(0, 60);
     return raw;
   }
-
   function containerNamePreview(group, nameOrRepo) {
     var slug = slugifyClient(nameOrRepo);
     if (!group || !slug) return '';
     return 'fw-' + group + '-' + slug;
   }
-
   /** Ghost prefix for bucket names: driver-logs → driver-logs- */
   function bucketIdentPrefix(group) {
     group = String(group || '').trim();
     if (!group) return '';
     return group.replace(/_/g, '-') + '-';
   }
-
   /**
    * Physical MinIO bucket name. Keep in sync with deploy.physicalBucketName.
    * Avoids group-group when the label equals the group.
@@ -463,13 +461,11 @@
     var phys = (slug === g || slug.indexOf(g + '-') === 0) ? slug : (g + '-' + slug);
     return phys.slice(0, 60);
   }
-
   function uiBucketNamePreview(group, name) {
     var b = bucketPhysicalName(group, name);
     if (!b) return '';
     return 'Creates bucket <code>'+esc(b)+'</code> on MinIO';
   }
-
   /**
    * Input with a non-editable ghost prefix (shows what the backend will prepend).
    * opts: { prefix, previewHtml, compose, id, name, value, placeholder, autofocus }
@@ -501,7 +497,6 @@
       +'</div>'
       +(compose ? '<p class="ui-name-preview">'+(preview || '')+'</p>' : (preview ? '<p class="ui-name-preview">'+preview+'</p>' : ''));
   }
-
   function uiPgNamePreview(group, name) {
     var db = pgPhysicalName(group, name);
     if (!db) {
@@ -509,7 +504,6 @@
     }
     return 'Creates <code>'+esc(db)+'</code> · role <code>'+esc(db)+'_user</code>';
   }
-
   function syncNameComposePreview(input) {
     if (!input || !input.getAttribute) return;
     var kind = input.getAttribute('data-name-compose');
@@ -519,7 +513,6 @@
     var preview = root.parentNode && root.parentNode.querySelector
       ? root.parentNode.querySelector('.ui-name-preview')
       : null;
-    // preview sits as sibling after affix inside ui-field
     if (!preview && root.nextElementSibling && root.nextElementSibling.classList.contains('ui-name-preview')) {
       preview = root.nextElementSibling;
     }
@@ -534,17 +527,14 @@
       preview.innerHTML = uiBucketNamePreview(activeGroup, input.value);
     }
   }
-
   function fmtCPUPercent(p) {
     p = Number(p);
     if (!isFinite(p) || p < 0) return '0%';
-    // Keep sub-1% live so idle Go services do not look frozen at 0%.
     if (p < 0.01) return '<0.01%';
     if (p < 1) return p.toFixed(2) + '%';
     if (p < 10) return p.toFixed(1) + '%';
     return Math.round(p) + '%';
   }
-
   function fmtMemMB(m) {
     m = Number(m);
     if (!isFinite(m) || m <= 0) return '0 MB';
@@ -552,7 +542,6 @@
     if (m < 100) return m.toFixed(1) + ' MB';
     return Math.round(m) + ' MB';
   }
-
   function usageBarPct(value, limit, fallbackCap) {
     value = Number(value) || 0;
     limit = Number(limit) || 0;
@@ -560,7 +549,6 @@
     fallbackCap = Number(fallbackCap) || 100;
     return Math.max(0, Math.min(100, (value / fallbackCap) * 100));
   }
-
   function serviceUsageTitle(svc) {
     if (!svc || !svc.stats) return '';
     var st = svc.stats;
@@ -570,7 +558,6 @@
     if (st.shared) parts.push('shared');
     return parts.join(' · ');
   }
-
   /** Compact dual meters — updated in-place by patchServiceUsageDOM (no remount). */
   function serviceUsageHTML(svc) {
     if (!svc || !svc.running) return '';
@@ -608,7 +595,6 @@
         +'</span>'
       +'</span>';
   }
-
   /** Resources fold: spacious stacked live monitor (separate from card header markup). */
   function serviceUsagePanelHTML(svc) {
     if (!svc || !svc.running) return '';
@@ -642,12 +628,10 @@
         +liveItem('ram', 'RAM', fmtMemMB(mem), memPct, progClass(memBar))
       +'</div>';
   }
-
   function serviceUsageLabel(svc) {
     if (!svc || !svc.running || !svc.stats) return '';
     return fmtCPUPercent(svc.stats.cpu_percent) + ' · ' + fmtMemMB(svc.stats.memory_mb);
   }
-
   function patchUsageMetersInPlace(cur, neu) {
     if (!cur || !neu) return;
     cur.title = neu.title;
@@ -683,7 +667,6 @@
       }
     });
   }
-
   function mountOrPatchUsageHost(host, htmlFn, svc) {
     if (!host) return;
     var next = htmlFn(svc);
@@ -705,10 +688,7 @@
     if (!neu) return;
     patchUsageMetersInPlace(cur, neu);
   }
-
   function patchServiceUsageDOM() {
-    // Lanes each have their own .svc-list — scope to the whole group panel
-    // so App cards are patched, not only the first (Databases) list.
     var root = document.querySelector('.panel-group-detail') || document;
     (deployed || []).forEach(function(svc) {
       if (!svc || !svc.slug) return;
@@ -732,16 +712,13 @@
     });
   }
 
-  /* === 03-cselect.js === */
   function liveRenderOk() {
     if (picker) return false;
     if (wizard) return false;
     return true;
   }
-
   /** Options catalog for in-place filtering without remounting the modal. */
   var cselectCatalog = {};
-
   function placeOpenCselect() {
     var host = document.querySelector('.cselect.open');
     if (!host) return;
@@ -775,7 +752,6 @@
       list.style.maxHeight = Math.max(120, maxH - (searchH ? searchH.offsetHeight : 0)) + 'px';
     }
   }
-
   function cselectItemsHTML(id, options, value, q, creatable) {
     options = options || [];
     q = String(q || '');
@@ -809,7 +785,6 @@
     }
     return items;
   }
-
   /** Filter the open menu in place — keeps focus and avoids modal remount flicker. */
   function filterOpenCselect() {
     if (!picker) return;
@@ -823,7 +798,6 @@
     list.innerHTML = cselectItemsHTML(id, cat.options, cat.value, picker.query, cat.creatable);
     placeOpenCselect();
   }
-
   function cselectHTML(id, value, placeholder, options, disabled, conf) {
     options = options || [];
     conf = conf || {};
@@ -834,7 +808,6 @@
     var open = picker && picker.id === id;
     var q = (open && picker.query != null) ? String(picker.query) : '';
     cselectCatalog[id] = { options: options, creatable: creatable, value: value || '', searchable: searchable };
-
     var selected = null;
     for (var i = 0; i < options.length; i++) {
       if (String(options[i].value) === String(value || '')) { selected = options[i]; break; }
@@ -843,7 +816,6 @@
     var btnInner = label
       ? ('<span>'+esc(label)+'</span>' + (selected && selected.meta ? '<span class="btn-meta">'+esc(selected.meta)+'</span>' : ''))
       : ('<span class="ph">'+esc(placeholder || 'Select…')+'</span>');
-
     var items = cselectItemsHTML(id, options, value, q, creatable);
     var menu = ''
       +'<div class="cselect-menu" data-stop="1">'
@@ -859,7 +831,6 @@
       +'</div>';
   }
 
-  /* === 04-folds.js === */
   function countEnvKeys(text) {
     text = String(text || '').trim();
     if (!text) return 0;
@@ -877,7 +848,6 @@
     if (!n) return 'Empty';
     return n + ' variable' + (n === 1 ? '' : 's');
   }
-
   /** Page-level sections can stay open together; service settings accordion one-at-a-time. */
   function foldIsAccordion(key) {
     var scope = String(key || '').split(':')[0];
@@ -885,7 +855,6 @@
     if (scope === 'manage' || scope === 'group' || scope === 'system' || scope === 'wiz') return false;
     return true;
   }
-
   function foldHTML(key, title, summary, bodyHtml) {
     var open = !!folds[key];
     return ''
@@ -898,7 +867,6 @@
         +'<div class="fold-body"><div class="fold-inner">'+bodyHtml+'</div></div>'
       +'</div>';
   }
-
   function toggleFold(key) {
     var opening = !folds[key];
     if (foldIsAccordion(key)) {
@@ -909,7 +877,6 @@
     }
     folds[key] = opening;
   }
-
   /** Toggle fold open/closed in the DOM — no full remount (keeps animation smooth). */
   function applyFoldsDOM(changedKey) {
     var key = String(changedKey || '');
@@ -937,25 +904,20 @@
       });
     });
   }
-
-
   var DB_ENV_KEYS = ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_SSLMODE', 'DATABASE_URL', 'POSTGRES_HOST', 'POSTGRES_PORT', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD'];
   var BUCKET_ENV_KEYS = ['BUCKET', 'ENDPOINT', 'ACCESS_KEY_ID', 'SECRET_ACCESS_KEY'];
   var LEGACY_BUCKET_ENV_KEYS = ['REGION','FORCE_PATH_STYLE','BUCKET_URL','BUCKET_NAME','BUCKET_ENDPOINT','BUCKET_ACCESS_KEY_ID','BUCKET_SECRET_ACCESS_KEY','BUCKET_REGION','BUCKET_FORCE_PATH_STYLE','AWS_ENDPOINT_URL','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_REGION','AWS_S3_FORCE_PATH_STYLE'];
-
   function clearScopeFolds(scope) {
     if (!scope) return;
     Object.keys(folds).forEach(function(k){
       if (k.indexOf(scope + ':') === 0) delete folds[k];
     });
   }
-
   function clearServiceListFolds(list) {
     (list || []).forEach(function(s){
       if (s && s.slug) clearScopeFolds(s.slug);
     });
   }
-
   function parseEnvMapClient(text) {
     var out = {};
     var t = String(text || '').trim();
@@ -980,13 +942,11 @@
     });
     return out;
   }
-
   function envMapToDotenv(map, keys) {
     keys = keys || Object.keys(map || {}).sort();
     return keys.filter(function(k){ return map[k] != null && String(map[k]) !== ''; })
       .map(function(k){ return k + '=' + String(map[k]); }).join('\n');
   }
-
   function envMapToJSON(map, keys) {
     keys = keys || Object.keys(map || {}).sort();
     var o = {};
@@ -996,13 +956,11 @@
     });
     return JSON.stringify(o, null, 2);
   }
-
   function maskEnvValue(v) {
     v = String(v || '');
     if (!v) return '—';
     return '••••••••';
   }
-
   function parsePostgresURLClient(raw) {
     raw = String(raw || '').trim();
     if (!raw) return null;
@@ -1020,7 +978,6 @@
       };
     } catch (e) { return null; }
   }
-
   function dbEnvMapForService(svc, envText) {
     var map = parseEnvMapClient(envText);
     var fromURL = parsePostgresURLClient(svc && svc.connection_url);
@@ -1029,9 +986,6 @@
     });
     return map;
   }
-
-
-
   function parseBucketURLClient(raw) {
     raw = String(raw || '').trim();
     if (!raw) return null;
@@ -1049,10 +1003,8 @@
       return null;
     }
   }
-
   function bucketEnvMapForService(svc, envText) {
     var map = parseEnvMapClient(envText);
-    // Legacy FireWifi names → Railway names
     if (!map.BUCKET && map.BUCKET_NAME) map.BUCKET = map.BUCKET_NAME;
     if (!map.ENDPOINT && (map.BUCKET_ENDPOINT || map.AWS_ENDPOINT_URL)) map.ENDPOINT = map.BUCKET_ENDPOINT || map.AWS_ENDPOINT_URL;
     if (!map.ACCESS_KEY_ID && (map.BUCKET_ACCESS_KEY_ID || map.AWS_ACCESS_KEY_ID)) map.ACCESS_KEY_ID = map.BUCKET_ACCESS_KEY_ID || map.AWS_ACCESS_KEY_ID;
@@ -1063,26 +1015,21 @@
     });
     return map;
   }
-
   var RESERVED_DB_KEYS = DB_ENV_KEYS.slice();
-
   function envKeySet(text) {
     return Object.keys(parseEnvMapClient(text));
   }
-
   function stripReservedDBEnv(text) {
     var map = parseEnvMapClient(text);
     RESERVED_DB_KEYS.forEach(function(k){ delete map[k]; });
     BUCKET_ENV_KEYS.forEach(function(k){ delete map[k]; });
     LEGACY_BUCKET_ENV_KEYS.forEach(function(k){ delete map[k]; });
-    // Also strip POSTGRES_* if pasted
     Object.keys(map).forEach(function(k){
       if (/^POSTGRES_/.test(k)) delete map[k];
     });
     var mode = (String(text || '').trim().charAt(0) === '{') ? 'json' : 'text';
     return mode === 'json' ? envMapToJSON(map) : envMapToDotenv(map);
   }
-
   function findDuplicateEnvKeys(text) {
     var seen = {};
     var dups = [];
@@ -1096,13 +1043,10 @@
       if (seen[k] != null) dups.push({ key: k, line: idx + 1, first: seen[k] });
       else seen[k] = idx + 1;
     });
-    // JSON mode: duplicates can't exist in object — skip
     if (String(text || '').trim().charAt(0) === '{') return [];
     return dups;
   }
-
   function findReservedEnvConflicts(text) {
-    // Returns [{key, line}] for KEY=value mode; JSON returns [{key, line:0}].
     var hits = [];
     var raw = String(text || '');
     if (raw.trim().charAt(0) === '{') {
@@ -1122,11 +1066,9 @@
     });
     return hits;
   }
-
   function reservedConflictKeys(hits) {
     return (hits || []).map(function(h){ return h.key; });
   }
-
   function formatEnvConflictWarn(hits, dups, link) {
     if (hits && hits.length) {
       var parts = hits.slice(0, 3).map(function(h){
@@ -1140,7 +1082,6 @@
     }
     return '';
   }
-
   function syncWizEnvConflictUI(text, link) {
     var ta = document.getElementById('wiz-env');
     var warnEl = document.getElementById('wiz-env-warn');
@@ -1159,13 +1100,10 @@
       row.classList.toggle('is-conflict', keys.indexOf(k) >= 0);
     });
   }
-
-
   function isSecretEnvKey(k) {
     k = String(k || '');
     return k === 'DB_PASSWORD' || k === 'DATABASE_URL' || k === 'BUCKET_URL' || k === 'SECRET_ACCESS_KEY' || k === 'BUCKET_SECRET_ACCESS_KEY' || k === 'AWS_SECRET_ACCESS_KEY' || /PASSWORD|SECRET|TOKEN|KEY$/i.test(k);
   }
-
   /** Split user env text into custom-only (no reserved DB keys). */
   function splitCustomEnv(text) {
     var map = parseEnvMapClient(text);
@@ -1180,13 +1118,11 @@
     var mode = (String(text || '').trim().charAt(0) === '{') ? 'json' : 'text';
     return mode === 'json' ? envMapToJSON(custom) : envMapToDotenv(custom);
   }
-
   function linkedEnvMapFromSources(dbMap, envText) {
     var fromSrc = pickConcreteEnvKeys(dbMap || {}, RESERVED_DB_KEYS);
     if (RESERVED_DB_KEYS.some(function(k){ return fromSrc[k]; })) return fromSrc;
     return pickConcreteEnvKeys(parseEnvMapClient(envText || ''), RESERVED_DB_KEYS);
   }
-
   function mergeLinkedPreviewEnv(customText, linkedMap, keyList) {
     var keys = keyList || RESERVED_DB_KEYS;
     var custom = parseEnvMapClient(customText || '');
@@ -1199,11 +1135,9 @@
     Object.keys(custom).forEach(function(k){ merged[k] = custom[k]; });
     return envMapToDotenv(merged);
   }
-
   function isEnvRefValue(v) {
     return /\$\{\{/.test(String(v == null ? '' : v));
   }
-
   /** Pick non-empty keys from a map; drop unresolved ${{refs}}. */
   function pickConcreteEnvKeys(src, keys) {
     var out = {};
@@ -1215,7 +1149,6 @@
     });
     return out;
   }
-
   /**
    * Shared link board: show concrete values copied (or about to copy) from a
    * group-scoped source service. Never display ${{slug.KEY}} as the value.
@@ -1232,20 +1165,16 @@
     }
     return { map: fromSrc, ready: true, preview: true };
   }
-
   function bucketLinkBoardMap(_bucketSlug, appEnvText, draftBucketEnv) {
     var src = draftBucketEnv || {};
-    // Normalize legacy / alias shapes into the four app keys.
     if (!BUCKET_ENV_KEYS.some(function(k){ return src[k]; })) {
       src = bucketEnvMapForService(null, typeof src === 'string' ? src : '');
     }
     return linkBoardMap(BUCKET_ENV_KEYS, appEnvText, src);
   }
-
   function linkedBucketMapFromEnv(envText) {
     return pickConcreteEnvKeys(bucketEnvMapForService(null, envText || ''), BUCKET_ENV_KEYS);
   }
-
   /** Unified “From <service>” board for DB and bucket links. */
   function wizAutoLinkEnvHTML(link, envMap, keys, opts) {
     if (!link) return '';
@@ -1289,21 +1218,17 @@
         +'<div class="wiz-auto-list">'+rows+'</div>'
       +'</div>';
   }
-
   function wizAutoBucketEnvHTML(link, bucketMap, opts) {
     opts = opts || {};
     opts.pendingHint = opts.pendingHint || 'Fetching bucket credentials…';
     return wizAutoLinkEnvHTML(link, bucketMap, BUCKET_ENV_KEYS, opts);
   }
-
   function wizAutoDBEnvHTML(link, dbMap, conflictKeys, opts) {
     opts = opts || {};
     opts.conflictKeys = conflictKeys || [];
     opts.pendingHint = opts.pendingHint || 'Fetching database env…';
     return wizAutoLinkEnvHTML(link, dbMap, RESERVED_DB_KEYS, opts);
   }
-
-
   function upsertEnvClient(text, key, value) {
     var map = parseEnvMapClient(text || '');
     map[key] = String(value);
@@ -1311,7 +1236,6 @@
     return mode === 'json' ? envMapToJSON(map) : envMapToDotenv(map);
   }
 
-  /* === 05-resources.js === */
   var SYS_MEM_RESERVE_MB = 768;
   var SYS_CPU_RESERVE = 0.5;
   function piCapacity() {
@@ -1411,14 +1335,12 @@
     var maxCpu = parseFloat(panel.getAttribute('data-max-cpu')) || cores;
     var otherMem = parseInt(panel.getAttribute('data-other-mem'), 10) || 0;
     var otherCpu = parseFloat(panel.getAttribute('data-other-cpu')) || 0;
-
     var memEl = panel.querySelector('[data-res=mem]');
     var cpuEl = panel.querySelector('[data-res=cpu]');
     var mem = memEl ? (parseInt(memEl.value, 10) || 512) : 512;
     var cpus = cpuEl ? Math.round((parseFloat(cpuEl.value) || 1) * 10) / 10 : 1;
     var memPct = Math.round(mem / totalMB * 100);
     var cpuPct = Math.round(cpus / cores * 100);
-
     var memLab = panel.querySelector('.res-val-mem');
     var cpuLab = panel.querySelector('.res-val-cpu');
     var memPctEl = panel.querySelector('.res-pct-mem');
@@ -1427,7 +1349,6 @@
     if (cpuLab) cpuLab.textContent = String(cpus);
     if (memPctEl) memPctEl.textContent = memPct + '% of Pi' + (otherMem ? ' · others ' + otherMem + ' MB' : '');
     if (cpuPctEl) cpuPctEl.textContent = cpuPct + '% of ' + cores + ' cores' + (otherCpu ? ' · others ' + otherCpu : '');
-
     if (memEl) {
       var wrap = memEl.closest('.res-slider');
       if (wrap) wrap.style.setProperty('--thumb', rangeThumbPct(memEl).toFixed(2) + '%');
@@ -1436,14 +1357,12 @@
       var wrap2 = cpuEl.closest('.res-slider');
       if (wrap2) wrap2.style.setProperty('--thumb', rangeThumbPct(cpuEl).toFixed(2) + '%');
     }
-
     var over = (otherMem + mem) > maxMem || (otherCpu + cpus) > (maxCpu + 0.05);
     panel.classList.toggle('over', over);
     var warn = panel.querySelector('.res-warn');
     if (warn) warn.hidden = !over;
   }
 
-  /* === 06-services.js === */
   function githubSettingsPanel(gh) {
     gh = gh || github || {};
     if (gh.connected) {
@@ -1465,7 +1384,6 @@
         +'<button type="button" class="btn primary has-ico" data-action="wizard:github">'+ico('github')+'<span>Connect GitHub</span></button>'
       +'</div>';
   }
-
   function settingsSection(opts) {
     opts = opts || {};
     return ''
@@ -1481,7 +1399,6 @@
         +'<div class="settings-section-body">'+(opts.body || '')+'</div>'
       +'</section>';
   }
-
   function settingsWorkspaceView(s) {
     var ghBody = githubSettingsPanel(github);
     var storageBody = storagePanelBody(s);
@@ -1522,12 +1439,9 @@
         +'</div>'
       +'</div>';
   }
-
   function activityMainView() {
-    // Legacy stub — Activity page is now Files explorer.
     return filesExplorerView();
   }
-
   function services(s) {
     var gh = github || {};
     if (navView === 'settings') return settingsWorkspaceView(s);
@@ -1536,7 +1450,6 @@
     if (manageTab === 'network') manageTab = 'services';
     return projectsWorkspaceView(s, gh);
   }
-
   function groupTileHTML(g, isActive) {
     var disk = g.disk_bytes ? fmtBytes(g.disk_bytes) : '';
     var count = g.service_count != null ? g.service_count : 0;
@@ -1545,7 +1458,7 @@
     if (disk) bits.push(disk);
     return ''
       +'<button type="button" class="group-tile'+(isActive ? ' active' : '')+'" data-action="group:open:'+esc(g.slug)+'">'
-        +'<span class="group-tile-ico" aria-hidden="true">'+ico('app')+'</span>'
+        +'<span class="group-tile-ico" aria-hidden="true">'+ico('folder')+'</span>'
         +'<div class="group-tile-main">'
           +'<div class="group-tile-title">'+esc(g.name || g.slug)+'</div>'
           +'<div class="group-tile-sub"><span class="mono">'+esc(g.slug)+'</span>'
@@ -1555,7 +1468,6 @@
         +'<span class="group-tile-chev" aria-hidden="true">'+ico('chev')+'</span>'
       +'</button>';
   }
-
   function groupsSidebarHTML() {
     var n = (groups || []).length;
     var cards = (groups || []).map(function(g){ return groupTileHTML(g, activeGroup === g.slug); }).join('');
@@ -1565,29 +1477,33 @@
     var empty = ''
       +'<div class="ws-empty ws-empty-compact">'
         +'<strong>No groups yet</strong>'
-        +'<p>Create a group with <strong>New group</strong> in the header to deploy databases and Go apps.</p>'
+        +'<p>Use <strong>New group</strong> to start deploying.</p>'
       +'</div>';
     var body = errBlock || (n ? cards : empty);
     return ''
       +'<div class="ws-col ws-col-groups">'
         +'<div class="ws-section-head">'
-          +'<div class="ws-section-title"><h3>'+ico('app')+' Groups</h3><span class="gd-count">'+String(n)+'</span></div>'
+          +'<div class="ws-section-title"><h3>'+ico('folder')+' Groups</h3><span class="gd-count">'+String(n)+'</span></div>'
         +'</div>'
         +'<div class="group-tile-list group-tile-list-col">'+body+'</div>'
       +'</div>';
   }
-
   function projectsWelcomePane() {
+    var empty = !(groups || []).length && !groupsError;
     return ''
-      +'<div class="ws-col ws-col-main projects-welcome">'
+      +'<div class="ws-col ws-col-main projects-welcome'+(empty?' is-empty':'')+'">'
         +'<div class="projects-welcome-inner">'
-          +'<div class="projects-welcome-icon" aria-hidden="true">'+ico('app')+'</div>'
-          +'<h3>Select a group</h3>'
-          +'<p class="ghost">Choose a project from the list. Use <strong>New group</strong> in the header to get started.</p>'
+          +'<div class="projects-welcome-icon" aria-hidden="true">'+ico(empty ? 'plus' : 'folder')+'</div>'
+          +'<h3>'+(empty ? 'Create a group' : 'Select a group')+'</h3>'
+          +'<p class="ghost">'+(empty
+            ? 'Groups hold databases and Go apps on this Pi.'
+            : 'Pick a group from the list, or create another.')+'</p>'
+          +(empty
+            ? '<button type="button" class="btn primary btn-compact has-ico" data-action="wizard:group">'+ico('plus')+'<span>New group</span></button>'
+            : '')
         +'</div>'
       +'</div>';
   }
-
   function projectsWorkspaceView(s, gh) {
     var mainPane = activeGroup ? groupDetailPane(s, gh) : projectsWelcomePane();
     return ''
@@ -1596,7 +1512,7 @@
           +'<section class="panel panel-svc panel-manage panel-workspace panel-projects-crm">'
             +'<header class="ws-head">'
               +'<div class="ws-head-main">'
-                +'<div class="ws-title-block"><h2><span class="ws-title-ico" aria-hidden="true">'+ico('app')+'</span> Projects</h2><p class="ghost">Groups &amp; services</p></div>'
+                +'<div class="ws-title-block"><h2><span class="ws-title-ico" aria-hidden="true">'+ico('folder')+'</span> Projects</h2><p class="ghost">Groups &amp; services</p></div>'
               +'</div>'
               +'<div class="ws-head-actions">'
                 +'<button type="button" class="btn primary btn-compact has-ico" data-action="wizard:group">'+ico('plus')+'<span>New group</span></button>'
@@ -1610,7 +1526,6 @@
         +'</div>'
       +'</div>';
   }
-
   function groupDetailPane(s, gh) {
     var g = (groups || []).filter(function(x){ return x.slug === activeGroup; })[0] || { slug: activeGroup, name: activeGroup };
     var list = deployed || [];
@@ -1688,7 +1603,6 @@
         +'</div>'
       +'</div>';
   }
-
   function systemSyncroxInner(s) {
     return ''
       +'<div class="system-row">'
@@ -1703,8 +1617,6 @@
       +'</div>';
   }
   function systemSyncrox(s) { return systemSyncroxInner(s); }
-
-
   /** Compact inline SVG icons — shared across service cards & actions. */
   function svcKindMeta(svc) {
     if (svc && svc.type === 'postgres') {
@@ -1715,7 +1627,6 @@
     }
     return { kind: 'app', label: 'App', ico: 'app' };
   }
-
   function statusMeta(svc, building, failed, isUp) {
     if (svc && (svc.type === 'postgres' || svc.type === 'bucket')) {
       return isUp
@@ -1727,7 +1638,6 @@
     if (isUp) return { cls: 'ok', label: 'Running' };
     return { cls: 'off', label: 'Stopped' };
   }
-
   function actionBtn(opts) {
     opts = opts || {};
     var cls = 'btn btn-compact svc-act' + (opts.cls ? (' ' + opts.cls) : '') + (opts.busy ? ' loading' : '');
@@ -1737,8 +1647,6 @@
       +' title="'+(opts.title ? esc(opts.title) : esc(opts.label||''))+'">'
       +'<span class="spinner"></span>'+icon+'<span>'+esc(opts.label||'')+'</span></button>';
   }
-
-
   function maskBucketURLDisplay(raw) {
     raw = String(raw || '');
     if (!raw) return '';
@@ -1778,7 +1686,6 @@
     var p = publicPath(svc);
     return p ? (base.replace(/\/$/, '') + p) : base;
   }
-  // Browser DNS check for public tunnel host (Pi may resolve while LAN DNS does not).
   function verifyPublicReachable(svc) {
     var url = publicOpenURL(svc) || publicURL(svc);
     if (!url || typeof fetch !== 'function') return Promise.resolve(null);
@@ -1901,7 +1808,6 @@
     }
     return localRow + net;
   }
-
   function deployStatusLabel(st) {
     st = String(st || '');
     if (st === 'active') return 'Active';
@@ -1910,7 +1816,6 @@
     if (st === 'archived') return 'Archived';
     return st || 'Unknown';
   }
-
   function deploymentsFoldBody(svc) {
     var list = svc.deployments || [];
     if (!list.length) {
@@ -1922,29 +1827,38 @@
       var st = d.status || '';
       var live = !!(liveId && d.id === liveId && (st === 'building' || st === 'queued'));
       var selected = !!(viewing && d.id === viewing);
+      var msg = String(d.message || '').trim();
+      if (msg.length > 72) msg = msg.slice(0, 70) + '…';
+      var title = msg || (d.commit ? 'Deploy ' + d.commit : 'New deployment');
       var meta = [];
       if (d.commit) meta.push(d.commit);
       if (d.branch) meta.push(d.branch);
-      if (d.id) meta.push(d.id);
+      var when = fmtRelative(d.finished_at || d.created_at);
+      if (when) meta.push(when);
+      var tip = [];
+      if (d.commit) tip.push(d.commit);
+      if (d.message) tip.push(d.message);
+      if (d.created_at) tip.push(d.created_at);
+      if (d.id) tip.push(d.id);
       var err = d.error ? '<div class="deploy-err">'+esc(String(d.error).slice(0,120))+'</div>' : '';
       var phase = (st === 'building' || st === 'queued')
-        ? '<div class="deploy-phase">Clone → Build → Start</div>'
+        ? '<div class="deploy-phase">Fetch → Build → Start</div>'
         : '';
       return ''
         +'<button type="button" class="deploy-row '+esc(st)+(live?' live':'')+(selected?' selected':'')+'"'
           +' data-action="deploy:logs:'+esc(svc.slug)+':'+esc(d.id)+'"'
           +' data-deploy-id="'+esc(d.id)+'"'
-          +' title="Open logs for this deployment">'
+          +' title="'+esc(tip.join(' · ') || 'Open logs')+'">'
           +'<span class="deploy-pill '+esc(st)+'">'+esc(deployStatusLabel(st))+(live?' · live':'')+'</span>'
           +'<div class="deploy-main">'
-            +'<div class="deploy-meta">'+esc(meta.join(' · ') || 'New deployment')+'</div>'
+            +'<div class="deploy-msg">'+esc(title)+'</div>'
+            +'<div class="deploy-meta">'+esc(meta.join(' · ') || '—')+'</div>'
             +phase
             +err
           +'</div>'
         +'</button>';
     }).join('') + '</div>';
   }
-
   function deploymentsSummary(svc) {
     var list = svc.deployments || [];
     if (!list.length) return 'None';
@@ -1952,11 +1866,16 @@
     var failed = list.filter(function(d){ return d.status === 'failed'; }).length;
     var active = list.filter(function(d){ return d.status === 'active' || d.active; })[0];
     if (building) return 'Building';
-    if (active) return 'Active';
+    if (active) {
+      var bits = ['Active'];
+      if (active.commit) bits.push(active.commit);
+      var ago = fmtRelative(active.finished_at || active.created_at);
+      if (ago) bits.push(ago);
+      return bits.join(' · ');
+    }
     if (failed) return failed + ' failed';
     return String(list.length);
   }
-
   function accessHostSummary(access) {
     if (!access) return '—';
     var s = String(access).replace(/^https?:\/\//, '');
@@ -1964,9 +1883,6 @@
     if (host.length > 22) host = host.slice(0, 20) + '…';
     return host || 'URL';
   }
-
-
-
   function drawerToolbarHTML(svc) {
     var isPg = svc.type === 'postgres';
     var isBucket = svc.type === 'bucket';
@@ -1997,7 +1913,6 @@
     }
     return acts;
   }
-
   function pgVolumeHTML(svc) {
     var vol = (svc.volume && String(svc.volume).trim()) || 'infra_firewifi_pgdata';
     var sizeRaw = (svc.volume_size && String(svc.volume_size).trim()) || (svc.volume_bytes ? fmtBytes(svc.volume_bytes) : '');
@@ -2018,8 +1933,6 @@
         +'</dl>'
       +'</section>';
   }
-
-
   function bucketOverviewHTML(svc) {
     var name = (svc.bucket && String(svc.bucket).trim()) || svc.slug || '—';
     var sizeRaw = (svc.volume_size && String(svc.volume_size).trim()) || (svc.volume_bytes ? fmtBytes(svc.volume_bytes) : '');
@@ -2036,8 +1949,6 @@
         +'</dl>'
       +'</section>';
   }
-
-
   function sqlOutHTML(res) {
     if (!res) return '';
     if (res.error || res.cancelled) {
@@ -2065,7 +1976,6 @@
     }
     return '';
   }
-
   function pgSQLHTML(svc) {
     var draft = sqlDraft[svc.slug] != null ? sqlDraft[svc.slug] : 'SELECT now();\n';
     var res = sqlResult[svc.slug];
@@ -2104,7 +2014,6 @@
         +'<div class="sql-out" id="sql-out-'+esc(svc.slug)+'">'+sqlOutHTML(res)+'</div>'
       +'</section>';
   }
-
   function pgEnvBoardHTML(svc, envText) {
     var isBucket = svc && svc.type === 'bucket';
     var keys = isBucket ? BUCKET_ENV_KEYS : DB_ENV_KEYS;
@@ -2147,7 +2056,6 @@
         +uiHint('Linked Go apps receive these automatically. Copy JSON for local config.')
       +'</section>';
   }
-
   function serviceSettingsHTML(svc, dbs, buckets) {
     buckets = buckets || (deployed || []).filter(function(x){ return x.type === 'bucket'; });
     var draft = settingsDraft[svc.slug] || {};
@@ -2311,7 +2219,7 @@
             })
             +'<label class="ui-check" style="display:flex;gap:8px;align-items:flex-start;margin-top:10px">'
               +'<input type="checkbox" name="auto_deploy" '+(autoDeploy?'checked ':'')+'/>'
-              +'<span><strong>Auto-deploy</strong><span class="ghost" style="display:block;font-size:11px;margin-top:2px">Redeploy when this branch gets a new commit on GitHub</span></span>'
+              +'<span><strong>Auto-deploy</strong><span class="ghost" style="display:block;font-size:11px;margin-top:2px">Redeploy on push (webhook if FIREWIFI_PUBLIC_URL is set, else polls GitHub every 60s)</span></span>'
             +'</label>'
           )
           +foldHTML(scope+':env', 'Environment', envSummaryText, envMergedBody)
@@ -2346,7 +2254,6 @@
         +'</div>'
       +'</div>';
   }
-
   function serviceDrawerHTML(svc, dbs) {
     var kind = svcKindMeta(svc);
     var isPg = svc.type === 'postgres';
@@ -2495,7 +2402,6 @@
       +'</div>';
   }
 
-  /* === 06b-docker.js === */
   function refreshEngine() {
     return api('/api/engine').then(function(v){
       engineView = v;
@@ -2505,7 +2411,6 @@
       throw e;
     });
   }
-
   function runtimeOptions(list) {
     return (list || []).map(function(o){
       var meta = o.hint || o.image || '';
@@ -2517,20 +2422,17 @@
       };
     });
   }
-
   function isPostgresEngineContainer(c) {
     if (!c) return false;
     var name = String(c.name || '').toLowerCase();
     var image = String(c.image || '').toLowerCase();
     if (name === 'firewifi-postgres' || name.indexOf('firewifi-postgres') === 0) return true;
     if (c.group === 'infra' && /postgres/.test(name + ' ' + image)) return true;
-    // Shared engine: postgres image on local 5432 stack, not an app DB service container
     if (/^postgres(:|$)/.test(image) && (name === 'postgres' || name.indexOf('postgres') >= 0) && !c.service) {
       if (!c.group || c.group === 'infra') return true;
     }
     return false;
   }
-
   function manageSeg() {
     var tabs = [
       { id: 'services', label: 'Services' },
@@ -2543,7 +2445,6 @@
           }).join('')
       +'</div>';
   }
-
   function manageToolbar(title) {
     return ''
       +'<header class="ws-head">'
@@ -2559,7 +2460,6 @@
         +'</div>'
       +'</header>';
   }
-
   function dockerDiskRow(type) {
     var disk = (manageOv && manageOv.docker && manageOv.docker.disk) || (dockerInv && dockerInv.disk) || [];
     for (var i = 0; i < disk.length; i++) {
@@ -2567,12 +2467,9 @@
     }
     return null;
   }
-
   function onSettingsStoragePage() {
-    // Storage lives on the single Settings page (no separate tab).
     return navView === 'settings' && !activeGroup;
   }
-
   function refreshManage(opts) {
     opts = opts || {};
     manageLoading = true;
@@ -2596,9 +2493,7 @@
       throw e;
     });
   }
-
   function refreshDocker(opts) { return refreshManage(opts); }
-
   function dockerAction(body, busyKey, confirmMsg) {
     if (confirmMsg && !confirm(confirmMsg)) return Promise.resolve();
     busy[busyKey] = true;
@@ -2614,7 +2509,6 @@
         if (onSettingsStoragePage()) renderServices({ soft: true });
       });
   }
-
   function findPostgresEngineContainer() {
     var ctrs = ((manageOv && manageOv.docker) || dockerInv || {}).containers || [];
     for (var i = 0; i < ctrs.length; i++) {
@@ -2626,7 +2520,6 @@
     }
     return null;
   }
-
   function findMinIOEngineContainer() {
     var inv = (manageOv && manageOv.docker) || dockerInv || { containers: [] };
     var list = inv.containers || [];
@@ -2653,7 +2546,6 @@
     }
     return { cls: 'off', text: 'Stopped' };
   }
-
   function engineStatusLabel(ev) {
     if (manageLoading && !(ev && ev.postgres_running) && !findPostgresEngineContainer()) {
       return { text: 'Checking…', cls: 'wait' };
@@ -2668,7 +2560,6 @@
       if (c.running || st === 'running') return { text: 'Running', cls: 'on' };
       return { text: 'Stopped', cls: 'off' };
     }
-    // Published DB services imply the shared engine must be up.
     var pubs = (manageOv && manageOv.published) || [];
     for (var i = 0; i < pubs.length; i++) {
       if (pubs[i] && pubs[i].kind === 'postgres' && pubs[i].running) {
@@ -2678,7 +2569,6 @@
     if (!ev && !manageOv && !manageError) return { text: 'Checking…', cls: 'wait' };
     return { text: 'Stopped', cls: 'off' };
   }
-
   function containerStatus(c) {
     var st = String((c && c.state) || '').toLowerCase();
     if (st === 'running' || c.running) return { text: 'Running', cls: 'on' };
@@ -2688,7 +2578,6 @@
     if (st === 'exited' || st === 'dead' || st === 'removing') return { text: 'Stopped', cls: 'off' };
     return { text: c.status || c.state || 'Stopped', cls: 'off' };
   }
-
   function dockerDaemonStatus() {
     var ov = manageOv || {};
     var d = ov.daemon || {};
@@ -2703,7 +2592,6 @@
     if (d.error && !d.active) return { text: 'Unknown', cls: 'off', running: false, checking: false, error: d.error };
     return { text: 'Stopped', cls: 'off', running: false, checking: false, active: d.active || 'inactive' };
   }
-
   function dockerDaemonCard() {
     var st = dockerDaemonStatus();
     var busyStart = !!busy['docker:daemon-start'];
@@ -2740,7 +2628,6 @@
         +'<p class="engine-depend ghost">'+esc(depend)+'</p>'
       +'</div>';
   }
-
   function engineCard() {
     var ev = engineView || { settings: {}, postgres_options: [], go_options: [] };
     var s = ev.settings || {};
@@ -2793,7 +2680,6 @@
         +'</div>'
       +'</div>';
   }
-
   function minioEngineCard() {
     var ev = engineView || {};
     var st = minioEngineStatusLabel(ev);
@@ -2810,7 +2696,6 @@
     for (var i = 0; i < pubs.length; i++) {
       if (pubs[i] && pubs[i].kind === 'bucket') bN++;
     }
-    // Fallback: count bucket services from deployed list if manage overview lacks kind.
     if (!bN && typeof deployed !== 'undefined' && deployed) {
       for (var j = 0; j < deployed.length; j++) {
         if (deployed[j] && deployed[j].type === 'bucket') bN++;
@@ -2836,7 +2721,6 @@
         +'<p class="engine-depend ghost">'+esc(depend)+'</p>'
       +'</div>';
   }
-
   function storagePanelBody(s) {
     var ov = manageOv || {};
     var inv = ov.docker || dockerInv || { images: [], containers: [], volumes: [], disk: [], reclaim_bytes: 0 };
@@ -2864,7 +2748,6 @@
       + (stopped ? ' · ' + stopped + ' stopped' : '');
     var volMeta = (volBytes ? fmtBytes(volBytes) : '—')
       + (unusedVols ? ' · ' + unusedVols + ' unused' : '');
-
     var loading = manageLoading && !manageOv && !manageError
       ? '<div class="storage-state storage-scanning compact"><div class="nav-spinner" aria-hidden="true"></div><p>Scanning Docker inventory…</p></div>'
       : '';
@@ -2874,7 +2757,6 @@
     var dockerWarn = (!manageError && ov.docker_error)
       ? '<div class="storage-state storage-warn compact"><p class="ghost">Docker inventory unavailable: '+esc(ov.docker_error)+'</p></div>'
       : '';
-
     var strip = ''
       +'<div class="stat-strip storage-strip">'
         +statCell('Disk', fmtBytes(host.used_bytes || 0), pct + '% of ' + fmtBytes(host.total_bytes || 0), pct)
@@ -2882,7 +2764,6 @@
         +statCell('Volumes', volBytes ? fmtBytes(volBytes) : (vols.length ? '0 B' : '—'), vols.length + ' named')
         +statCell('Freeable', fmtBytes(inv.reclaim_bytes || 0), unusedImgs ? unusedImgs + ' unused img' : 'docker', inv.reclaim_bytes ? 'warn' : '')
       +'</div>';
-
     var prune = ''
       +'<details class="manage-fold"'+( (opt._open) ? ' open' : '' )+'>'
         +'<summary><strong>Clean up</strong><span class="ghost">unused images · stopped · cache</span></summary>'
@@ -2900,7 +2781,6 @@
           +'</div>'
         +'</div>'
       +'</details>';
-
     if (errBlock && !manageOv) return errBlock;
     return (
       '<div class="storage-flow">'
@@ -2916,9 +2796,7 @@
       +'</div>'
     );
   }
-
   function storageView(s) { return storagePanelBody(s); }
-
   function statCell(k, v, d, barPct, cls) {
     return ''
       +'<div class="stat-cell '+(cls||'')+'">'
@@ -2928,7 +2806,6 @@
         +(barPct != null ? '<div class="manage-bar tight"><span style="width:'+esc(String(barPct))+'%"></span></div>' : '')
       +'</div>';
   }
-
   function manageSection(title, count, meta, body) {
     var icons = { Volumes: 'disk', Containers: 'docker', Images: 'storage' };
     var ic = icons[title] ? ('<span class="dock-sec-ico" aria-hidden="true">'+ico(icons[title])+'</span>') : '';
@@ -2941,11 +2818,9 @@
         +'<div class="dock-list">'+body+'</div>'
       +'</div>';
   }
-
   function manageEmpty(text) {
     return '<div class="empty dock-empty compact"><p>'+esc(text)+'</p></div>';
   }
-
   function dockCheck(key, label, on) {
     return ''
       +'<label class="dock-check">'
@@ -2953,7 +2828,6 @@
         +'<span>'+esc(label)+'</span>'
       +'</label>';
   }
-
   function dockContainerRow(c) {
     var st = containerStatus(c);
     var actions = '';
@@ -2982,7 +2856,6 @@
         +'<div class="dock-actions" data-stop="1">'+actions+'</div>'
       +'</div>';
   }
-
   function dockImageRow(img) {
     var tag = img.in_use
       ? '<span class="dock-badge ok">in use</span>'
@@ -3000,7 +2873,6 @@
         +'<div class="dock-actions" data-stop="1">'+actions+'</div>'
       +'</div>';
   }
-
   function dockVolumeRow(v) {
     var tag = v.in_use
       ? '<span class="dock-badge ok">in use</span>'
@@ -3019,12 +2891,13 @@
         +'<div class="dock-actions" data-stop="1">'+actions+'</div>'
       +'</div>';
   }
-
   function dockerView(s) { return storageView(s); }
 
-  /* === 06c-files.js === */
-  /* Files explorer — home-rooted browser with preview + clipboard ops. */
-  var FILES_HOME = '/home/andiq';
+  /* Files explorer — rooted at deployments (or server files_root). */
+  function filesHome() {
+    return (state && state.files_root) || FILES_HOME || '/home/andiq';
+  }
+  var FILES_HOME = filesHome();
   var filesPath = FILES_HOME;
   var filesListing = null;
   var filesLoading = false;
@@ -3036,14 +2909,12 @@
   var filesClip = null; // { op:'copy'|'cut', path, name, type }
   var filesPreview = null; // { path, name, text, ... } | loading | error
   var filesPreviewLoading = false;
-
   function filesIsUnder(path, root) {
     path = path || '';
-    root = root || FILES_HOME;
+    root = root || filesHome();
     if (path === root) return true;
     return path.indexOf(root + '/') === 0;
   }
-
   function filesParentOf(path) {
     if (!path || path === '/') return '';
     var p = path.replace(/\/+$/, '');
@@ -3051,16 +2922,11 @@
     if (i <= 0) return '/';
     return p.slice(0, i) || '/';
   }
-
   function filesCanUp(path) {
-    path = path || FILES_HOME;
-    if (path === '/') return false;
-    // Stay inside home by default; only leave via System shortcut.
-    if (filesIsUnder(path, FILES_HOME) && path !== FILES_HOME) return true;
-    if (!filesIsUnder(path, FILES_HOME) && path !== '/') return true;
-    return false;
+    var home = filesHome();
+    path = path || home;
+    return filesIsUnder(path, home) && path !== home;
   }
-
   function filesFmtWhen(ms) {
     if (!ms) return '—';
     var d = new Date(ms);
@@ -3074,7 +2940,6 @@
     var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     return months[d.getMonth()] + ' ' + d.getDate() + (y ? '' : (', ' + d.getFullYear())) + ', ' + t;
   }
-
   function filesFmtBytes(n) {
     n = Number(n) || 0;
     if (n < 0) return '—';
@@ -3087,7 +2952,6 @@
     if (v >= 10) return v.toFixed(1) + ' ' + units[i];
     return v.toFixed(2) + ' ' + units[i];
   }
-
   function filesRowIco(ent) {
     if (ent.type === 'dir') {
       return '<svg class="ico fe-ico fe-ico-dir" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>';
@@ -3101,7 +2965,6 @@
     }
     return '<svg class="ico fe-ico fe-ico-file" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>';
   }
-
   function filesActIco(kind) {
     if (kind === 'preview') return ico('logs');
     if (kind === 'rename') return ico('settings');
@@ -3110,45 +2973,26 @@
     if (kind === 'delete') return ico('trash');
     return '';
   }
-
   function filesBreadcrumbs(path) {
-    path = path || FILES_HOME;
-    var under = filesIsUnder(path, FILES_HOME);
-    var html = '';
-    if (under) {
-      html += '<button type="button" class="fe-crumb'+(path===FILES_HOME?' is-current':'')+'" data-action="files:go" data-path="'+esc(FILES_HOME)+'" title="'+esc(FILES_HOME)+'">'
-        +'<span class="fe-crumb-ico" aria-hidden="true"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5z"/></svg></span>'
-        +'<span>Home</span>'
-      +'</button>';
-      var rest = path === FILES_HOME ? [] : path.slice(FILES_HOME.length).replace(/^\/+/, '').split('/').filter(Boolean);
-      var acc = FILES_HOME;
-      for (var i = 0; i < rest.length; i++) {
-        acc += '/' + rest[i];
-        var cur = i === rest.length - 1;
-        html += '<span class="fe-crumb-sep" aria-hidden="true">/</span>'
-          +'<button type="button" class="fe-crumb'+(cur?' is-current':'')+'" data-action="files:go" data-path="'+esc(acc)+'" title="'+esc(acc)+'">'
-            +'<span>'+esc(rest[i])+'</span>'
-          +'</button>';
-      }
-      return html;
-    }
-    html += '<button type="button" class="fe-crumb'+(path==='/'?' is-current':'')+'" data-action="files:go" data-path="/" title="/">'
-      +'<span class="fe-crumb-ico" aria-hidden="true"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></span>'
-      +'<span>System</span>'
+    var home = filesHome();
+    path = path || home;
+    if (!filesIsUnder(path, home)) path = home;
+    var html = '<button type="button" class="fe-crumb'+(path===home?' is-current':'')+'" data-action="files:go" data-path="'+esc(home)+'" title="'+esc(home)+'">'
+      +'<span class="fe-crumb-ico" aria-hidden="true">'+ico('folder')+'</span>'
+      +'<span>Root</span>'
     +'</button>';
-    var parts = path === '/' ? [] : path.replace(/^\/+/, '').split('/').filter(Boolean);
-    var a = '';
-    for (var j = 0; j < parts.length; j++) {
-      a += '/' + parts[j];
-      var c = j === parts.length - 1;
+    var rest = path === home ? [] : path.slice(home.length).replace(/^\/+/, '').split('/').filter(Boolean);
+    var acc = home;
+    for (var i = 0; i < rest.length; i++) {
+      acc += '/' + rest[i];
+      var cur = i === rest.length - 1;
       html += '<span class="fe-crumb-sep" aria-hidden="true">/</span>'
-        +'<button type="button" class="fe-crumb'+(c?' is-current':'')+'" data-action="files:go" data-path="'+esc(a)+'" title="'+esc(a)+'">'
-          +'<span>'+esc(parts[j])+'</span>'
+        +'<button type="button" class="fe-crumb'+(cur?' is-current':'')+'" data-action="files:go" data-path="'+esc(acc)+'" title="'+esc(acc)+'">'
+          +'<span>'+esc(rest[i])+'</span>'
         +'</button>';
     }
     return html;
   }
-
   function filesVisibleEntries(list) {
     var ents = (list && list.entries) || [];
     var q = String(filesQuery || '').trim().toLowerCase();
@@ -3164,7 +3008,6 @@
     }
     return out;
   }
-
   function filesVisibleBytes(rows) {
     var n = 0;
     for (var i = 0; i < rows.length; i++) {
@@ -3172,7 +3015,6 @@
     }
     return n;
   }
-
   function filesSummaryHTML(list, visible) {
     var s = (list && list.summary) || {};
     var rows = visible || [];
@@ -3196,7 +3038,6 @@
         +'<div class="fe-sum-pill"><span class="fe-sum-k">Files size</span><span class="fe-sum-v">'+esc(sizeLabel)+'</span></div>'
       +'</div>';
   }
-
   function filesRowActions(e) {
     var canPreview = e.type === 'file' && (e.textual || isTextExtClient(e.ext, e.name));
     return ''
@@ -3210,7 +3051,6 @@
         +'<button type="button" class="fe-act fe-act-danger" data-action="files:delete" data-path="'+esc(e.path)+'" data-name="'+esc(e.name)+'" title="Delete">'+filesActIco('delete')+'</button>'
       +'</span>';
   }
-
   function isTextExtClient(ext, name) {
     ext = (ext || '').toLowerCase();
     name = (name || '').toLowerCase();
@@ -3223,7 +3063,6 @@
     if (text[ext]) return true;
     return !ext && /^(dockerfile|makefile|readme|license|changelog|gemfile|procfile)$/.test(name);
   }
-
   function filesTableHTML(list) {
     var visible = filesVisibleEntries(list);
     if (filesLoading && !list) {
@@ -3276,7 +3115,6 @@
         +'<div class="fe-tbody" role="rowgroup">'+rows+'</div>'
       +'</div>';
   }
-
   function filesPreviewHTML() {
     if (!filesPreview && !filesPreviewLoading) return '';
     var body = '';
@@ -3303,8 +3141,8 @@
         +'<div class="fe-preview-body">'+body+'</div>'
       +'</aside>';
   }
-
   function filesExplorerView() {
+    FILES_HOME = filesHome();
     var list = filesListing;
     var path = (list && list.path) || filesPath || FILES_HOME;
     var canUp = filesCanUp(path);
@@ -3316,14 +3154,13 @@
             +'<div class="fe-main">'
               +'<header class="fe-head">'
                 +'<div class="fe-title-block">'
-                  +'<h2><span class="ws-title-ico" aria-hidden="true">'+filesRowIco({type:'dir'})+'</span> Files</h2>'
-                  +'<p class="ghost">Home starts at '+esc(FILES_HOME)+'</p>'
+                  +'<h2><span class="ws-title-ico" aria-hidden="true">'+ico('folder')+'</span> Files</h2>'
+                  +'<p class="ghost mono">'+esc(FILES_HOME)+'</p>'
                 +'</div>'
                 +'<div class="fe-toolbar">'
                   +'<div class="fe-nav-btns">'
                     +'<button type="button" class="btn btn-quiet btn-compact btn-icon" data-action="files:up" '+(canUp?'':'disabled')+' title="Enclosing folder" aria-label="Up">'+ico('back')+'</button>'
-                    +'<button type="button" class="btn btn-quiet btn-compact" data-action="files:go" data-path="'+esc(FILES_HOME)+'" title="'+esc(FILES_HOME)+'">Home</button>'
-                    +'<button type="button" class="btn btn-quiet btn-compact" data-action="files:go" data-path="/" title="/">System</button>'
+                    +'<button type="button" class="btn btn-quiet btn-compact" data-action="files:go" data-path="'+esc(FILES_HOME)+'" title="'+esc(FILES_HOME)+'">Root</button>'
                     +'<button type="button" class="btn btn-quiet btn-compact has-ico" data-action="files:refresh" '+(filesLoading?'disabled':'')+'>'+ico('refresh')+'<span>Refresh</span></button>'
                     +(filesClip
                       ? '<button type="button" class="btn primary btn-compact" data-action="files:paste" title="'+esc(clipLabel)+'">Paste</button>'
@@ -3348,9 +3185,9 @@
         +'</div>'
       +'</div>';
   }
-
   function loadFiles(path, opts) {
     opts = opts || {};
+    FILES_HOME = filesHome();
     path = path || filesPath || FILES_HOME;
     filesPath = path;
     filesSelected = null;
@@ -3375,11 +3212,9 @@
         render({ animate: false });
       });
   }
-
   function filesOp(body) {
     return api('/api/files', { method: 'POST', body: JSON.stringify(body) });
   }
-
   function openFilesPreview(path) {
     filesPreviewLoading = true;
     filesPreview = { path: path, name: path.split('/').pop() };
@@ -3396,14 +3231,12 @@
         render({ animate: false });
       });
   }
-
   function closeFilesPreview() {
     filesPreview = null;
     filesPreviewLoading = false;
     render({ animate: false });
   }
 
-  /* === 07-wizard.js === */
   /** Shared modal chrome for Add Go / Add Postgres (and type picker). */
   function wizardShell(opts) {
     opts = opts || {};
@@ -3428,7 +3261,6 @@
       })
       +(opts.body || '');
   }
-
   function wizardHTML() {
     if (!wizard) return '';
     var step = wizard.step || 'type';
@@ -3450,7 +3282,7 @@
         +uiHead({ title: 'New group', sub: 'Boundary for databases and Go apps.' })
         +uiField({
           label: 'Name',
-          meta: 'slug',
+          tip: 'Becomes the group slug (lowercase, hyphens).',
           control: uiInput({ id: 'wiz-group-name', placeholder: 'my-api', value: wizard.name || '', autofocus: true })
         })
         +uiActions(
@@ -3537,8 +3369,6 @@
       }
       var dbs = (deployed || []).filter(function(x){ return x.type === 'postgres'; });
       var buckets = (deployed || []).filter(function(x){ return x.type === 'bucket'; });
-      // Links are chosen in wizard:type:go (with credential prefetch). Do not
-      // mutate wizard.linked_* during render — that caused "linking…" with no fetch.
       var autoDb = wizard.linked_database || '';
       var autoBucket = wizard.linked_bucket || '';
       var dbOptions = [{value: '', label: 'No database', meta: 'attach later'}].concat(dbs.map(function(d){
@@ -3574,7 +3404,6 @@
       var link = autoDb || '';
       var blink = autoBucket || '';
       var envText = wizard.env != null ? wizard.env : '';
-      // PORT is auto-assigned — keep it out of the custom editor.
       if (envText && typeof stripReservedDBEnv === 'function') {
         var em = parseEnvMapClient(envText);
         if (em.PORT != null) {
@@ -3741,8 +3570,6 @@
     return '<div class="modal-backdrop" data-action="wizard:backdrop"><div class="modal'+size+'" data-stop="1"'+(submit ? ' data-submit-action="'+esc(submit)+'"' : '')+'>'+body+'</div></div>';
   }
 
-  /* === 08-render.js === */
-
   var _envFetch = {};
   function loadServiceEnv(slug, opts) {
     opts = opts || {};
@@ -3762,7 +3589,6 @@
       .finally(function(){ delete _envFetch[slug]; });
     return _envFetch[slug];
   }
-
   function captureSqlDrafts() {
     document.querySelectorAll('textarea.sql-input[id^=sql-]').forEach(function(el){
       var slug = el.id.slice(4);
@@ -3809,8 +3635,6 @@
         keepEnv = prev.env;
       }
       var svcNow = (deployed || []).filter(function(x){ return x.slug === slug; })[0];
-      // Empty draft linked_* is an explicit unlink — do not restore from svc.
-      // Textarea shows custom keys only when DB is linked — merge DB_* back in.
       if (linked) {
         var linkedSrc = linkedEnvMapFromSources(null, prev.env || '');
         if (!RESERVED_DB_KEYS.some(function(k){ return linkedSrc[k]; }) && svcNow) {
@@ -3843,7 +3667,6 @@
       };
     });
   }
-
   /** Open the live Activity console without remounting the page.
    *  Respects user collapse — never force-expands after they minimize. */
   function openActivityConsole(opts) {
@@ -3871,12 +3694,8 @@
     }
     activity.follow = true;
     syncActivityPoll();
-    // Do not call watchActivity() here — that would re-apply stale hub state
-    // over the clean context we just prepared. SSE/poll will attach live lines.
     patchActivity();
   }
-
-
   /**
    * Shared deploy/create/redeploy flow:
    * close wizard → Activity console → optimistic UI → API → wait for job.
@@ -3897,7 +3716,6 @@
       contextKey: opts.contextKey || ('job:' + Date.now())
     });
   }
-
   function waitDeployBusy(pollTimer, timeoutMs) {
     var wait = setInterval(function(){
       if (activity.active) return;
@@ -3913,7 +3731,6 @@
       refreshServices({ soft: true });
     }, timeoutMs || (20 * 60 * 1000));
   }
-
   function runServiceJob(opts) {
     opts = opts || {};
     if (busy.deploy && !opts.allowParallel) return null;
@@ -3972,8 +3789,6 @@
         waitDeployBusy(poll, opts.timeoutMs);
       });
   }
-
-
   /**
    * Toggle busy/spinner on action buttons without remounting the modal
    * (full remounts felt laggy and wiped input values).
@@ -3994,7 +3809,6 @@
       });
     });
   }
-
   function wizardSubmitAction() {
     if (!wizard) return '';
     switch (wizard.step) {
@@ -4005,7 +3819,6 @@
       default: return '';
     }
   }
-
   var _motionTimer = null;
   var _prevWizard = null; // truthy while a wizard session is open
   var _prevSettings = null;
@@ -4019,7 +3832,6 @@
   var _modalLeaveTimer = null;
   var _didBoot = false;
   var _routeSync = false;
-
   function routePath() {
     if (navView === 'overview') return '/overview';
     if (navView === 'files' || navView === 'activity') {
@@ -4042,7 +3854,6 @@
     }
     return '/overview';
   }
-
   function parseRoute(path) {
     var p = String(path || '/').replace(/\/+$/, '') || '/';
     if (p === '/' || p === '/overview') return { navView: 'overview' };
@@ -4065,7 +3876,6 @@
     }
     return { navView: 'overview' };
   }
-
   function applyRoute(route, opts) {
     opts = opts || {};
     route = route || {};
@@ -4105,7 +3915,6 @@
     }
     ensureStatsPoll();
     if (navView === 'settings') {
-      // Always load engine + Docker inventory on Settings (boot uses render:false).
       manageLoading = true;
       dockerOpen = true;
       settingsTab = 'storage';
@@ -4125,7 +3934,6 @@
     }
     if (navView === 'overview') refreshConfig(true);
   }
-
   function syncRouteFromState(replace) {
     if (_routeSync) return;
     var path = routePath();
@@ -4136,8 +3944,6 @@
     if (replace) history.replaceState(st, '', next);
     else history.pushState(st, '', next);
   }
-
-
   function navKey() {
     if (navView === 'overview') return 'overview';
     if (navView === 'files' || navView === 'activity') return 'files:' + (filesPath || '/');
@@ -4145,7 +3951,6 @@
     if (activeGroup) return 'group:' + activeGroup;
     return 'projects';
   }
-
   /** Gate CSS enter animations. ms keeps motion on long enough for spring curves. */
   function setMotion(on, ms) {
     var html = document.documentElement;
@@ -4161,7 +3966,6 @@
       html.dataset.boot = 'off';
     }, ms || 200);
   }
-
   function playBoot() {
     if (_didBoot) return;
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -4175,19 +3979,16 @@
     if (layout) layout.classList.add('boot-layout');
     setMotion(true, 200);
   }
-
   function pulseEnter(el) {
     if (!el) return;
     el.classList.remove('enter');
     void el.offsetWidth;
     el.classList.add('enter');
   }
-
   function openWizard(spec) {
     wizard = spec || {step: 'type'};
     renderModal();
   }
-
   function closeWizard(opts) {
     opts = opts || {};
     if (!wizard || _modalLeaving) return;
@@ -4196,7 +3997,6 @@
     var back = root && root.querySelector('.modal-backdrop');
     var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     var animate = opts.animate !== false && !reduce && modal && !root.hidden;
-
     function finish() {
       _modalLeaving = false;
       if (_modalLeaveTimer) { clearTimeout(_modalLeaveTimer); _modalLeaveTimer = null; }
@@ -4204,7 +4004,6 @@
       picker = null;
       renderModal();
     }
-
     if (!animate) {
       finish();
       return;
@@ -4221,7 +4020,6 @@
     if (_modalLeaveTimer) clearTimeout(_modalLeaveTimer);
     _modalLeaveTimer = setTimeout(finish, 220);
   }
-
   /** Swap only the services nav-page — keeps VPN/monitoring mounted (fast). */
   function softServicesKey() {
     var bits = [navView || '', settingsTab || '', activeGroup || '', settingsSlug || '', manageTab || '', 'z:' + (canvasZoom || 1)];
@@ -4265,45 +4063,46 @@
     } catch (e) {}
     return bits.join('|');
   }
-
-
-
   function railActiveView() {
     return navView || 'overview';
   }
-
   function shellRailHTML() {
     var active = railActiveView();
-    function item(view, label, icon) {
+    function item(view, label, shortLabel, iconName) {
       var on = active === view;
       return ''
-        +'<button type="button" class="rail-item'+(on?' active':'')+'" data-action="nav:view:'+view+'" title="'+esc(label)+'"'+(on?' aria-current="page"':'')+'>'
-          +'<span class="rail-ico" aria-hidden="true">'+icon+'</span>'
-          +'<span class="rail-label">'+esc(label)+'</span>'
+        +'<button type="button" class="rail-item'+(on?' active':'')+'" data-action="nav:view:'+view+'" title="'+esc(label)+'" aria-label="'+esc(label)+'"'+(on?' aria-current="page"':'')+'>'
+          +'<span class="rail-ico" aria-hidden="true">'+ico(iconName)+'</span>'
+          +'<span class="rail-label">'+esc(shortLabel)+'</span>'
         +'</button>';
     }
-    var icons = {
-      overview: '<svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
-      projects: '<svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>',
-      files: '<svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><path d="M3 11h18"/></svg>',
-      settings: '<svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>'
-    };
     return ''
-      +'<div class="rail-brand" title="FireWifi"><span class="rail-mark">FW</span><span class="rail-name">FireWifi</span></div>'
-      +'<div class="rail-nav">'
-        +item('overview', 'Overview', icons.overview)
-        +item('projects', 'Projects', icons.projects)
-        +item('files', 'Files', icons.files)
-        +item('settings', 'Settings', icons.settings)
-      +'</div>';
+      +'<div class="rail-brand" title="FireWifi"><span class="rail-mark" aria-hidden="true">FW</span><span class="rail-name">FireWifi</span></div>'
+      +'<nav class="rail-nav" aria-label="Main">'
+        +item('overview', 'Overview', 'Home', 'grid')
+        +item('projects', 'Projects', 'Apps', 'folder')
+        +item('files', 'Files', 'Files', 'files')
+        +item('settings', 'Settings', 'Setup', 'settings')
+      +'</nav>';
   }
-
   function renderRail() {
     var rail = document.getElementById('app-rail');
     if (!rail) return;
     rail.innerHTML = shellRailHTML();
   }
-
+  function scrollbarWidth() {
+    return Math.max(0, window.innerWidth - document.documentElement.clientWidth);
+  }
+  function applyScrollLockPad(on) {
+    var html = document.documentElement;
+    if (on) {
+      html.style.setProperty('--sbw', scrollbarWidth() + 'px');
+      return;
+    }
+    if (!html.classList.contains('modal-open') && !html.classList.contains('drawer-open')) {
+      html.style.removeProperty('--sbw');
+    }
+  }
   function setDrawerScrollLock(lock) {
     var html = document.documentElement;
     if (lock) {
@@ -4311,6 +4110,7 @@
       var y = window.scrollY || window.pageYOffset || 0;
       html.dataset.drawerLockY = String(y);
       html.style.setProperty('--drawer-lock-y', '-' + y + 'px');
+      applyScrollLockPad(true);
       html.classList.add('drawer-open');
       return;
     }
@@ -4319,16 +4119,15 @@
     html.classList.remove('drawer-open');
     html.style.removeProperty('--drawer-lock-y');
     delete html.dataset.drawerLockY;
+    applyScrollLockPad(false);
     window.scrollTo(0, restore);
   }
-
   function setAppBodyInert(on) {
     var body = document.querySelector(".app-body");
     if (!body) return;
     if (on) body.setAttribute("inert", "");
     else body.removeAttribute("inert");
   }
-
   function setDrawerA11y(open) {
     var root = document.getElementById("drawer-root");
     if (open) {
@@ -4343,7 +4142,6 @@
       if (prev && prev.focus) try { prev.focus(); } catch (e) {}
     }
   }
-
   function trapDrawerFocus(e) {
     if (!settingsSlug || e.key !== "Tab") return;
     var root = document.getElementById("drawer-root");
@@ -4364,7 +4162,6 @@
       first.focus();
     }
   }
-
   function onSvcCardKey(e) {
     if (e.key !== "Enter" && e.key !== " ") return;
     var t = e.target && e.target.closest && e.target.closest(".svc-widget-face[role=\"button\"], [role=\"button\"][data-action^=\"svc:settings:\"]");
@@ -4374,7 +4171,6 @@
     if (e.key === " ") e.stopPropagation();
     t.click();
   }
-
   function applyDrawerFolds(scope) {
     if (!scope) return;
     applyFoldsDOM(scope + ':access');
@@ -4382,7 +4178,6 @@
       if (k.indexOf(scope + ':') === 0) applyFoldsDOM(k);
     });
   }
-
   function renderDrawerPortal(opts) {
     opts = opts || {};
     var root = document.getElementById('drawer-root');
@@ -4448,7 +4243,6 @@
     document.querySelectorAll('[data-res-panel]').forEach(syncResLabels);
     placeOpenCselect();
   }
-
   function mainContentHTML(s, c) {
     if (navView === 'overview') {
       return ''
@@ -4469,7 +4263,6 @@
     }
     return '<div class="layout layout-empty"></div>';
   }
-
   function openServiceSettings(sslug) {
     if (!sslug) return;
     if (settingsSlug === sslug) {
@@ -4477,7 +4270,6 @@
       return;
     }
     if (_drawerLeaving) {
-      // Interrupt leave so a new open can proceed immediately.
       if (_drawerLeaveTimer) { clearTimeout(_drawerLeaveTimer); _drawerLeaveTimer = null; }
       _drawerLeaving = false;
       var prevLeave = settingsSlug;
@@ -4512,7 +4304,6 @@
       cpus: svc ? (svc.cpus || 1) : 1,
       auto_deploy: !!(svc && svc.auto_deploy)
     };
-    // Prefetch bucket credentials so the board is not stuck on "linking…"
     if (svc && svc.type === 'go' && settingsDraft[sslug].linked_bucket && !settingsDraft[sslug].bucket_env) {
       (function(appSlug, bSlug){
         api('/api/groups/' + encodeURIComponent(activeGroup) + '/services/' + encodeURIComponent(bSlug) + '/env')
@@ -4547,7 +4338,6 @@
       }).catch(function(){});
     }
   }
-
   function closeSettingsDrawer(opts) {
     opts = opts || {};
     if (!settingsSlug || _drawerLeaving) return;
@@ -4556,7 +4346,6 @@
     var back = root && root.querySelector('.svc-drawer-backdrop');
     var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     var animate = opts.animate !== false && !reduce && drawer && root && !root.hidden;
-
     function finish() {
       _drawerLeaving = false;
       if (_drawerLeaveTimer) { clearTimeout(_drawerLeaveTimer); _drawerLeaveTimer = null; }
@@ -4569,7 +4358,6 @@
       renderServices(opts.renderOpts || { animate: true });
       syncRouteFromState();
     }
-
     if (!animate) {
       finish();
       return;
@@ -4590,7 +4378,6 @@
   var CANVAS_GAP_Y = 36;
   var CANVAS_PAD = 28;
   var _layoutSaveTimer = null;
-
   function ensureCanvasPositions(list) {
     if (!canvasLayout) canvasLayout = { nodes: {} };
     if (!canvasLayout.nodes) canvasLayout.nodes = {};
@@ -4607,9 +4394,7 @@
     });
     saveCanvasLayout(false);
   }
-
   function autoArrangePositions(list) {
-    // Simple 2-column grid: storage (DB/bucket) left, apps right.
     var storage = [], apps = [], other = [];
     (list || []).forEach(function(s){
       if (!s || !s.slug) return;
@@ -4632,8 +4417,6 @@
     place(apps.concat(other), 1);
     return nodes;
   }
-
-
   function clampCanvasZoom(z) {
     z = Number(z) || 1;
     if (z < 0.5) z = 0.5;
@@ -4652,7 +4435,6 @@
     drawRwLinks();
     if (!opts.soft) renderServices({ soft: true, force: true });
   }
-
   function applyAutoArrange() {
     if (!activeGroup) return;
     var nodes = autoArrangePositions(deployed || []);
@@ -4662,7 +4444,6 @@
     saveCanvasLayout(true);
     showToast('Canvas arranged');
   }
-
   function applyCanvasPositionsDOM() {
     var board = document.querySelector('.panel-group-detail .rw-board');
     if (!board || !canvasLayout || !canvasLayout.nodes) return;
@@ -4679,7 +4460,6 @@
     board.style.minWidth = Math.max(640, Math.round(maxX + CANVAS_PAD)) + 'px';
     board.style.minHeight = Math.max(360, Math.round(maxY + CANVAS_PAD)) + 'px';
   }
-
   function saveCanvasLayout(immediate) {
     if (!activeGroup || !canvasLayout) return;
     var run = function(){
@@ -4697,7 +4477,6 @@
     if (_layoutSaveTimer) clearTimeout(_layoutSaveTimer);
     _layoutSaveTimer = setTimeout(run, 280);
   }
-
   function loadCanvasLayout(opts) {
     opts = opts || {};
     if (!activeGroup) {
@@ -4705,7 +4484,6 @@
       _layoutCachedGroup = '';
       return Promise.resolve();
     }
-    // Soft refreshes reuse a short-lived layout cache (positions rarely change).
     if (!opts.force && _layoutCachedGroup === activeGroup && (Date.now() - _layoutCachedAt) < 15000) {
       return Promise.resolve(canvasLayout);
     }
@@ -4724,12 +4502,10 @@
       .finally(function(){ _layoutInflight = null; });
     return _layoutInflight;
   }
-
   function bindCanvasDrag() {
     var canvas = document.querySelector('.panel-group-detail .rw-canvas.is-free');
     if (!canvas || canvas._dragBound) return;
     canvas._dragBound = true;
-
     canvas.addEventListener('wheel', function(e){
       if (!(e.metaKey || e.ctrlKey)) return;
       e.preventDefault();
@@ -4742,14 +4518,12 @@
       if (pct) pct.textContent = Math.round(canvasZoom * 100) + '%';
       drawRwLinks();
     }, { passive: false });
-
     function nodeFromEvent(e) {
       var t = e.target;
       if (!t || !t.closest) return null;
       if (t.closest('[data-stop], button, a, input, textarea, select, .cselect')) return null;
       return t.closest('.rw-node-wrap[data-node]');
     }
-
     canvas.addEventListener('pointerdown', function(e){
       if (e.button != null && e.button !== 0) return;
       var wrap = nodeFromEvent(e);
@@ -4768,9 +4542,7 @@
         captured: false,
         pointerId: e.pointerId
       };
-      // Do not capture yet — a plain click must open settings.
     });
-
     canvas.addEventListener('pointermove', function(e){
       if (!_canvasDrag || _canvasDrag.pointerId !== e.pointerId) return;
       var dx = e.clientX - _canvasDrag.startX;
@@ -4794,7 +4566,6 @@
       _canvasDrag.wrap.style.top = Math.round(ny) + 'px';
       drawRwLinks();
     });
-
     function endDrag(e) {
       if (!_canvasDrag || (e && _canvasDrag.pointerId !== e.pointerId)) return;
       var d = _canvasDrag;
@@ -4811,8 +4582,6 @@
         saveCanvasLayout(false);
         return;
       }
-      // Click (no drag) → open configuration. Suppress the follow-up DOM click
-      // so data-action=svc:settings does not toggle the drawer closed again.
       d.wrap.setAttribute('data-skip-click', '1');
       setTimeout(function(){ d.wrap.removeAttribute('data-skip-click'); }, 50);
       openServiceSettings(d.slug);
@@ -4820,7 +4589,6 @@
     canvas.addEventListener('pointerup', endDrag);
     canvas.addEventListener('pointercancel', endDrag);
   }
-
   function drawRwLinks() {
     var canvas = document.querySelector('.panel-group-detail .rw-canvas');
     if (!canvas) return;
@@ -4861,7 +4629,6 @@
       linksSvg.setAttribute('height', String(h));
     }
   }
-
   function renderServices(opts) {
     opts = opts || {};
     captureWizardDraft();
@@ -4893,19 +4660,16 @@
     var prevDeploys = {};
     host.querySelectorAll('.svc-card[data-slug]').forEach(function(el){ prevSlugs[el.dataset.slug] = true; });
     host.querySelectorAll('.deploy-row[data-deploy-id]').forEach(function(el){ prevDeploys[el.getAttribute('data-deploy-id')] = true; });
-
     var s = state || {};
     var wrap = document.createElement('div');
     wrap.innerHTML = services(s);
     var next = wrap.firstChild;
     if (!next) return;
-
     var nav = navKey();
     var navChanged = _prevNav != null && nav !== _prevNav;
     var dir = opts.soft ? null : (opts.dir || _navDir || null);
     if (!opts.soft && navChanged && !dir) dir = 'forward';
     if (dir) next.classList.add(dir === 'back' ? 'nav-in-back' : 'nav-in');
-
     var appearAny = false;
     next.querySelectorAll('.svc-card[data-slug]').forEach(function(el){
       var slug = el.dataset.slug;
@@ -4921,24 +4685,19 @@
         appearAny = true;
       }
     });
-    // opts.appear: only animate truly new cards (already tagged above). Never remount-animate everything.
-
     var softKey = softServicesKey();
     if (opts.soft && !opts.appear && !opts.force && host.getAttribute('data-soft') === softKey) {
       return; // identical — avoid remount thrash / animation restarts
     }
     next.setAttribute('data-soft', softKey);
     host.replaceWith(next);
-
     renderDrawerPortal({ patchBody: !!settingsSlug && settingsSlug === _prevSettings && !opts.forceDrawer });
     renderRail();
     if (dir || opts.animate) setMotion(true, dir ? 200 : 180);
     else if (appearAny) setMotion(true, 200);
-
     _prevSettings = settingsSlug;
     _prevNav = nav;
     _navDir = null;
-
     document.querySelectorAll('[data-res-panel]').forEach(syncResLabels);
     placeOpenCselect();
     applyCanvasPositionsDOM(); bindCanvasDrag(); drawRwLinks();
@@ -4947,7 +4706,6 @@
       if (sel) sel.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
     }
   }
-
   function setModalScrollLock(lock) {
     var html = document.documentElement;
     if (lock) {
@@ -4955,6 +4713,7 @@
       var y = window.scrollY || window.pageYOffset || 0;
       html.dataset.scrollLockY = String(y);
       html.style.setProperty('--scroll-lock-y', '-' + y + 'px');
+      applyScrollLockPad(true);
       html.classList.add('modal-open');
       return;
     }
@@ -4963,9 +4722,9 @@
     html.classList.remove('modal-open');
     html.style.removeProperty('--scroll-lock-y');
     delete html.dataset.scrollLockY;
+    applyScrollLockPad(false);
     window.scrollTo(0, restore);
   }
-
   /** Modal lives outside #app so page re-renders do not remount/re-animate it. */
   function renderModal() {
     var root = document.getElementById('modal-root');
@@ -4993,7 +4752,6 @@
       }, 240);
     }
   }
-
   function patchMetricEl(el, value, detail, percent) {
     if (!el) return;
     var p = clamp(percent).toFixed(0) + '%';
@@ -5008,7 +4766,6 @@
       requestAnimationFrame(function(){ span.style.width = p; });
     }
   }
-
   function patchMonitoringLive(s) {
     var mon = document.getElementById('panel-monitoring');
     if (!mon) return;
@@ -5025,7 +4782,6 @@
     if (nets[0]) nets[0].textContent = fmtRate(net.down_bytes_per_sec);
     if (nets[1]) nets[1].textContent = fmtRate(net.up_bytes_per_sec);
   }
-
   function patchVpnChrome(vpnEl, s) {
     if (!vpnEl || !s) return;
     var mode = s.mode || 'mullvad';
@@ -5034,7 +4790,6 @@
     var big = vpnEl.querySelector('.vpn-title .big');
     if (big) {
       var label = mode === 'residential' ? 'Residential' : 'Mullvad';
-      // keep shield icon, replace text node after svg
       var svg = big.querySelector('svg');
       big.innerHTML = '';
       if (svg) big.appendChild(svg);
@@ -5048,7 +4803,6 @@
       pill.className = 'pill ' + h.cls;
       var pulse = pill.querySelector('.pulse');
       if (pulse) pulse.className = 'pulse' + (h.cls === 'off' ? ' off' : '');
-      // text after pulse
       var nodes = [].slice.call(pill.childNodes);
       nodes.forEach(function(n){ if (n.nodeType === 3) pill.removeChild(n); });
       pill.appendChild(document.createTextNode(h.text));
@@ -5062,12 +4816,10 @@
       seg[1].classList.toggle('active', mode === 'residential');
       seg[1].disabled = !!(busy['mode:mullvad'] || busy['mode:residential']);
     }
-    // rows
     var rows = vpnEl.querySelectorAll('.rows .row strong');
     if (rows[0]) rows[0].textContent = s.ssid || '—';
     if (rows[1]) rows[1].textContent = s.hotspot_ip || '—';
     if (rows[2]) rows[2].textContent = dhcp;
-    // action buttons: rebuild actions row only
     var actions = vpnEl.querySelector('.actions');
     if (actions) {
       actions.innerHTML = ''
@@ -5076,16 +4828,12 @@
         + btn('Restart', 'hotspot:restart', 'btn-quiet', false, 'refresh');
     }
   }
-
   function patchLive() {
     var s = state || {};
-    // Prefer live DOM open state; keep flag in sync
     var vpnEl = document.getElementById('panel-vpn');
     var detailsOpen = !!(vpnEl && vpnEl.querySelector('details.settings[open]'));
     if (detailsOpen) hotspotSettingsOpen = true;
-
     patchMonitoringLive(s);
-
     if (vpnEl) {
       if (hotspotSettingsOpen || detailsOpen) {
         patchVpnChrome(vpnEl, s);
@@ -5099,12 +4847,10 @@
     }
     setLive(true);
   }
-
   function render(opts) {
     opts = opts || {};
     captureWizardDraft();
     captureSettingsDrafts();
-    // Preserve hotspot settings expand across full re-renders
     var det = document.querySelector('#panel-vpn details.settings');
     if (det) hotspotSettingsOpen = !!det.open;
     var draft = readFormDraft();
@@ -5115,17 +4861,13 @@
     var dir = opts.dir || _navDir || null;
     if (navChanged && !dir) dir = 'forward';
     var settingsChanged = settingsSlug && settingsSlug !== _prevSettings;
-    // Page motion only — modal enter is handled exclusively in renderModal().
     var wantMotion = !!opts.animate || !!dir || settingsChanged;
-
     document.getElementById('app').innerHTML = mainContentHTML(s, c);
     renderRail();
-
     var page = document.querySelector('.nav-page');
     if (page && dir) {
       page.classList.add(dir === 'back' ? 'nav-in-back' : 'nav-in');
     }
-
     renderModal();
     renderDrawerPortal({ patchBody: !!settingsSlug && !settingsChanged });
     drawRwLinks();
@@ -5134,12 +4876,10 @@
     } else if (wantMotion) {
       setMotion(true, dir ? 200 : 180);
     }
-
     _prevWizard = wizard;
     _prevSettings = settingsSlug;
     _prevNav = nav;
     _navDir = null;
-
     if (picker && picker.id) {
       var qel = document.getElementById('cselect-q-' + picker.id);
       if (qel) {
@@ -5151,7 +4891,6 @@
     document.querySelectorAll('[data-res-panel]').forEach(syncResLabels);
     placeOpenCselect();
   }
-
   function ensureStatsPoll() {
     if (!activeGroup) {
       clearInterval(statsPollTimer);
@@ -5159,7 +4898,6 @@
       _statsPollGroup = '';
       return;
     }
-    // Keep one timer per group — resetting on every refresh stampeded /stats.
     if (statsPollTimer && _statsPollGroup === activeGroup) return;
     clearInterval(statsPollTimer);
     statsPollTimer = null;
@@ -5184,23 +4922,18 @@
     tick();
     statsPollTimer = setInterval(tick, 4000);
   }
-
   var _refreshServicesInflight = null;
   var _statsPollGroup = '';
   var _layoutInflight = null;
   var _layoutCachedAt = 0;
   var _layoutCachedGroup = '';
   var _githubStatusAt = 0;
-
   function refreshServices(opts) {
     opts = opts || {};
     if (document.hidden && opts.soft) {
       return _refreshServicesInflight || Promise.resolve();
     }
-    // Single-flight: overlapping polls were exhausting browser sockets
-    // (ERR_INSUFFICIENT_RESOURCES) while /services waits on docker.
     if (_refreshServicesInflight) return _refreshServicesInflight;
-    // GitHub status is slow (remote) — throttle + never block paint.
     if (Date.now() - _githubStatusAt > 30000) {
       _githubStatusAt = Date.now();
       api("/api/github/status").then(function(g){
@@ -5277,12 +5010,9 @@
       else renderServices(Object.assign({soft: !!(opts.soft || (!opts.animate && !opts.dir))}, opts));
     }).finally(function(){ _refreshServicesInflight = null; });
   }
-
   function loadRepos() {
     return api('/api/github/repos').then(function(r){ repos = r.repos || []; }).catch(function(e){ repos = []; showToast(e.message || 'Could not load repos'); });
   }
-
-
   function readFormDraft() {
     var form = document.getElementById("config-form");
     if (!formDirty || !form) return null;
@@ -5301,7 +5031,6 @@
       config = c;
       var editing = hotspotSettingsOpen || !!(document.querySelector('#panel-vpn details.settings[open]'));
       if (editing && !force) {
-        // Keep the open form intact; live chrome is patched via patchLive/SSE.
         return c;
       }
       render();
@@ -5350,9 +5079,7 @@
       .catch(function(e){ showToast(e.message || 'Action failed'); })
       .finally(function(){ delete busy[id]; renderServices({soft:true}); });
   }
-
   function onUiAction(e) {
-    // Keep access Open/Copy usable; don't let parent row actions steal the click.
     var stop = e.target.closest('[data-stop]');
     if (stop && !e.target.closest('[data-stop] [data-action], [data-stop][data-action], a[href]')) {
       e.stopPropagation();
@@ -5365,11 +5092,9 @@
     var el = e.target.closest('[data-action]');
     if (!el || el.disabled) return;
     if (stop && !stop.contains(el) && el.closest('.svc-row')) {
-      // action on row but click originated in stop zone
       return;
     }
     var id = el.dataset.action;
-
     if (id.indexOf('fold:') === 0) {
       e.stopPropagation();
       var foldKey = id.slice(5);
@@ -5523,7 +5248,6 @@
       render();
       return;
     }
-    
     if (id === 'files:go') {
       var pth = el.getAttribute('data-path') || (typeof FILES_HOME !== 'undefined' ? FILES_HOME : '/home/andiq');
       closeFilesPreview();
@@ -5620,7 +5344,6 @@
         .finally(function(){ setActionBusy(id, false); });
       return;
     }
-
     if (id.indexOf('hotspot:') === 0) {
       var cmd = id.split(':')[1];
       runAction(id, function(){ return api('/api/hotspot/' + cmd, {method:'POST'}); }, 'Hotspot ' + cmd);
@@ -5717,7 +5440,6 @@
         wizard.port_used = (a && a.used) || [];
         renderModal();
       }).catch(function(){});
-      // Prefetch linked service credentials so env boards never sit on "linking…"
       if (goSpec.linked_database) {
         api('/api/groups/' + encodeURIComponent(activeGroup) + '/services/' + encodeURIComponent(goSpec.linked_database) + '/env')
           .then(function(r){
@@ -5807,7 +5529,6 @@
         env: (wizard && wizard.env) || ''
       };
       if (!payload.repo) { showToast('Pick a repository'); return; }
-      // PORT is server-assigned — never send a user PORT.
       if (payload.env) {
         var em0 = parseEnvMapClient(payload.env);
         if (em0.PORT != null) {
@@ -5885,7 +5606,6 @@
               if (next != null && String(next).trim() !== '' && settingsDraft[sslug]) {
                 settingsDraft[sslug].env = next;
               }
-              // App env now has injected refs — drop preview cache when ready.
               if (settingsDraft[sslug] && settingsDraft[sslug].linked_bucket) {
                 var board = bucketLinkBoardMap(
                   settingsDraft[sslug].linked_bucket,
@@ -5930,7 +5650,6 @@
         failToast: 'Create failed',
         waitActivity: true,
         beforeRequest: function(){
-          // Keep the list stable — do not flash a temporary card that vanishes on failure.
         },
         request: function(){
           return api('/api/groups/' + encodeURIComponent(activeGroup) + '/services', {
@@ -6035,7 +5754,6 @@
       ensureStatsPoll();
       navView = 'projects';
       _navDir = 'forward';
-      // Paint instantly — don't wait on the network.
       renderServices({animate:true, dir:'forward'});
       refreshServices({soft:true});
       syncRouteFromState();
@@ -6203,7 +5921,6 @@
         .catch(function(e){ showToast(e.message || 'Failed'); })
         .finally(function(){ delete busy['engine:save']; if (onSettingsStoragePage()) renderServices({soft:true}); });
     } else if (id === 'docker:prune') {
-
       var o = dockerOpts || {};
       var bits = [];
       if (o.images) bits.push(o.all_unused ? 'unused images' : 'dangling images');
@@ -6348,7 +6065,6 @@
         : (ckey.indexOf('access:') === 0 ? 'access-' + ckey.slice(7)
         : 'access-' + ckey)));
       var code = document.getElementById(eid) || document.getElementById('conn-done');
-      // Prefer full URL from data-copy / service model — never truncated display text.
       var text = (code && code.getAttribute('data-copy')) || '';
       if (!text) {
         if (ckey.indexOf('access-pub:') === 0) {
@@ -6367,12 +6083,10 @@
     } else if (id.indexOf('deploy:logs:') === 0) {
       e.stopPropagation();
       var parts = id.split(':');
-      // deploy:logs:slug:dpl_xxx
       var dslug = parts[2] || '';
       var did = parts.slice(3).join(':');
       if (dslug && did) {
         if (settingsSlug !== dslug) {
-          // Enter service first so Deployments context is visible
           settingsSlug = dslug;
           Object.keys(folds).forEach(function(k){ if (k.indexOf(dslug+':')===0) folds[k] = false; });
           folds[dslug + ':deploys'] = true;
@@ -6423,7 +6137,6 @@
             return loadServiceEnv(saveslug, { force: true }).then(function(next){
               if (!settingsDraft[saveslug]) return;
               if (next != null && String(next).trim() !== '') settingsDraft[saveslug].env = next;
-              // Once applied, drop preview — board reads refs from app env.
               if (svc.linked_bucket) {
                 /* keep bucket_env as fallback until env has keys */
                 var board = bucketLinkBoardMap(svc.linked_bucket, settingsDraft[saveslug].env || '', settingsDraft[saveslug].bucket_env);
@@ -6503,7 +6216,6 @@
         if (sqlAbort[qslug] === ac) sqlAbort[qslug] = null;
         if (!patchSqlChrome(qslug)) renderServices({ soft: true, force: true });
       });
-    
     } else if (id.indexOf('svc:tunnel-stop:') === 0) {
       var tslug = id.slice('svc:tunnel-stop:'.length);
       if (busy['tunnel-stop:'+tslug]) return;
@@ -6512,7 +6224,6 @@
       api('/api/groups/' + encodeURIComponent(activeGroup) + '/services/' + encodeURIComponent(tslug) + '/tunnel', { method: 'DELETE' })
         .then(function(svc){
           showToast('Tunnel closed');
-          // merge into deployed
           deployed = (deployed || []).map(function(s){ return s.slug === tslug ? Object.assign({}, s, svc) : s; });
         })
         .catch(function(e){ showToast((e && e.message) || 'Unexpose failed'); })
@@ -6538,7 +6249,6 @@
         })
         .catch(function(e){ showToast((e && e.message) || 'Expose failed'); })
         .finally(function(){ delete busy['tunnel:'+eslug]; renderServices({ soft: true, force: true }); });
-
 } else if (id.indexOf('svc:') === 0) {
       var bits = id.split(':');
       var action = bits[1];
@@ -6614,7 +6324,6 @@
         .finally(function(){ delete busy[id]; renderServices({soft:true}); });
     }
   }
-
   document.getElementById('app').addEventListener('click', onUiAction);
   var _modalRootEl = document.getElementById('modal-root');
   if (_modalRootEl) _modalRootEl.addEventListener('click', onUiAction);
@@ -6622,7 +6331,6 @@
   if (_drawerRootEl) _drawerRootEl.addEventListener('click', onUiAction);
   var _railRootEl = document.getElementById('app-rail');
   if (_railRootEl) _railRootEl.addEventListener('click', onUiAction);
-
   function loadBranches(repo, preferred) {
     if (!wizard || !repo) return Promise.resolve();
     wizard.loadingBranches = true; wizard.loadingDirs = true; wizard.repo = repo;
@@ -6653,7 +6361,6 @@
         wizard.root_has_go_mod = !!r.root_has_go_mod;
         wizard.suggested_root = (r.suggested_root != null) ? r.suggested_root : '';
         wizard.root_hint = r.suggest_reason || '';
-        // Autoselect detected module unless the user already overrode Root.
         if (!wizard.root_dir_locked) {
           wizard.root_dir = wizard.suggested_root || '';
         }
@@ -6668,13 +6375,11 @@
       })
       .finally(function(){ wizard.loadingDirs = false; renderModal(); });
   }
-
   function rootHasGoModAt(path) {
     path = String(path || '');
     if (path === '') return !!wizard.root_has_go_mod;
     return (wizard.go_modules || []).some(function(m){ return m && m.has_go_mod && String(m.path) === path; });
   }
-
   function rootHintForSelection(path) {
     path = String(path || '');
     if (!wizard || !wizard.repo) return '';
@@ -6690,7 +6395,6 @@
     return 'Using '+path+'/ · no go.mod detected here (override OK if you know the path)';
   }
 
-  /* === 09-activity.js === */
   var _activityWasOpen = false;
   var _activityFreshLoad = true; // first snapshot after page load = clean boot
   var activity = {
@@ -6706,7 +6410,6 @@
   var _apStepsKey = '';
   var _apPctShown = -1;
   var _apLabelShown = '';
-
   function activityLinesText() {
     return (activity.lines || []).map(function(line){
       var at = line && line.at ? String(line.at) : '';
@@ -6714,7 +6417,6 @@
       return at ? (at + '  ' + tx) : tx;
     }).join('\n');
   }
-
   function isSelectingIn(el) {
     if (!el) return false;
     var sel = window.getSelection && window.getSelection();
@@ -6726,11 +6428,9 @@
       return false;
     }
   }
-
   function nearBottom(log, px) {
     return log.scrollHeight - log.scrollTop - log.clientHeight < (px || 40);
   }
-
   function setActivityFollow(on) {
     activity.follow = !!on;
     var btn = document.getElementById('activity-follow');
@@ -6738,36 +6438,27 @@
     var root = document.getElementById('activity');
     if (root) root.classList.toggle('paused', !activity.follow);
   }
-
   function activityLogCanScroll(log) {
     return !!(log && log.scrollHeight > log.clientHeight + 1);
   }
-
   function activityLogAtTop(log) {
     return !log || log.scrollTop <= 0;
   }
-
   function activityLogAtBottom(log) {
     return !log || nearBottom(log, 2);
   }
-
   /** Keep wheel gestures inside the logger — never chain to the page. */
   function lockActivityWheel(e, log) {
     if (!log) return;
-    // Never let the page see this wheel event.
     e.stopPropagation();
-    // Scrolling up while following → pause auto-follow.
     if (e.deltaY < 0 && activity.follow) setActivityFollow(false);
-
     var canScroll = activityLogCanScroll(log);
     var up = e.deltaY < 0;
     var down = e.deltaY > 0;
-    // No overflow, or hitting an edge: block default so the document does not scroll.
     if (!canScroll || (up && activityLogAtTop(log)) || (down && activityLogAtBottom(log))) {
       e.preventDefault();
     }
   }
-
   function bindActivityScroll() {
     if (_actScrollBound) return;
     var log = document.getElementById('activity-log');
@@ -6787,11 +6478,9 @@
         }
       });
     }, {passive: true});
-    // passive:false required so preventDefault can stop page scroll.
     log.addEventListener('wheel', function(e){
       lockActivityWheel(e, log);
     }, {passive: false});
-    // Also trap wheel on the activity chrome (header/progress) so page doesn't jump.
     var root = document.getElementById('activity');
     if (root && !root._fwWheelLock) {
       root._fwWheelLock = true;
@@ -6802,19 +6491,15 @@
       }, {passive: false});
     }
   }
-
   function alogHTML(line) {
     return '<div class="alog '+esc(line.level || 'info')+'">'
       +'<span class="at">'+esc(line.at || '')+'</span>'
       +'<span class="tx">'+esc(line.text || '')+'</span>'
       +'</div>';
   }
-
   function renderActivityLines(log, force) {
     var lines = activity.lines || [];
     var selecting = !force && isSelectingIn(log);
-
-    // New job / reset
     if (activity.seq !== _actSeqRendered || lines.length < _actRendered) {
       if (selecting) return false;
       if (!lines.length && activity.active) {
@@ -6827,8 +6512,6 @@
       _actSeqRendered = activity.seq;
       return true;
     }
-
-    // Append only — preserves selection on earlier lines
     if (lines.length > _actRendered) {
       var html = '';
       for (var i = _actRendered; i < lines.length; i++) html += alogHTML(lines[i]);
@@ -6836,19 +6519,16 @@
       _actRendered = lines.length;
       return true;
     }
-
     if (!lines.length && activity.active && !_actRendered) {
       if (selecting) return false;
       log.innerHTML = '<div class="alog info"><span class="at"></span><span class="tx">Waiting for steps…</span></div>';
     }
     return true;
   }
-
   function progressStepsKey(p) {
     if (!p || !p.steps) return '';
     return (p.steps || []).map(function(s){ return (s.id || '') + ':' + (s.status || ''); }).join('|');
   }
-
   function patchActivityProgress() {
     var wrap = document.getElementById('activity-progress');
     if (!wrap) return;
@@ -6860,7 +6540,6 @@
       _apPctShown = -1;
       return;
     }
-
     var pct = Math.max(0, Math.min(100, Number(p.percent) || 0));
     if (!activity.active && (activity.ok === true || activity.ok === false)) pct = 100;
     var label = p.label || 'Working…';
@@ -6869,14 +6548,12 @@
       label = 'Step ' + p.index + ' of ' + p.total + ' · ' + (p.label || 'Working…');
       if (p.detail) label += ' · ' + p.detail;
     }
-
     var stepEl = document.getElementById('ap-step');
     var remainEl = document.getElementById('ap-remain');
     var pctEl = document.getElementById('ap-pct');
     var fill = document.getElementById('ap-fill');
     var bar = document.getElementById('ap-bar');
     var list = document.getElementById('ap-steps');
-
     function bump(el) {
       if (!el) return;
       el.classList.remove('bump');
@@ -6901,7 +6578,6 @@
     }
     if (fill) fill.style.width = pct + '%';
     if (bar) bar.setAttribute('aria-valuenow', String(pct));
-
     var key = progressStepsKey(p);
     if (list && key !== _apStepsKey) {
       _apStepsKey = key;
@@ -6916,7 +6592,6 @@
       bump(activeLi);
     }
   }
-
   /**
    * Wipe the console to a clean context. Call before every new job,
    * history view, or app-log view so stale lines never linger.
@@ -6924,7 +6599,6 @@
   function resetActivityConsole(opts) {
     opts = opts || {};
     if (typeof clearDeployLogView === 'function' && opts.clearPin !== false) {
-      // keep pin clear unless viewing history (caller sets viewDeploy after)
       if (!opts.keepPin) clearDeployLogView();
     }
     activity.lines = [];
@@ -6953,19 +6627,13 @@
     if (prog) prog.hidden = true;
     if (opts.patch !== false) patchActivity();
   }
-
   function applyActivity(snap, opts) {
     opts = opts || {};
     if (!snap) return;
-
-    // First snapshot after full page load (GET or SSE) is always a clean boot.
     if (_activityFreshLoad) {
       opts = Object.assign({}, opts, { boot: true });
       _activityFreshLoad = false;
     }
-
-    // Page boot / soft refresh: never reuse a finished job's console.
-    // Only resume if a job is still actively running.
     if (opts.boot) {
       clearDeployLogView();
       if (!snap.active) {
@@ -6996,28 +6664,21 @@
         syncActivityPoll();
         return;
       }
-      // Live job in progress — take over that context cleanly.
       activity.contextKey = 'live:' + (snap.scope || snap.deployment_id || snap.title || 'job');
     }
-
-    // Idle empty snapshot must not wipe a finished console still on screen.
     if (!opts.boot && !opts.fromHistory && !snap.active && !(snap.lines && snap.lines.length)) {
       if (activity.open && activity.lines && activity.lines.length) return;
       if (!activity.open) return;
     }
-
-    // Pinned deploy history: only accept matching live stream.
     if (activity.viewDeploy && !opts.fromHistory) {
       var liveId = snap.deployment_id || '';
       if (liveId && liveId === activity.viewDeploy) {
-        // same deploy — fall through
       } else if (snap.active && liveId && liveId !== activity.viewDeploy) {
         return; // different live job — keep pinned history
       } else if (!opts.forceOpen) {
         return;
       }
     }
-
     var prevSeq = activity.seq;
     var prevKey = activity.contextKey || '';
     var nextKey = activity.viewDeploy
@@ -7025,8 +6686,6 @@
       : (snap.active
           ? ('live:' + (snap.scope || snap.deployment_id || snap.title || 'job'))
           : (opts.fromHistory ? (activity.contextKey || '') : ''));
-
-    // New live job (seq bump while active) → hard reset before applying lines.
     var newLiveJob = !opts.fromHistory && !!snap.active && (snap.seq || 0) !== prevSeq && !activity.viewDeploy;
     if (newLiveJob || (nextKey && prevKey && nextKey !== prevKey && snap.active && !opts.fromHistory)) {
       var logEl = document.getElementById('activity-log');
@@ -7038,7 +6697,6 @@
       _apLabelShown = '';
       activity.follow = true;
     }
-
     activity.seq = snap.seq || 0;
     activity.active = !!snap.active;
     activity.title = snap.title || '';
@@ -7055,7 +6713,6 @@
     } else if (snap.active) {
       activity.contextKey = 'live:' + (snap.scope || snap.deployment_id || snap.title || 'job');
     }
-
     if (activity.seq !== prevSeq) {
       activity.follow = true;
       _actRendered = 0;
@@ -7064,31 +6721,24 @@
       _apPctShown = -1;
       _apLabelShown = '';
     }
-
-    // Only auto-open for live work or explicit open (history / user action).
-    // Never reopen a finished job just because lines still sit in the hub.
     if (snap.active || opts.forceOpen || opts.fromHistory) {
       activity.open = true;
       if (!activity.userCollapsed) activity.collapsed = false;
     }
-
     patchActivity();
     syncActivityPoll();
   }
-
   function clearDeployLogView() {
     activity.viewDeploy = '';
     activity.viewGroup = '';
     activity.viewSlug = '';
     try { sessionStorage.removeItem('fw.deployLogs'); } catch (e) {}
   }
-
   function persistDeployLogView(group, slug, id) {
     try {
       sessionStorage.setItem('fw.deployLogs', JSON.stringify({ group: group, slug: slug, id: id }));
     } catch (e) {}
   }
-
   /** Open Activity with durable logs for one deployment (explicit click only). */
   function openDeployLogs(group, slug, deployId, meta) {
     meta = meta || {};
@@ -7108,7 +6758,6 @@
     activity.viewDeploy = deployId;
     activity.viewGroup = group;
     activity.viewSlug = slug;
-    // Do not persist across full page refresh — refresh stays clean.
     try { sessionStorage.removeItem('fw.deployLogs'); } catch (e) {}
     syncActivityPoll();
     var path = '/api/groups/' + encodeURIComponent(group)
@@ -7117,7 +6766,6 @@
     api(path).then(function(r){
       var lines = (r && r.lines) || [];
       var liveSame = !!(activity.active && activity.deployment_id === deployId);
-      // Prefer live ring if this deploy is currently building and has more lines.
       if (liveSame && activity.lines && activity.lines.length > lines.length) {
         lines = activity.lines;
       }
@@ -7131,7 +6779,6 @@
         progress: liveSame ? activity.progress : null,
         lines: lines
       }, { fromHistory: true, forceOpen: true, viewDeploy: deployId, viewGroup: group, viewSlug: slug });
-      // If live, refresh from /api/activity so SSE/poll keeps appending.
       if (liveSame) {
         api('/api/activity').then(function(s){
           if (s && s.deployment_id === deployId) applyActivity(s);
@@ -7141,7 +6788,6 @@
       showToast((e && e.message) || 'Failed to load deploy logs');
     });
   }
-
   /** Map a raw log line to activity levels: step|info|cmd|out|ok|warn|err. Prefer slog/zerolog level= keys. */
   function classifyLogLine(text) {
     var s = String(text || '').trim();
@@ -7160,13 +6806,11 @@
     if (/\bpanic:/.test(low) || /\bfatal error\b/.test(low)) return 'err';
     return 'out';
   }
-
   function linesFromText(text) {
     return String(text || '').split('\n').filter(function(l){ return l.trim(); }).map(function(l, i){
       return { seq: i + 1, at: '', level: classifyLogLine(l), text: l };
     });
   }
-
   function activityOkFromLines(lines) {
     var hasErr = false;
     var hasWarn = false;
@@ -7179,7 +6823,6 @@
     if (hasWarn) return null;
     return null;
   }
-
   function openServiceCrashLogs(group, slug) {
     group = String(group || activeGroup || '');
     slug = String(slug || '');
@@ -7214,13 +6857,9 @@
       showToast((e && e.message) || 'Failed to load logs');
     });
   }
-
   function restoreDeployLogView() {
-    // Intentionally empty: page refresh must start with a clean console.
-    // Deploy logs open only via explicit click.
     try { sessionStorage.removeItem('fw.deployLogs'); } catch (e) {}
   }
-
   function anyServiceBuilding() {
     return (deployed || []).some(function(s){
       if (!s) return false;
@@ -7228,7 +6867,6 @@
       return (s.deployments || []).some(function(d){ return d.status === 'building' || d.status === 'queued'; });
     });
   }
-
   var _svcSoftTick = 0;
   function syncActivityPoll() {
     var need = activity.active || busy.deploy || anyServiceBuilding() || Object.keys(busy).some(function(k){
@@ -7241,7 +6879,6 @@
           api('/api/activity').then(function(s){
             var wasActive = activity.active;
             applyActivity(s);
-            // Job vanished (crash/restart) while UI still thinks a build is running.
             if (wasActive && !activity.active && (busy.deploy || anyServiceBuilding()) && typeof refreshServices === 'function') {
               delete busy.deploy;
               refreshServices({ soft: true });
@@ -7249,7 +6886,6 @@
           }).catch(function(){});
           if (busy.deploy || activity.active || anyServiceBuilding()) {
             _svcSoftTick++;
-            // ~ every 8s while a job runs (4 * 2s)
             if (_svcSoftTick % 4 === 0 && typeof refreshServices === 'function') {
               refreshServices({ soft: true });
             }
@@ -7262,7 +6898,6 @@
       _svcSoftTick = 0;
     }
   }
-
   function closeActivityAnimated() {
     var root = document.getElementById('activity');
     if (!activity.open) return;
@@ -7286,7 +6921,6 @@
       patchActivity();
     }, 360);
   }
-
   function patchActivity() {
     var root = document.getElementById('activity');
     if (!root) return;
@@ -7327,8 +6961,6 @@
       setTimeout(function(){ root.classList.remove('reveal'); }, 460);
     }
     _activityWasOpen = !!show;
-
-
     var title = document.getElementById('activity-title');
     var scope = document.getElementById('activity-scope');
     var status = document.getElementById('activity-status');
@@ -7353,9 +6985,7 @@
     var tog = root.querySelector('[data-action="activity:toggle"]');
     if (tog) tog.textContent = activity.collapsed ? 'Expand' : 'Collapse';
     if (followBtn) followBtn.hidden = activity.follow;
-
     patchActivityProgress();
-
     if (log && !activity.collapsed) {
       var updated = renderActivityLines(log, false);
       if (updated !== false && activity.follow) {
@@ -7363,7 +6993,6 @@
       }
     }
   }
-
   function watchActivity() {
     api('/api/activity').then(function(s){
       applyActivity(s, { boot: true });
@@ -7372,7 +7001,6 @@
     });
   }
 
-  /* === 10-events.js === */
   document.getElementById('app').addEventListener('change', function(e) {
     if (e.target && e.target.getAttribute && e.target.getAttribute('data-dock-opt')) {
       var key = e.target.getAttribute('data-dock-opt');
@@ -7380,7 +7008,6 @@
       dockerOpts[key] = !!e.target.checked;
       return;
     }
-    // custom selects handle their own picks
   });
   document.addEventListener('click', function(e) {
     if (!picker) return;
@@ -7405,7 +7032,6 @@
       }
       picker.query = e.target.value || '';
       picker.caret = e.target.selectionStart;
-      // In-place filter — do not remount modal (that broke search focus/filtering).
       filterOpenCselect();
       return;
     }
@@ -7482,8 +7108,6 @@
   });
   document.getElementById("app").addEventListener("keydown", onSvcCardKey);
   if (_drawerRootInput) _drawerRootInput.addEventListener("keydown", onSvcCardKey);
-
-
   window.addEventListener('resize', function(){
     if (picker) placeOpenCselect();
     if (typeof drawRwLinks === 'function') drawRwLinks();
@@ -7516,8 +7140,6 @@
     if (t.tagName === 'TEXTAREA' || t.tagName === 'BUTTON' || t.tagName === 'A') return;
     if (t.isContentEditable) return;
     if (t.classList && t.classList.contains('cselect-search')) return;
-
-    // Wizard: Enter submits the primary action for this step
     if (wizard) {
       var modal = document.querySelector('#modal-root .modal');
       if (modal && modal.contains(t)) {
@@ -7532,8 +7154,6 @@
         return;
       }
     }
-
-    // Settings: Enter saves
     var settings = t.closest && t.closest('.settings');
     if (settings) {
       var save = settings.querySelector('.ui-footer .btn.primary, .settings-footer .btn.primary');
@@ -7567,7 +7187,6 @@
       .catch(function(err){ showToast(err.message || 'Save failed'); })
       .finally(function(){ delete busy.config; render(); });
   });
-
   var actEl = document.getElementById('activity');
   if (actEl) {
     actEl.addEventListener('click', function(e) {
@@ -7594,20 +7213,15 @@
       }
     });
   }
-
-  
   document.getElementById('app').addEventListener('toggle', function(e) {
     if (!e.target || e.target.tagName !== 'DETAILS') return;
     if (!e.target.closest('#panel-vpn')) return;
     hotspotSettingsOpen = !!e.target.open;
     if (!e.target.open) {
-      // Discard unsaved hotspot edits when collapsing
       formDirty = false;
       patchLive();
     }
   }, true);
-
-  // Clean Activity on every full page load — never show a previous job.
   (function(){
     try { sessionStorage.removeItem('fw.deployLogs'); } catch (e) {}
     var root = document.getElementById('activity');
@@ -7618,7 +7232,6 @@
       if (log) log.innerHTML = '';
     }
   })();
-
   document.documentElement.dataset.motion = 'off';
   document.documentElement.dataset.boot = 'off';
   _routeSync = true;
@@ -7639,8 +7252,6 @@
   watchActivity();
   document.querySelectorAll('[data-res-panel]').forEach(syncResLabels);
   setInterval(function(){ if (!wizard && !picker && !document.hidden) refreshServices({ soft: true }); }, 12000);
-
-
   document.getElementById('app').addEventListener('click', function(e){
     if (!e.target || !e.target.closest) return;
     if (e.target.closest('[data-action]')) return;
@@ -7650,7 +7261,6 @@
     document.querySelectorAll('.fe-row.is-selected').forEach(function(n){ n.classList.remove('is-selected'); });
     row.classList.add('is-selected');
   }, true);
-
   document.getElementById('app').addEventListener('dblclick', function(e){
     if (!e.target || !e.target.closest) return;
     if (e.target.closest('[data-action]')) return;
@@ -7669,13 +7279,11 @@
     }
     showToast('No text preview for this file');
   }, true);
-
   window.addEventListener('popstate', function() {
     _routeSync = true;
     applyRoute(parseRoute(location.pathname), { animate: true });
     _routeSync = false;
   });
-
   document.addEventListener('input', function(e) {
     var t = e.target;
     if (!t || t.id !== 'group-name') return;

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,9 +14,10 @@ import (
 )
 
 const (
-	filesMaxEntries   = 2500
-	filesPreviewMax   = 256 << 10 // 256 KiB
-	filesCopyMaxBytes = 512 << 20 // 512 MiB hard stop for single-file copy
+	filesMaxEntries       = 2500
+	filesPreviewMax       = 256 << 10 // 256 KiB
+	filesCopyMaxBytes     = 512 << 20 // 512 MiB hard stop for single-file copy
+	filesCopyMaxTreeBytes = 512 << 20 // 512 MiB hard stop for recursive copy
 )
 
 type fileEntry struct {
@@ -81,7 +81,7 @@ func (s *Server) handleAPIFiles(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		raw := r.URL.Query().Get("path")
 		if raw == "" {
-			raw = "/home/andiq"
+			raw = filesRoot()
 		}
 		listing, err := listFiles(raw)
 		if err != nil {
@@ -114,7 +114,7 @@ func (s *Server) handleAPIFilesPreview(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleFilesOp(w http.ResponseWriter, r *http.Request) {
 	var req filesOpReq
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+	if err := decodeJSONBody(r, &req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
@@ -124,7 +124,7 @@ func (s *Server) handleFilesOp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := guardProtected(src); err != nil {
+	if err := guardFilesMutate(src); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
@@ -144,7 +144,7 @@ func (s *Server) handleFilesOp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		dst = filepath.Join(filepath.Dir(src), name)
-		if err := guardProtected(dst); err != nil {
+		if err := guardFilesMutate(dst); err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
@@ -168,7 +168,7 @@ func (s *Server) handleFilesOp(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if err := guardProtected(dst); err != nil {
+		if err := guardFilesMutate(dst); err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
@@ -214,8 +214,12 @@ func listFiles(raw string) (filesListing, error) {
 	if err != nil {
 		return out, err
 	}
+	if err := guardFilesPath(clean); err != nil {
+		return out, err
+	}
 	out.Path = clean
-	if clean == "/" {
+	root := filesRoot()
+	if clean == root {
 		out.Parent = ""
 	} else {
 		out.Parent = filepath.Dir(clean)
@@ -354,6 +358,9 @@ func previewFile(raw string) (filesPreview, error) {
 	if err != nil {
 		return out, err
 	}
+	if err := guardFilesPath(clean); err != nil {
+		return out, err
+	}
 	out.Path = clean
 	out.Name = filepath.Base(clean)
 
@@ -417,11 +424,40 @@ func cleanAbsPath(raw string) (string, error) {
 	return clean, nil
 }
 
-func guardProtected(path string) error {
-	switch path {
-	case "/", "/boot", "/boot/firmware", "/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64",
-		"/dev", "/proc", "/sys", "/run", "/home", "/root":
-		return fmt.Errorf("refusing to modify protected path")
+// filesRoot is the chroot for the files browser (FIREWIFI_FILES_ROOT or $HOME).
+func filesRoot() string {
+	if v := strings.TrimSpace(os.Getenv("FIREWIFI_FILES_ROOT")); v != "" {
+		if abs, err := filepath.Abs(v); err == nil {
+			return filepath.Clean(abs)
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Clean(home)
+	}
+	if home := strings.TrimSpace(os.Getenv("HOME")); home != "" {
+		return filepath.Clean(home)
+	}
+	return "/home"
+}
+
+func guardFilesPath(path string) error {
+	root := filesRoot()
+	if path == root {
+		return nil // listing root is allowed; ops still refuse deleting root
+	}
+	prefix := root + string(os.PathSeparator)
+	if !strings.HasPrefix(path, prefix) {
+		return fmt.Errorf("path outside allowed root (%s)", root)
+	}
+	return nil
+}
+
+func guardFilesMutate(path string) error {
+	if err := guardFilesPath(path); err != nil {
+		return err
+	}
+	if path == filesRoot() {
+		return fmt.Errorf("refusing to modify files root")
 	}
 	return nil
 }
@@ -466,7 +502,8 @@ func copyPath(src, dst string) error {
 		return os.Symlink(tgt, dst)
 	}
 	if st.IsDir() {
-		return copyDir(src, dst)
+		var used int64
+		return copyDir(src, dst, &used)
 	}
 	if !st.Mode().IsRegular() {
 		return fmt.Errorf("unsupported file type")
@@ -497,7 +534,7 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	return out.Close()
 }
 
-func copyDir(src, dst string) error {
+func copyDir(src, dst string, used *int64) error {
 	if err := os.Mkdir(dst, 0o755); err != nil {
 		return err
 	}
@@ -508,7 +545,33 @@ func copyDir(src, dst string) error {
 	for _, e := range ents {
 		from := filepath.Join(src, e.Name())
 		to := filepath.Join(dst, e.Name())
-		if err := copyPath(from, to); err != nil {
+		st, err := os.Lstat(from)
+		if err != nil {
+			return err
+		}
+		if st.Mode()&os.ModeSymlink != 0 {
+			if err := copyPath(from, to); err != nil {
+				return err
+			}
+			continue
+		}
+		if st.IsDir() {
+			if err := copyDir(from, to, used); err != nil {
+				return err
+			}
+			continue
+		}
+		if !st.Mode().IsRegular() {
+			return fmt.Errorf("unsupported file type")
+		}
+		*used += st.Size()
+		if *used > filesCopyMaxTreeBytes {
+			return fmt.Errorf("copy tree too large (max %s)", humanBytes(filesCopyMaxTreeBytes))
+		}
+		if st.Size() > filesCopyMaxBytes {
+			return fmt.Errorf("file too large to copy (max %s)", humanBytes(filesCopyMaxBytes))
+		}
+		if err := copyFile(from, to, st.Mode()); err != nil {
 			return err
 		}
 	}

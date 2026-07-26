@@ -22,4 +22,10 @@ func TestCreateDatabaseStmts_revokesPublicConnect(t *testing.T) {
 	if !strings.Contains(joined, "CREATE ROLE demo_db_user LOGIN PASSWORD") {
 		t.Fatalf("missing CREATE ROLE\n%s", joined)
 	}
+	// Create must not wipe peer tenants.
+	for _, bad := range []string{"DROP DATABASE", "DROP ROLE", "pg_terminate_backend"} {
+		if strings.Contains(joined, bad) {
+			t.Fatalf("create SQL must not contain %q\n%s", bad, joined)
+		}
+	}
 }

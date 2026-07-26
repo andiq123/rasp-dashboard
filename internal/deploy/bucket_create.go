@@ -52,7 +52,14 @@ func (m *Manager) createBucket(ctx context.Context, group, name string) (Service
 	if _, idx := findService(reg, group, slug); idx >= 0 {
 		return Service{}, fmt.Errorf("service already exists in group")
 	}
-	m.logf("info", "New bucket · %s/%s", group, slug)
+	phys := physicalBucketName(group, slug)
+	if phys == "" {
+		return Service{}, fmt.Errorf("invalid bucket name")
+	}
+	if registryPhysicalTaken(reg, TypeBucket, phys, "", "") {
+		return Service{}, fmt.Errorf("bucket name %s already used by another service", phys)
+	}
+	m.logf("info", "New bucket · %s/%s → %s", group, slug, phys)
 
 	m.stepProgress("engine")
 	m.detailProgress("Ensuring MinIO")
@@ -64,10 +71,6 @@ func (m *Manager) createBucket(ctx context.Context, group, name string) (Service
 	}
 	m.logf("ok", "Engine healthy · 127.0.0.1:9000")
 
-	phys := physicalBucketName(group, slug)
-	if phys == "" {
-		return Service{}, fmt.Errorf("invalid bucket name")
-	}
 	m.stepProgress("bucket")
 	m.detailProgress(phys)
 	m.logf("step", "Creating bucket %s", phys)

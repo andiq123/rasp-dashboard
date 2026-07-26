@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -23,7 +22,7 @@ func (s *Server) handleDeployHooks(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var body deploy.HookRedeployRequest
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := decodeJSONBody(r, &body); err != nil {
 			http.Error(w, "bad json", http.StatusBadRequest)
 			return
 		}

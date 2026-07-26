@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	statsInterval     = 2 * time.Second
+	statsInterval     = 5 * time.Second
 	postgresContainer = "firewifi-postgres"
 )
 
@@ -60,17 +60,25 @@ func (m *Manager) BootstrapStats() {
 
 func (m *Manager) statsLoop() {
 	// Warm first sample so the next tick can compute CPU %.
-	m.sampleAllStats(context.Background())
+	m.sampleAllStats(m.bgCtx)
 	t := time.NewTicker(statsInterval)
 	defer t.Stop()
-	for range t.C {
-		m.sampleAllStats(context.Background())
+	for {
+		select {
+		case <-m.bgDone():
+			return
+		case <-t.C:
+			m.sampleAllStats(m.bgCtx)
+		}
 	}
 }
 
 func (m *Manager) sampleAllStats(ctx context.Context) {
 	if m == nil || m.stats == nil {
 		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
@@ -105,8 +113,15 @@ func (m *Manager) sampleAllStats(ctx context.Context) {
 		seen[postgresContainer] = target{name: postgresContainer, shared: true}
 	}
 
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	pids := m.containerPIDsBatch(ctx, names)
+
 	for _, t := range seen {
-		st, ok := m.readContainerStats(ctx, t.name)
+		pid := pids[t.name]
+		st, ok := m.readContainerStatsPID(t.name, pid)
 		if !ok {
 			m.stats.mu.Lock()
 			delete(m.stats.latest, t.name)
@@ -153,9 +168,8 @@ func (m *Manager) statsForService(svc Service) *RuntimeStats {
 	return &out
 }
 
-func (m *Manager) readContainerStats(ctx context.Context, name string) (RuntimeStats, bool) {
-	pid, err := m.containerPID(ctx, name)
-	if err != nil || pid <= 0 {
+func (m *Manager) readContainerStatsPID(name string, pid int) (RuntimeStats, bool) {
+	if pid <= 0 {
 		return RuntimeStats{}, false
 	}
 	cg := cgroupPathForPID(pid)
@@ -191,20 +205,46 @@ func (m *Manager) readContainerStats(ctx context.Context, name string) (RuntimeS
 	return st, true
 }
 
-func (m *Manager) containerPID(ctx context.Context, name string) (int, error) {
-	out, err := m.dockerQuiet(ctx, "inspect", "-f", "{{.State.Running}} {{.State.Pid}}", name)
+// containerPIDsBatch resolves PIDs for wanted container names with two docker calls
+// (ps -q + inspect) instead of one inspect per service.
+func (m *Manager) containerPIDsBatch(ctx context.Context, names []string) map[string]int {
+	out := make(map[string]int, len(names))
+	if len(names) == 0 {
+		return out
+	}
+	want := make(map[string]bool, len(names))
+	for _, n := range names {
+		want[n] = true
+	}
+	idsOut, err := m.dockerQuiet(ctx, "ps", "-q")
 	if err != nil {
-		return 0, err
+		return out
 	}
-	parts := strings.Fields(strings.TrimSpace(out))
-	if len(parts) < 2 || parts[0] != "true" {
-		return 0, fmt.Errorf("not running")
+	ids := strings.Fields(strings.TrimSpace(idsOut))
+	if len(ids) == 0 {
+		return out
 	}
-	pid, err := strconv.Atoi(parts[1])
-	if err != nil || pid <= 0 {
-		return 0, fmt.Errorf("bad pid")
+	args := append([]string{"inspect", "-f", "{{.Name}} {{.State.Running}} {{.State.Pid}}"}, ids...)
+	raw, err := m.dockerQuiet(ctx, args...)
+	if err != nil {
+		return out
 	}
-	return pid, nil
+	for _, line := range strings.Split(raw, "\n") {
+		parts := strings.Fields(strings.TrimSpace(line))
+		if len(parts) < 3 || parts[1] != "true" {
+			continue
+		}
+		name := strings.TrimPrefix(parts[0], "/")
+		if !want[name] {
+			continue
+		}
+		pid, err := strconv.Atoi(parts[2])
+		if err != nil || pid <= 0 {
+			continue
+		}
+		out[name] = pid
+	}
+	return out
 }
 
 func cgroupPathForPID(pid int) string {

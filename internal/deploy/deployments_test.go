@@ -17,7 +17,7 @@ func TestDeployHistoryPromoteArchiveFail(t *testing.T) {
 	}
 	svc := Service{Group: group, Slug: slug, Name: "Svc", Type: "go", Repo: "o/r", Branch: "main"}
 
-	d1, err := m.StartDeployment(svc, "abc1111")
+	d1, err := m.StartDeployment(svc, "abc1111", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestDeployHistoryPromoteArchiveFail(t *testing.T) {
 		t.Fatalf("after promote: %+v", list)
 	}
 
-	d2, err := m.StartDeployment(svc, "abc2222")
+	d2, err := m.StartDeployment(svc, "abc2222", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestDeployHistoryPromoteArchiveFail(t *testing.T) {
 		t.Fatalf("active=%d archived=%d list=%+v", active, archived, list)
 	}
 
-	d3, err := m.StartDeployment(svc, "abc3333")
+	d3, err := m.StartDeployment(svc, "abc3333", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestDeployHistoryPromoteArchiveFail(t *testing.T) {
 	}
 
 	for i := 0; i < 10; i++ {
-		d, err := m.StartDeployment(svc, "c")
+		d, err := m.StartDeployment(svc, "c", "")
 		if err != nil {
 			t.Fatal(err)
 		}

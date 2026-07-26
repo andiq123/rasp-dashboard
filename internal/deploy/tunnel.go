@@ -76,7 +76,8 @@ func (m *Manager) EnsureCloudflared(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	res, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 2 * time.Minute}
+	res, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -434,7 +435,6 @@ func (m *Manager) StopTunnel(ctx context.Context, group, slug string) (Service, 
 	return svc, nil
 }
 
-
 // BootstrapQuickTunnels re-exposes apps marked wanted after reboot (new random URL).
 func (m *Manager) BootstrapQuickTunnels() {
 	m.mu.Lock()
@@ -443,13 +443,22 @@ func (m *Manager) BootstrapQuickTunnels() {
 	if err != nil {
 		return
 	}
+	parent := m.bgCtx
+	if parent == nil {
+		parent = context.Background()
+	}
 	for _, svc := range reg.Services {
 		if svc.Type != TypeGo || !m.tunnelWanted(svc.Group, svc.Slug) {
 			continue
 		}
+		select {
+		case <-parent.Done():
+			return
+		default:
+		}
 		if m.tunnelAlive(svc.Group, svc.Slug) {
 			go func(group, slug string) {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 				defer cancel()
 				if _, err := m.EnsureTunnel(ctx, group, slug); err != nil {
 					m.logf("warn", "Tunnel heal %s/%s: %v", group, slug, err)
@@ -458,7 +467,7 @@ func (m *Manager) BootstrapQuickTunnels() {
 			continue
 		}
 		go func(group, slug string) {
-			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 			defer cancel()
 			if _, err := m.StartTunnel(ctx, group, slug); err != nil {
 				m.logf("warn", "auto-expose %s/%s: %v", group, slug, err)

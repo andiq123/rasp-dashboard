@@ -36,7 +36,7 @@ func TestReadShellCachedWithinTTL(t *testing.T) {
 func TestReadShellCachedExpires(t *testing.T) {
 	r := &Reader{BaseDir: t.TempDir()}
 	r.cacheMu.Lock()
-	r.shell = shellCache{at: time.Now().Add(-3 * time.Second), state: State{Mode: "stale"}, err: nil}
+	r.shell = shellCache{at: time.Now().Add(-(shellStateCacheTTL + time.Second)), state: State{Mode: "stale"}, err: nil}
 	r.cacheMu.Unlock()
 
 	st, err := r.ReadShellCached()

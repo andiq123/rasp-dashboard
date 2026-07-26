@@ -109,7 +109,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/hooks/", s.handleDeployHooks)
 	mux.HandleFunc("/api/hooks/redeploy", s.handleDeployHooks)
 	mux.HandleFunc("/api/hooks/github", s.handleDeployHooks)
-	return mux
+	return withOptionalAuth(mux)
 }
 
 func (s *Server) handleAPIActivity(w http.ResponseWriter, r *http.Request) {
@@ -147,6 +147,7 @@ func (s *Server) handleAPIEvents(w http.ResponseWriter, r *http.Request) {
 			fl.Flush()
 			return
 		}
+		st.FilesRoot = filesRoot()
 		b, err := json.Marshal(st)
 		if err != nil {
 			return
@@ -179,7 +180,7 @@ func (s *Server) handleAPIEvents(w http.ResponseWriter, r *http.Request) {
 		sendActivity(s.Deploy.ActivitySnapshot())
 	}
 
-	tick := time.NewTicker(2 * time.Second)
+	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	keepAlive := time.NewTicker(20 * time.Second)
 	defer keepAlive.Stop()
@@ -256,7 +257,7 @@ func (s *Server) handleAPIMode(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Mode string `json:"mode"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r, &body); err != nil {
 		http.Error(w, "bad json", http.StatusBadRequest)
 		return
 	}
@@ -331,10 +332,17 @@ func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		jsonReply(w, cfg)
+		// Never echo the Wi‑Fi password; UI shows a placeholder when set.
+		jsonReply(w, Config{
+			SSID:        cfg.SSID,
+			PasswordSet: cfg.Password != "",
+			HotspotIP:   cfg.HotspotIP,
+			DHCPStart:   cfg.DHCPStart,
+			DHCPEnd:     cfg.DHCPEnd,
+		})
 	case http.MethodPost, http.MethodPut:
 		var cfg Config
-		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		if err := decodeJSONBody(r, &cfg); err != nil {
 			http.Error(w, "bad json", http.StatusBadRequest)
 			return
 		}
@@ -361,6 +369,7 @@ func (s *Server) readState(w http.ResponseWriter) (State, bool) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return State{}, false
 	}
+	st.FilesRoot = filesRoot()
 	return st, true
 }
 

@@ -44,7 +44,7 @@
         +uiHead({ title: 'New group', sub: 'Boundary for databases and Go apps.' })
         +uiField({
           label: 'Name',
-          meta: 'slug',
+          tip: 'Becomes the group slug (lowercase, hyphens).',
           control: uiInput({ id: 'wiz-group-name', placeholder: 'my-api', value: wizard.name || '', autofocus: true })
         })
         +uiActions(

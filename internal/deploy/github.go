@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,8 +17,8 @@ import (
 var ghHTTP = &http.Client{
 	Timeout: 20 * time.Second,
 	Transport: &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
+		Proxy:               http.ProxyFromEnvironment,
+		DialContext:         (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
 		TLSHandshakeTimeout: 5 * time.Second,
 	},
 }
@@ -130,23 +131,46 @@ func (m *Manager) verifyToken(ctx context.Context, token string) (GitHubUser, er
 }
 
 func (m *Manager) ghGET(ctx context.Context, url string, token string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	body, code, err := m.ghDo(ctx, http.MethodGet, url, token, nil)
 	if err != nil {
 		return nil, err
+	}
+	if code != http.StatusOK {
+		return nil, fmt.Errorf("github %s failed (%d)", url, code)
+	}
+	return body, nil
+}
+
+func (m *Manager) ghDo(ctx context.Context, method, url, token string, payload any) ([]byte, int, error) {
+	var bodyReader io.Reader
+	if payload != nil {
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return nil, 0, err
+		}
+		bodyReader = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
+	if err != nil {
+		return nil, 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "firewifi-dashboard")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	resp, err := ghHTTP.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("github %s failed (%d)", url, resp.StatusCode)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, resp.StatusCode, err
 	}
-	return body, nil
+	return body, resp.StatusCode, nil
 }
 
 func (m *Manager) ListRepos(ctx context.Context) ([]GitHubRepo, error) {

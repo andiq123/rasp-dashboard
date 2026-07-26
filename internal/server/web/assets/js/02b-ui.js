@@ -43,7 +43,7 @@
       +'<div class="ui-field wiz-field">'
         +'<div class="label-row">'
           +'<strong>'+esc(label)+'</strong>'
-          +(meta ? '<span>'+esc(meta)+'</span>' : '')
+          +(meta ? '<span class="ui-field-meta">'+esc(meta)+'</span>' : '')
         +'</div>'
         +control
         +(tipHtml ? uiHint(tipHtml, true) : (tip ? uiHint(tip, false) : ''))

@@ -32,7 +32,7 @@
       --sbw: 0px;
     }
     * { box-sizing: border-box; }
-    /* Thin scrollbars + stable gutter so modal/drawer lock does not shift the layout. */
+    
     html {
       scrollbar-gutter: stable;
       scrollbar-width: thin;
@@ -260,7 +260,7 @@
     .settings .fields { grid-template-columns: 1fr 1fr; }
 
     .copy-row { display: flex; gap: 8px; align-items: center; }
-    /* —— service access —— */
+    
     .svc-access {
       display: grid;
       gap: 6px;
@@ -417,7 +417,7 @@
       overflow: hidden; min-height: 0;
       opacity: 0; transform: translateY(-3px);
       transition: opacity .18s var(--ease), transform .18s var(--ease);
-      padding: 0; /* closed: zero padding or 0fr collapse breaks */
+      padding: 0; 
       pointer-events: none;
     }
     .fold.open .fold-inner {
@@ -427,7 +427,7 @@
     }
     .fold-inner > .help { margin-bottom: 8px; }
 
-    /* —— activity progress —— */
+    
     .activity-progress {
       padding: 10px 14px 10px;
       border-bottom: 1px solid rgba(255,255,255,.1);
@@ -481,7 +481,7 @@
     }
     .activity.running:not(.ok):not(.err) .ap-fill {
       background: linear-gradient(90deg, #3b82f6 0%, #60a5fa 55%, #93c5fd 100%);
-      /* No infinite slide — remounts/soft patches made it thrash. Width transition is enough. */
+      
       animation: none;
       opacity: 1;
     }
@@ -587,7 +587,7 @@
       margin: 0; padding: 8px 10px; border-radius: 12px; background: #eff6ff;
       border: 1px solid #bfdbfe; color: #1e3a8a; font-size: 12px; line-height: 1.45;
     }
-    /* Modal enter animation is opt-in via .enter — never always-on (avoids double-play). */
+    
     .cselect { position: relative; }
     .cselect-btn {
       width: 100%; min-height: 32px; padding: 8px 36px 8px 12px; border: 1px solid var(--line);
@@ -617,7 +617,7 @@
       animation: menuIn .14s var(--ease);
     }
     .cselect.open .cselect-menu {
-      /* JS sets position:fixed so menus escape modal overflow */
+      
     }
     @keyframes menuIn {
       from { opacity: 0; transform: translateY(-4px); }
@@ -907,7 +907,7 @@
       .big { font-size: 24px; }
     }
 
-    /* Motion gated — live patches stay still */
+    
     html[data-motion="off"] .nav-page.nav-in,
     html[data-motion="off"] .nav-page.nav-in-back,
     html[data-motion="off"] .modal-backdrop.enter,
@@ -969,7 +969,7 @@
     }
     .expose-item code { font-weight: 700; color: #15803d; }
     .expose-item span { color: var(--muted); }
-    .inject-preview { display: none; /* replaced by wiz-auto-env */
+    .inject-preview { display: none; 
 
       margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
       padding: 8px 10px; border-radius: 8px; background: var(--green-soft); border: 1px solid #a7f3d0;
@@ -983,7 +983,7 @@
     .wire-hint-body code, .help code { font-size: 11px; }
 
 
-    /* —— compact services cascade —— */
+    
     .panel-svc { padding: 8px 10px; }
     .panel-svc .toolbar { margin-bottom: 6px; gap: 6px; }
     .panel-svc .toolbar h2 { margin: 0; font-size: 14px; font-weight: 700; }
@@ -1067,7 +1067,7 @@
       .wiz-grid { grid-template-columns: 1fr 1fr 1fr 1fr; }
       .wiz-grid .wiz-span { grid-column: 1 / -1; }
     }
-    /* services use horizontal space */
+    
     @media (min-width: 800px) {
       .panel-svc .svc-list {
         display: grid;
@@ -1083,7 +1083,7 @@
       .panel-svc .svc-card.open { grid-column: 1 / -1; }
     }
 
-    /* —— page navigation + spring motion —— */
+    
     .nav-page { min-width: 0; will-change: transform, opacity; }
     @keyframes navIn {
       from { opacity: 1; transform: translate3d(8px, 0, 0); }
@@ -1123,7 +1123,7 @@
     .modal-backdrop.enter { animation: backdropIn .16s var(--ease-out) both; }
     .modal.enter { animation: modalIn .22s var(--ease-out) both; }
 
-    /* First paint — whole page elastic entrance */
+    
     html[data-boot="on"] .topbar {
       animation: bootFadeUp .28s var(--ease-out) both;
     }
@@ -1160,7 +1160,7 @@
     html[data-boot="on"] .boot-layout .ws-empty,
     html[data-boot="on"] .boot-layout .gd-empty { animation-delay: .06s; }
 
-    /* Micro polish */
+    
     .btn, .group-tile, .ws-tabs button, .type-opt {
       transition: transform .12s var(--ease-out), background .12s var(--ease), border-color .12s var(--ease), box-shadow .12s var(--ease), color .12s var(--ease), opacity .12s var(--ease);
     }
@@ -1194,7 +1194,7 @@
     }
 
 
-    /* —— activity console —— */
+    
     @keyframes actIn {
       0% {
         opacity: 0;
@@ -1405,7 +1405,7 @@
 
 
 
-    /* —— shared UI primitives (wizard + settings) —— */
+    
     .ui-field, .wiz-field { display: grid; gap: 5px; }
     .ui-field .label-row, .wiz-field .label-row {
       display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-height: 16px;
@@ -1460,7 +1460,7 @@
     .res-build { display: grid; gap: 8px; margin-top: 8px; }
     .res-build .ui-field { margin: 0; }
 
-    /* —— UI align + compact wizard —— */
+    
     .head,
     .toolbar,
     .toolbar-left,
@@ -1651,7 +1651,7 @@
       .modal { padding: 12px; }
     }
 
-    /* —— compact GitHub toolbar chip —— */
+    
     .toolbar-right {
       display: flex;
       align-items: center;
@@ -1710,7 +1710,7 @@
       margin-bottom: 8px;
     }
 
-    /* Lock page scroll while a modal is open (keeps scroll position). */
+    
     html.modal-open,
     html.modal-open body {
       overflow: hidden;
@@ -1730,7 +1730,7 @@
       touch-action: auto;
     }
 
-    /* —— modal motion (single path) —— */
+    
     #modal-root {
       position: relative;
       z-index: 40;
@@ -1749,7 +1749,7 @@
     .modal:has(.cselect.open) {
       overflow: visible;
     }
-    /* Only lift overflow when a select menu needs to escape the fold */
+    
     .modal:has(.cselect.open) .fold.open,
     .modal:has(.cselect.open) .fold.open .fold-inner,
     .modal:has(.cselect.open) .fold.open .fold-body {
@@ -1789,7 +1789,7 @@
 
 
 
-    /* —— Manage / Storage / Network (compact) —— */
+    
     .panel-manage { padding: 8px 10px 10px; }
     .manage-toolbar { margin-bottom: 6px !important; }
     .manage-toolbar h2 { font-size: 14px !important; }
@@ -2000,7 +2000,7 @@
     }
 
 
-    /* —— color flow polish —— */
+    
     .brand h1 {
       background: linear-gradient(120deg, var(--text) 0%, #1e3a5f 100%);
       -webkit-background-clip: text;
@@ -2046,7 +2046,7 @@
       box-shadow: var(--shadow-sm);
     }
     .toast {
-      /* stacking + glass handled in primary .toast rule */
+      
     }
     .cselect-btn:hover,
     .type-pick button:hover {
@@ -2088,7 +2088,7 @@
 
 
 
-    /* —— activity progress bump —— */
+    
     @keyframes ap-bump {
       0% { transform: scale(1); }
       35% { transform: scale(1.08); }
@@ -2106,7 +2106,7 @@
     }
 
 
-    /* —— deployment history —— */
+    
     .badge.build { background: var(--blue-soft); color: #1d4ed8; }
     .deploy-list { display: grid; gap: 4px; }
     .deploy-row {
@@ -2135,7 +2135,7 @@
     .deploy-err { margin-top: 2px; font-size: 11px; color: #be123c; }
 
 
-/* —— service power / building —— */
+
 .svc-card.building { border-color: rgba(29,110,245,.35); }
 .svc-card.building .badge.build { animation: none; }
 @keyframes pulse-build {
@@ -2149,7 +2149,7 @@
 
 
 
-/* —— Manage / group page structure —— */
+
 .manage-head {
   display: flex; align-items: flex-start; justify-content: space-between;
   gap: 12px; padding: 2px 2px 12px; flex-wrap: wrap;
@@ -2253,7 +2253,7 @@
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }
 
 
-/* activity scroll lock — keep wheel inside console */
+
 .activity {
   overscroll-behavior: contain;
 }
@@ -2264,7 +2264,7 @@
 }
 
 
-/* —— clickable deployment logs —— */
+
 button.deploy-row {
   width: 100%;
   text-align: left;
@@ -2307,7 +2307,7 @@ button.deploy-row:focus-visible {
   max-width: min(42vw, 160px);
 }
 
-/* —— density v2: compact premium layout (wider) —— */
+
 .wrap {
   max-width: 1520px;
   width: calc(100% - 20px);
@@ -2660,7 +2660,7 @@ button.deploy-row:focus-visible {
 }
 
 
-/* —— clean add-service type picker —— */
+
 .type-pick.type-pick-clean {
   display: grid;
   grid-template-columns: 1fr;
@@ -2736,7 +2736,7 @@ button.deploy-row:focus-visible {
 }
 
 
-/* compact group title - no name duplication */
+
 .manage-head-group .manage-title-row {
   display: flex;
   align-items: center;
@@ -2787,7 +2787,7 @@ button.deploy-row:focus-visible {
   .group-title-input { max-width: none; }
 }
 
-/* —— group detail: clean dashboard chrome —— */
+
 .panel-group-detail {
   padding: 12px 14px 14px;
 }
@@ -2993,7 +2993,7 @@ button.deploy-row:focus-visible {
   .gd-name-input { max-width: none; font-size: 16px; }
 }
 
-/* —— workspace shell (groups + storage) —— */
+
 .panel-workspace {
   padding: 12px 14px 14px;
 }
@@ -3178,7 +3178,7 @@ button.deploy-row:focus-visible {
 .ws-col-system .system-row-main strong { font-size: 13px; }
 .ws-col-system .inline-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
-/* legacy manage-seg → hide if any leftover full-width bars */
+
 .panel-workspace .manage-seg { display: none; }
 
 @media (max-width: 640px) {
@@ -3188,7 +3188,7 @@ button.deploy-row:focus-visible {
   .ws-head-actions { width: 100%; justify-content: flex-end; }
 }
 
-/* —— service appear / deploy flow —— */
+
 @keyframes svcAppear {
   from { opacity: 0; transform: translate3d(0, 8px, 0); }
   to { opacity: 1; transform: translate3d(0, 0, 0); }
@@ -3269,7 +3269,7 @@ html[data-motion="off"] .deploy-row.deploy-appear {
 .svc-actions .btn + .btn { margin-left: 4px; }
 
 
-/* —— Storage (simplified) —— */
+
 .storage-flow { display: grid; gap: 12px; }
 .storage-strip { margin: 0; }
 .panel-workspace.panel-manage { overflow: visible; }
@@ -3354,7 +3354,7 @@ html[data-motion="off"] .deploy-row.deploy-appear {
 }
 
 
-/* —— DB / env board —— */
+
 .env-board {
   display: grid;
   gap: 8px;
@@ -3446,7 +3446,7 @@ html[data-motion="off"] .deploy-row.deploy-appear {
 }
 
 
-/* —— Postgres service panel —— */
+
 .pg-power {
   display: flex;
   align-items: center;
@@ -3583,7 +3583,7 @@ html[data-motion="off"] .deploy-row.deploy-appear {
 .sql-table tr:last-child td { border-bottom: 0; }
 
 
-/* —— Wizard linked env —— */
+
 .wiz-auto-env {
   display: grid;
   gap: 6px;
@@ -3724,7 +3724,7 @@ html[data-motion="off"] .svc-build-fill {
   color: var(--text);
 }
 
-/* —— Access blocks —— */
+
 .access-block {
   display: grid;
   gap: 8px;
@@ -3792,7 +3792,7 @@ html[data-motion="off"] .svc-build-fill {
   font-size: 12px;
 }
 
-/* —— Group detail layout —— */
+
 .panel-group-detail {
   padding: 16px 18px 20px !important;
 }
@@ -4204,7 +4204,7 @@ html[data-motion="off"] .svc-build-fill {
   border-width: 1.5px !important;
 }
 
-/* Footer actions — clear hierarchy */
+
 .panel-group-detail .svc-card.open > .settings .ui-footer {
   margin: 0 !important;
   padding: 12px 14px !important;
@@ -4292,7 +4292,7 @@ html[data-motion="off"] .svc-build-fill {
 }
 
 
-/* —— Access foot URL (single-line ellipsis) —— */
+
 .panel-group-detail .svc-foot {
   display: flex !important;
   align-items: center !important;
@@ -4357,7 +4357,7 @@ html[data-motion="off"] .svc-build-fill {
 }
 
 
-/* —— Service settings: tight folds + action bar —— */
+
 .panel-group-detail .folds-dense .fold-head {
   grid-template-columns: 12px auto minmax(0, 1fr) !important;
   gap: 8px !important;
@@ -4458,7 +4458,7 @@ html[data-motion="off"] .svc-build-fill {
   }
 }
 
-/* Hide old split footer if any remain */
+
 .panel-group-detail .svc-card.open > .settings > .ui-footer {
   display: none !important;
 }
@@ -4466,7 +4466,7 @@ html[data-motion="off"] .svc-build-fill {
   display: none !important;
 }
 
-/* Prefixed inputs — ghost shows auto-added group/resource prefixes */
+
 .ui-input-affix {
   display: flex;
   align-items: stretch;
@@ -4528,7 +4528,7 @@ html[data-motion="off"] .svc-build-fill {
 
 .svc-title-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .svc-title-row .svc-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Live usage progress — in-place updates, no card remount */
+
 .svc-meters {
   display: inline-flex;
   align-items: center;
@@ -4546,7 +4546,7 @@ html[data-motion="off"] .svc-build-fill {
   from { opacity: 0; transform: translateY(3px); }
   to { opacity: 1; transform: translateY(0); }
 }
-/* Card header: label + value + track on one line (~18–20px tall) */
+
 .svc-prog {
   flex: 1 1 0;
   min-width: 0;
@@ -4629,7 +4629,7 @@ html[data-motion="off"] .svc-build-fill {
   align-self: center;
   margin-left: auto;
 }
-/* Resources fold: dedicated live monitor (isolated from inline card meters) */
+
 .svc-live {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -4709,7 +4709,7 @@ html[data-motion="off"] .svc-build-fill {
   .svc-prog-fill, .svc-live-fill, .svc-meters { transition: none !important; animation: none !important; }
 }
 
-/* —— Railway-style squared service widgets —— */
+
 .panel-group-detail .svc-widget {
   display: flex !important;
   flex-direction: column !important;
@@ -4897,7 +4897,7 @@ html[data-motion="off"] .svc-build-fill {
     grid-template-columns: 1fr !important;
   }
 }
-/* === Railway canvas + drawer (group detail) === */
+
 .panel-group-detail {
   --rw-bg: #0c0d12;
   --rw-node: #16171d;
@@ -5094,7 +5094,7 @@ html[data-motion="off"] .svc-build-fill {
   color: var(--rw-text) !important;
 }
 
-/* Keep Open pinned top-right; hover Logs/Stop sit to its left (no overlap). */
+
 .panel-group-detail .svc-widget-face:has(.svc-node-link) .svc-widget-hover {
   right: 40px !important;
 }
@@ -5147,7 +5147,7 @@ html[data-motion="off"] .svc-build-fill {
   color: var(--rw-text) !important;
 }
 
-/* Drawer overlay */
+
 .panel-group-detail .svc-drawer-backdrop {
   position: absolute;
   inset: 0;
@@ -5366,7 +5366,7 @@ html[data-motion="off"] .svc-build-fill {
   }
 }
 
-/* === App shell + left rail (Railway-style) === */
+
 .app-shell {
   display: flex;
   min-height: 100dvh;
@@ -5470,7 +5470,7 @@ html[data-motion="off"] .svc-build-fill {
 .rail-item .rail-ico,
 .rail-item .ico { display: inline-flex; width: 20px; height: 20px; }
 .rail-item .ico { width: 20px; height: 20px; opacity: .95; }
-/* Desktop: icon-only — labels truncate badly at 56px */
+
 .rail-label {
   display: none;
   font-size: 10px;
@@ -5516,7 +5516,7 @@ html.drawer-open .rw-canvas.drawer-open .svc-node.selected {
   box-shadow: 0 0 0 1px rgba(139,92,246,.45), 0 0 0 4px rgba(139,92,246,.35), 0 12px 28px rgba(0,0,0,.28) !important;
 }
 
-/* === Global config drawer portal === */
+
 #drawer-root {
   position: fixed;
   inset: 0;
@@ -5631,7 +5631,7 @@ html.drawer-open .rw-canvas.drawer-open .svc-node.selected {
   background: transparent !important;
   color: var(--drawer-text);
 }
-/* svc-settings-foot chrome: authoritative polish at file end */
+
 #drawer-root .svc-drawer .svc-settings-hint,
 #drawer-root .svc-drawer .ghost,
 #drawer-root .svc-drawer label,
@@ -5718,10 +5718,10 @@ html.drawer-open .rw-canvas.drawer-open .svc-node.selected {
   #drawer-root .svc-drawer { transform: none !important; }
 }
 
-/* Thicker system monitor bars */
+
 .metrics-dense .bar { height: 6px; margin-top: 7px; }
 
-/* === Premium design system polish (2026) === */
+
 :root {
   --motion-slow: .2s;
   --motion-med: .18s;
@@ -5735,7 +5735,7 @@ html.drawer-open .rw-canvas.drawer-open .svc-node.selected {
   --content-max: 1480px;
 }
 
-/* Main content rhythm under app shell */
+
 .app-content {
   padding: 10px 14px 24px;
 }
@@ -5750,7 +5750,7 @@ html.drawer-open .rw-canvas.drawer-open .svc-node.selected {
   gap: 12px;
 }
 
-/* Topbar: rail already brands — quieter header */
+
 @media (min-width: 721px) {
   .app-body .topbar .brand h1 { font-size: 14px; font-weight: 700; }
   .app-body .topbar .brand p { display: none; }
@@ -5760,7 +5760,7 @@ html.drawer-open .rw-canvas.drawer-open .svc-node.selected {
               border-color var(--motion-med) var(--ease-smooth);
 }
 
-/* Fix modal/activity stacking above left rail */
+
 #modal-root {
   z-index: 10200 !important;
 }
@@ -5769,7 +5769,7 @@ html.drawer-open .rw-canvas.drawer-open .svc-node.selected {
 #activity { z-index: 10100; }
 #toast { z-index: 10300; }
 
-/* Slower, calmer modal enter */
+
 .modal-backdrop.enter {
   animation: backdropIn var(--motion-med) var(--ease-out-soft) both !important;
 }
@@ -5777,7 +5777,7 @@ html.drawer-open .rw-canvas.drawer-open .svc-node.selected {
   animation: modalIn var(--motion-slow) var(--ease-out-soft) both !important;
 }
 
-/* Nav page transitions — fast; content stays visible (no opacity:0 + both) */
+
 .nav-page.nav-in {
   animation: navIn .2s var(--ease-out-soft) forwards;
 }
@@ -5785,7 +5785,7 @@ html.drawer-open .rw-canvas.drawer-open .svc-node.selected {
   animation: navInBack .2s var(--ease-out-soft) forwards;
 }
 
-/* Overview panels — premium cards */
+
 .layout-overview .panel-live {
   border-radius: calc(var(--radius) + 2px);
   box-shadow: var(--shadow-sm);
@@ -5813,7 +5813,7 @@ html.drawer-open .rw-canvas.drawer-open .svc-node.selected {
   transition: border-color var(--motion-med) var(--ease-smooth);
 }
 
-/* Group header — clean bridge to dark canvas */
+
 .panel-group-detail .gd-head {
   border-radius: var(--radius) var(--radius) 0 0;
   border-bottom: 1px solid var(--line);
@@ -5824,7 +5824,7 @@ html.drawer-open .rw-canvas.drawer-open .svc-node.selected {
   overflow: hidden;
 }
 
-/* Dark canvas meters — readable labels on nodes */
+
 .panel-group-detail .svc-prog-label,
 .panel-group-detail .svc-prog-val {
   color: var(--rw-muted) !important;
@@ -5841,7 +5841,7 @@ html.drawer-open .rw-canvas.drawer-open .svc-node.selected {
               transform var(--motion-med) var(--ease-smooth) !important;
 }
 
-/* Drawer portal — animate only on .enter (open/close mount) */
+
 #drawer-root {
   background: transparent !important;
 }
@@ -5865,7 +5865,7 @@ html.drawer-open body {
   touch-action: none;
 }
 
-/* Drawer — complete dark form system */
+
 #drawer-root .svc-drawer .ui-field-label,
 #drawer-root .svc-drawer .ui-label,
 #drawer-root .svc-drawer .fold-title {
@@ -5883,7 +5883,7 @@ html.drawer-open body {
 #drawer-root .svc-drawer .fold.open .fold-chevron {
   border-color: var(--drawer-accent) !important;
 }
-/* foot styles: authoritative block at file end */
+
 #drawer-root .svc-drawer .access-url,
 #drawer-root .svc-drawer .svc-foot-url,
 #drawer-root .svc-drawer code {
@@ -5914,7 +5914,7 @@ html.drawer-open body {
   color: var(--drawer-muted) !important;
 }
 
-/* Wizard/modal — match primary blue */
+
 .modal .btn.primary {
   background: linear-gradient(180deg, #2b7bff 0%, var(--blue) 100%) !important;
   border-color: var(--blue) !important;
@@ -5928,14 +5928,14 @@ html.drawer-open body {
   box-shadow: 0 0 0 3px rgba(29,110,245,.16);
 }
 
-/* Rail — smoother hover */
+
 .rail-item {
   transition: background var(--motion-med) var(--ease-smooth),
               color var(--motion-med) var(--ease-smooth),
               box-shadow var(--motion-med) var(--ease-smooth) !important;
 }
 
-/* Buttons — subtle press */
+
 .btn {
   transition: background var(--motion-fast) var(--ease-smooth),
               border-color var(--motion-fast) var(--ease-smooth),
@@ -5948,7 +5948,7 @@ html.drawer-open body {
 }
 
 
-/* === Premium config drawer (portal) === */
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -6230,7 +6230,7 @@ html.drawer-open body {
   background: rgba(244, 63, 94, .08);
   color: #be123c;
 }
-/* ui-footer chrome: authoritative sticky foot at file end */
+
 #drawer-root .svc-drawer .ui-field {
   margin-top: 0;
 }
@@ -6309,7 +6309,7 @@ html.drawer-open body {
     display: none;
   }
 }
-/* Legacy in-panel drawer — disable (portal is canonical) */
+
 .panel-group-detail .svc-drawer-backdrop,
 .panel-group-detail .svc-drawer {
   display: none !important;
@@ -6323,7 +6323,7 @@ html.drawer-open body {
   }
 }
 
-/* Rail nav: settings & activity main shells */
+
 .layout-settings .settings-body,
 .layout-activity .activity-main-placeholder {
   padding: 4px 0 12px;
@@ -6347,7 +6347,7 @@ html.drawer-open body {
   padding-top: 4px;
 }
 
-/* === Rail layouts: settings, overview, projects, activity === */
+
 .layout-settings .panel-settings,
 .layout-projects .panel-workspace:not(.panel-projects-crm),
 .layout-activity .nav-page {
@@ -6423,7 +6423,7 @@ html.drawer-open body {
   letter-spacing: -0.02em;
 }
 
-/* Config drawer — app folds + sticky footer */
+
 #drawer-root .svc-drawer .folds-drawer,
 #drawer-root .svc-drawer .folds-drawer.folds-compact {
   display: flex !important;
@@ -6480,7 +6480,7 @@ html.drawer-open body {
 #drawer-root .svc-drawer .folds-drawer .fold-body {
   transition: grid-template-rows .2s var(--ease-smooth, ease) !important;
 }
-/* settings foot/actions: see authoritative polish at file end */
+
 @media (max-width: 720px) {
   #drawer-root .svc-drawer:not(.enter) {
     transform: translateY(0) !important;
@@ -6502,7 +6502,7 @@ html.drawer-open body {
     min-width: 0;
   }
 }
-/* === CRM workspace overhaul (2026-07) === */
+
 
 .app-content {
   min-height: calc(100dvh - 52px);
@@ -6569,7 +6569,7 @@ html.drawer-open body {
 }
 
 
-/* Projects — CRM split */
+
 .panel-projects-crm {
   padding: 0 !important;
   border: 1px solid var(--line);
@@ -6867,7 +6867,7 @@ html.drawer-open body {
 }
 
 
-/* Light CRM canvas — override dark Railway tokens */
+
 .panel-group-detail {
   --rw-bg: #f4f6f9;
   --rw-node: #ffffff;
@@ -7004,7 +7004,7 @@ html.drawer-open body {
   justify-content: center;
 }
 
-/* Projects shell — keep topbar brand clear of rail clip */
+
 .app-body .topbar {
   overflow: visible;
 }
@@ -7099,7 +7099,7 @@ html.drawer-open body {
   }
 }
 
-/* === UX audit fixes: mobile rail active + drawer sheet timing === */
+
 @media (max-width: 720px) {
   .rail-item.active {
     color: #dbeafe;
@@ -7113,7 +7113,7 @@ html.drawer-open body {
   .panel-group-detail .svc-drawer.enter { animation: rw-drawer-sheet-in .22s ease forwards; }
 }
 
-/* === Config drawer section spacing + log level polish === */
+
 #drawer-root .svc-drawer .folds-drawer {
   gap: 12px !important;
 }
@@ -7197,7 +7197,7 @@ html.drawer-open body {
   margin-top: 0 !important;
 }
 
-/* WARN = amber; ERROR = rose — never paint WARN as FAILED red */
+
 .alog.warn .tx { color: #fbbf24 !important; font-weight: 600; }
 .alog.warn {
   background: rgba(251, 191, 36, 0.14) !important;
@@ -7219,7 +7219,7 @@ html.drawer-open body {
 }
 .activity.warn .ap-pct { color: #fbbf24; }
 .activity-log { padding: 12px 16px 16px !important; }
-/* === Projects CRM — flat clean layout (overrides nested chrome) === */
+
 .panel-projects-crm {
   --crm-bg: #f5f6f8;
   --crm-surface: #ffffff;
@@ -7263,7 +7263,7 @@ html.drawer-open body {
   min-height: 32px !important;
 }
 
-/* One flat split — no grey frame-in-frame */
+
 .panel-projects-crm .ws-body.projects-split {
   background: var(--crm-bg) !important;
   gap: 0 !important;
@@ -7328,7 +7328,7 @@ html.drawer-open body {
   color: var(--crm-muted) !important;
 }
 
-/* Detail pane: single surface, no nested panel shell */
+
 .panel-projects-crm .ws-col-main,
 .panel-projects-crm .ws-col-main.panel-group-detail,
 .panel-projects-crm .ws-col-main:not(.panel-group-detail) {
@@ -7354,7 +7354,7 @@ html.drawer-open body {
 }
 
 .panel-projects-crm .gd-head .btn-back {
-  display: none !important; /* sidebar already navigates groups */
+  display: none !important; 
 }
 
 .panel-projects-crm .gd-label {
@@ -7399,7 +7399,7 @@ html.drawer-open body {
   min-height: 36px !important;
 }
 
-/* Drop dotted canvas + lane boxes — cards sit on one plane */
+
 .panel-projects-crm .gd-body.rw-canvas-wrap,
 .panel-projects-crm .panel-group-detail .gd-body,
 .panel-projects-crm .panel-group-detail .gd-body.rw-canvas-wrap {
@@ -7480,7 +7480,7 @@ html.drawer-open body {
   max-width: none !important;
 }
 
-/* Service cards — one clean radius, no glow stacks */
+
 .panel-projects-crm .panel-group-detail .svc-card,
 .panel-projects-crm .panel-group-detail .svc-node,
 .panel-projects-crm .panel-group-detail .svc-card:not(.open),
@@ -7547,7 +7547,7 @@ html.drawer-open body {
   box-shadow: none !important;
 }
 
-/* Readable live meters */
+
 .panel-projects-crm .svc-prog-track,
 .panel-projects-crm .panel-group-detail .svc-widget-meters .svc-prog-track {
   height: 8px !important;
@@ -7582,7 +7582,7 @@ html.drawer-open body {
   border-radius: var(--crm-radius-xs) !important;
 }
 
-/* Soft connector, less visual noise */
+
 .panel-projects-crm .rw-links path,
 .panel-projects-crm .rw-links line {
   stroke: rgba(15, 23, 42, 0.14) !important;
@@ -7601,7 +7601,7 @@ html.drawer-open body {
     display: inline-flex !important;
   }
 }
-/* === Projects work area — dimmed canvas + centered loading === */
+
 .panel-projects-crm .gd-workarea,
 .panel-projects-crm .gd-body.gd-workarea.rw-canvas-wrap,
 .panel-projects-crm .panel-group-detail .gd-body.gd-workarea {
@@ -7672,7 +7672,7 @@ html.drawer-open body {
   flex-direction: column !important;
   min-height: 0 !important;
 }
-/* === Settings single-page stack === */
+
 .panel-settings {
   --set-bg: #f5f6f8;
   --set-surface: #ffffff;
@@ -7874,7 +7874,7 @@ html.drawer-open body {
     flex-wrap: wrap;
   }
 }
-/* Engine card status clarity */
+
 .panel-settings .engine-help {
   margin: 0 0 8px;
   font-size: 12.5px;
@@ -7927,9 +7927,9 @@ html.drawer-open body {
 .panel-settings .storage-flow {
   gap: 14px;
 }
-/* === Settings + Overview polish: radii, icons, colored buttons === */
 
-/* Shared icon sizing */
+
+
 .ico {
   display: inline-block;
   width: 16px;
@@ -7949,7 +7949,7 @@ html.drawer-open body {
   color: #fff;
 }
 
-/* Soft danger — modern stop/delete */
+
 .btn.danger-soft {
   color: #be123c !important;
   background: #fff1f2 !important;
@@ -7968,7 +7968,7 @@ html.drawer-open body {
   background: #fff1f2 !important;
 }
 
-/* Quiet refresh / secondary */
+
 .btn.btn-quiet:not(.danger):not(.danger-soft):not(.primary) {
   color: #475569;
   background: #f8fafc;
@@ -7980,7 +7980,7 @@ html.drawer-open body {
   border-color: rgba(15, 23, 42, 0.12);
 }
 
-/* —— Overview —— */
+
 .layout-overview .panel-live {
   border-radius: 14px !important;
   border: 1px solid rgba(15, 23, 42, 0.08) !important;
@@ -8129,7 +8129,7 @@ html.drawer-open body {
   overflow: hidden;
 }
 
-/* —— Settings —— */
+
 .panel-settings {
   border-radius: 14px !important;
   overflow: hidden !important;
@@ -8274,7 +8274,7 @@ html.drawer-open body {
   min-height: 30px;
 }
 
-/* Projects head button icons already have has-ico */
+
 .panel-projects-crm .ws-head-actions .btn.has-ico .ico {
   width: 15px;
   height: 15px;
@@ -8291,7 +8291,7 @@ html.drawer-open body {
 }
 
 
-/* === polish pass 2: disconnect + radii consistency === */
+
 .panel-settings .settings-section {
   border-radius: 14px !important;
 }
@@ -8322,7 +8322,7 @@ html.drawer-open body {
 }
 
 
-/* === polish pass 3: overview rows + form === */
+
 .layout-overview #panel-vpn .rows {
   border-radius: 12px !important;
   border: 1px solid rgba(15, 23, 42, 0.06) !important;
@@ -8353,9 +8353,9 @@ html.drawer-open body {
 }
 
 
-/* === polish pass projects+live === */
 
-/* Smooth overview bars — animate width on the fill, not remount */
+
+
 .layout-overview .bar span,
 .panel-live .bar span,
 .metrics-dense .bar span {
@@ -8390,7 +8390,7 @@ html.drawer-open body {
   border-radius: 10px !important;
 }
 
-/* Projects — title + group tiles */
+
 .panel-projects-crm > .ws-head .ws-title-block h2 {
   display: inline-flex !important;
   align-items: center !important;
@@ -8491,7 +8491,7 @@ html.drawer-open body {
   border-color: rgba(225, 29, 72, 0.22) !important;
 }
 
-/* Projects chevron: SVG instead of CSS borders */
+
 .panel-projects-crm .group-tile-chev,
 .panel-projects-crm .group-tile:hover .group-tile-chev,
 .panel-projects-crm .group-tile.active .group-tile-chev {
@@ -8509,7 +8509,7 @@ html.drawer-open body {
 }
 
 
-/* === files explorer === */
+
 .layout-files {
   max-width: 1440px;
   width: 100%;
@@ -8977,7 +8977,7 @@ html.drawer-open body {
 }
 
 
-/* === Free canvas (Railway-style) === */
+
 .panel-group-detail .rw-canvas-toolbar {
   display: flex;
   align-items: center;
@@ -9092,7 +9092,7 @@ html.drawer-open body {
 }
 
 
-/* === Drawer / modal leave + polished enter (2026) === */
+
 @keyframes rw-drawer-out {
   from { transform: translateX(0); opacity: 1; }
   to { transform: translateX(104%); opacity: .92; }
@@ -9118,7 +9118,7 @@ html.drawer-open body {
   to { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 
-/* Stronger open: slight opacity + spring ease */
+
 @keyframes rw-drawer-in {
   from { transform: translateX(100%); opacity: .9; }
   to { transform: translateX(0); opacity: 1; }
@@ -9153,7 +9153,7 @@ html.drawer-open body {
   pointer-events: none !important;
 }
 
-/* Soft stagger of chrome on open */
+
 #drawer-root .svc-drawer.enter .svc-drawer-head {
   animation: drawerChromeIn .28s var(--ease-out-soft) both;
 }
@@ -9164,7 +9164,7 @@ html.drawer-open body {
   animation: drawerChromeIn .3s var(--ease-out-soft) .07s both;
 }
 
-/* === Service drawer settings polish (authoritative) === */
+
 #drawer-root .svc-drawer-body {
   padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)) !important;
 }
@@ -9304,7 +9304,7 @@ html.drawer-open body {
   transform: scale(.94);
 }
 
-/* Modal leave */
+
 .modal-backdrop.leaving {
   animation: backdropOut .2s var(--ease-settle) both !important;
   pointer-events: none !important;
@@ -9340,7 +9340,7 @@ html.drawer-open body {
   }
 }
 
-/* bucket link preview */
+
 #drawer-root .wiz-auto-env.is-preview {
   border-style: dashed;
   border-color: rgba(139, 92, 246, .35);

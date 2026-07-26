@@ -2,6 +2,8 @@ package infra
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -196,7 +198,8 @@ func (m *MinIO) CreateBucket(ctx context.Context, name string) (BucketInfo, erro
 	if err := m.WaitHealthy(ctx, 30*time.Second); err != nil {
 		return BucketInfo{}, err
 	}
-	if err := m.mc(ctx, user, pass, "mb", "--ignore-existing", "local/"+name); err != nil {
+	// Fail if the bucket already exists — never attach a peer tenant's store.
+	if err := m.mc(ctx, user, pass, "mb", "local/"+name); err != nil {
 		return BucketInfo{}, err
 	}
 	accessKey, secretKey, err := m.ensureBucketIAM(ctx, user, pass, name)
@@ -385,25 +388,12 @@ func (m *MinIO) mcOut(ctx context.Context, user, pass string, args ...string) ([
 const maxMinioAccessKeyLen = 20
 
 // bucketIAMNames returns deterministic per-bucket MinIO access key + policy name.
+// Access keys are hash-based so long/similar bucket names never truncate into one key.
 func bucketIAMNames(bucket string) (accessKey, policyName string) {
-	san := strings.ToLower(strings.TrimSpace(bucket))
-	var b strings.Builder
-	for _, r := range san {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
-			b.WriteRune(r)
-		}
-	}
-	san = strings.Trim(b.String(), "-")
-	accessKey = "fwb-" + san
-	if len(accessKey) > maxMinioAccessKeyLen {
-		accessKey = accessKey[:maxMinioAccessKeyLen]
-		accessKey = strings.TrimRight(accessKey, "-")
-	}
-	policyName = "fwb-" + san + "-policy"
-	if len(policyName) > 128 {
-		policyName = policyName[:128]
-		policyName = strings.TrimRight(policyName, "-")
-	}
+	bucket = strings.ToLower(strings.TrimSpace(bucket))
+	sum := sha256.Sum256([]byte("firewifi-bucket-iam:" + bucket))
+	accessKey = "fwb-" + hex.EncodeToString(sum[:8]) // fwb- + 16 hex = 20
+	policyName = "fwb-" + hex.EncodeToString(sum[:12]) + "-policy"
 	return accessKey, policyName
 }
 
@@ -436,10 +426,41 @@ func (m *MinIO) ensureBucketIAM(ctx context.Context, rootUser, rootPass, bucket 
 }
 
 func (m *MinIO) removeBucketIAM(ctx context.Context, rootUser, rootPass, bucket string) {
-	accessKey, policyName := bucketIAMNames(bucket)
-	_ = m.mc(ctx, rootUser, rootPass, "admin", "policy", "detach", "local", policyName, "--user", accessKey)
-	_ = m.mc(ctx, rootUser, rootPass, "admin", "user", "remove", "local", accessKey)
-	_ = m.mc(ctx, rootUser, rootPass, "admin", "policy", "remove", "local", policyName)
+	// Current hash-based names plus legacy truncated prefix (pre-hash IAM).
+	keys := []struct{ accessKey, policyName string }{}
+	ak, pol := bucketIAMNames(bucket)
+	keys = append(keys, struct{ accessKey, policyName string }{ak, pol})
+	if lak, lpol := bucketIAMNamesLegacy(bucket); lak != ak {
+		keys = append(keys, struct{ accessKey, policyName string }{lak, lpol})
+	}
+	for _, k := range keys {
+		_ = m.mc(ctx, rootUser, rootPass, "admin", "policy", "detach", "local", k.policyName, "--user", k.accessKey)
+		_ = m.mc(ctx, rootUser, rootPass, "admin", "user", "remove", "local", k.accessKey)
+		_ = m.mc(ctx, rootUser, rootPass, "admin", "policy", "remove", "local", k.policyName)
+	}
+}
+
+// bucketIAMNamesLegacy is the old truncate-to-20 access key scheme (cleanup only).
+func bucketIAMNamesLegacy(bucket string) (accessKey, policyName string) {
+	san := strings.ToLower(strings.TrimSpace(bucket))
+	var b strings.Builder
+	for _, r := range san {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			b.WriteRune(r)
+		}
+	}
+	san = strings.Trim(b.String(), "-")
+	accessKey = "fwb-" + san
+	if len(accessKey) > maxMinioAccessKeyLen {
+		accessKey = accessKey[:maxMinioAccessKeyLen]
+		accessKey = strings.TrimRight(accessKey, "-")
+	}
+	policyName = "fwb-" + san + "-policy"
+	if len(policyName) > 128 {
+		policyName = policyName[:128]
+		policyName = strings.TrimRight(policyName, "-")
+	}
+	return accessKey, policyName
 }
 
 func (m *MinIO) mcPolicyCreate(ctx context.Context, user, pass, policyName, policyJSON string) error {

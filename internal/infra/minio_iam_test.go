@@ -40,17 +40,26 @@ func TestBucketIAMNames_deterministicAndLengthSafe(t *testing.T) {
 	if !strings.HasPrefix(ak, "fwb-") {
 		t.Fatalf("access key prefix: %q", ak)
 	}
-	if len(ak) > maxMinioAccessKeyLen {
-		t.Fatalf("access key too long: %q (%d)", ak, len(ak))
+	if len(ak) != maxMinioAccessKeyLen {
+		t.Fatalf("access key len=%d want %d (%q)", len(ak), maxMinioAccessKeyLen, ak)
 	}
-	if ak != "fwb-driver-logs-buch" {
-		t.Fatalf("access key=%q", ak)
+	ak2, pol2 := bucketIAMNames("driver-logs-buchet")
+	if ak2 != ak || pol2 != pol {
+		t.Fatal("not deterministic")
 	}
-	if pol != "fwb-driver-logs-buchet-policy" {
+	// Distinct buckets must never share an access key (old truncate scheme did).
+	akOther, _ := bucketIAMNames("driver-logs-buchet-extra")
+	if akOther == ak {
+		t.Fatalf("access key collision: %q", ak)
+	}
+	if !strings.HasPrefix(pol, "fwb-") || !strings.HasSuffix(pol, "-policy") {
 		t.Fatalf("policy=%q", pol)
 	}
-	ak2, _ := bucketIAMNames("driver-logs-buchet")
-	if ak2 != ak {
-		t.Fatal("not deterministic")
+}
+
+func TestBucketIAMNamesLegacy_cleanupShape(t *testing.T) {
+	ak, pol := bucketIAMNamesLegacy("driver-logs-buchet")
+	if ak != "fwb-driver-logs-buch" || pol != "fwb-driver-logs-buchet-policy" {
+		t.Fatalf("legacy ak=%q pol=%q", ak, pol)
 	}
 }

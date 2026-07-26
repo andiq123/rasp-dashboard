@@ -16,7 +16,7 @@ func TestAttachDeploymentsSingleReadActiveBeyondRecent(t *testing.T) {
 	}
 	svc := Service{Group: group, Slug: slug, Name: "Svc", Type: TypeGo}
 
-	active, err := m.StartDeployment(svc, "active")
+	active, err := m.StartDeployment(svc, "active", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +24,7 @@ func TestAttachDeploymentsSingleReadActiveBeyondRecent(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 6; i++ {
-		d, err := m.StartDeployment(svc, "fail")
+		d, err := m.StartDeployment(svc, "fail", "")
 		if err != nil {
 			t.Fatal(err)
 		}

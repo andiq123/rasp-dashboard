@@ -32,6 +32,7 @@ type Deployment struct {
 	Repo       string `json:"repo,omitempty"`
 	Branch     string `json:"branch,omitempty"`
 	Commit     string `json:"commit,omitempty"`
+	Message    string `json:"message,omitempty"`
 	CreatedAt  string `json:"created_at"`
 	FinishedAt string `json:"finished_at,omitempty"`
 	Error      string `json:"error,omitempty"`
@@ -97,7 +98,7 @@ func (m *Manager) saveDeploymentsLocked(group, slug string, list []Deployment) e
 }
 
 // StartDeployment appends a building record for a new deploy attempt.
-func (m *Manager) StartDeployment(svc Service, commit string) (Deployment, error) {
+func (m *Manager) StartDeployment(svc Service, commit, message string) (Deployment, error) {
 	deployFileMu.Lock()
 	defer deployFileMu.Unlock()
 	list, err := m.loadDeploymentsLocked(svc.Group, svc.Slug)
@@ -112,6 +113,7 @@ func (m *Manager) StartDeployment(svc Service, commit string) (Deployment, error
 		Repo:      svc.Repo,
 		Branch:    svc.Branch,
 		Commit:    strings.TrimSpace(commit),
+		Message:   strings.TrimSpace(message),
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 		Active:    false,
 	}
@@ -250,14 +252,25 @@ func (m *Manager) attachDeployments(svc *Service) {
 }
 
 func gitHeadCommit(repoDir string) string {
+	commit, _ := gitHeadMeta(repoDir)
+	return commit
+}
+
+func gitHeadMeta(repoDir string) (commit, message string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", repoDir, "rev-parse", "--short", "HEAD")
 	out, err := cmd.Output()
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	return strings.TrimSpace(string(out))
+	commit = strings.TrimSpace(string(out))
+	msgCmd := exec.CommandContext(ctx, "git", "-C", repoDir, "log", "-1", "--format=%s")
+	msgOut, err := msgCmd.Output()
+	if err == nil {
+		message = strings.TrimSpace(string(msgOut))
+	}
+	return commit, message
 }
 
 // ensureExecutable makes path executable for the dashboard user.

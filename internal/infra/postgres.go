@@ -238,10 +238,11 @@ func (p *Postgres) CreateDatabase(ctx context.Context, name string) (Database, e
 		return Database{}, err
 	}
 	stmts := createDatabaseStmts(name, user, pass)
-	for _, sql := range stmts {
+	for i, sql := range stmts {
 		if err := p.psqlReady(ctx, sql); err != nil {
-			if strings.Contains(sql, "pg_terminate_backend") || strings.Contains(sql, "DROP ") {
-				continue
+			// Roll back a half-created role if DATABASE create failed.
+			if i > 0 {
+				_ = p.psql(ctx, fmt.Sprintf(`DROP ROLE IF EXISTS %s;`, user))
 			}
 			return Database{}, err
 		}
@@ -316,13 +317,10 @@ func (p *Postgres) compose(ctx context.Context, args ...string) *exec.Cmd {
 }
 
 // createDatabaseStmts builds the SQL sequence for an isolated DB + role.
-// createDatabaseStmts builds the SQL sequence for an isolated DB + role.
+// Fail-if-exists: never DROP — colliding names must error instead of wiping a peer tenant.
 // CONNECT is revoked from PUBLIC so peer tenants cannot open a session.
 func createDatabaseStmts(name, user, pass string) []string {
 	return []string{
-		fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid();`, name),
-		fmt.Sprintf(`DROP DATABASE IF EXISTS %s;`, name),
-		fmt.Sprintf(`DROP ROLE IF EXISTS %s;`, user),
 		fmt.Sprintf(`CREATE ROLE %s LOGIN PASSWORD '%s';`, user, escapeLiteral(pass)),
 		fmt.Sprintf(`CREATE DATABASE %s OWNER %s;`, name, user),
 		fmt.Sprintf(`GRANT ALL PRIVILEGES ON DATABASE %s TO %s;`, name, user),

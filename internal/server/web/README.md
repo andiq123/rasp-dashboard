@@ -12,17 +12,18 @@ Concerns are split under `assets/js/`:
 | `05-resources.js` | Pi capacity sliders |
 | `06-services.js` | Groups + service cards |
 | `06b-docker.js` | Docker housekeeping UI |
+| `06c-files.js` | Files browser |
 | `07-wizard.js` | Deploy wizards |
 | `08-render.js` | `render` / actions |
 | `09-activity.js` | Activity console |
 | `10-events.js` | DOM events + boot |
 
-`app.js` is the concatenated bundle embedded into the dashboard binary.
+`app.js` and `dashboard.min.css` are generated bundles embedded into the dashboard binary.
 
 ```bash
 # From repo root (or from this directory):
 go generate ./internal/server/web
 
 # Then rebuild:
-go build -buildvcs=false -o ~/apps/firewifi-dashboard .
+CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -buildvcs=false -o ~/apps/firewifi-dashboard .
 ```

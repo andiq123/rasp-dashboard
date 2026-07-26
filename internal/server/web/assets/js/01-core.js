@@ -55,7 +55,12 @@
     return new Promise(function(resolve, reject) {
       var run = function() {
         _apiInflight++;
-        var init = { method: opts.method || 'GET', headers: {'Content-Type':'application/json'}, body: opts.body };
+        var init = {
+          method: opts.method || 'GET',
+          headers: {'Content-Type':'application/json'},
+          body: opts.body,
+          credentials: 'same-origin'
+        };
         if (opts.signal) init.signal = opts.signal;
         fetch(path, init)
           .then(function(r) {
@@ -127,14 +132,33 @@
     return (n / 1073741824).toFixed(1) + ' GB';
   }
   function fmtRate(n) { return fmtBytes(n) + '/s'; }
+  /** Relative time for deploy history (Railway-style). */
+  function fmtRelative(iso) {
+    if (!iso) return '';
+    var t = Date.parse(iso);
+    if (!isFinite(t)) return '';
+    var sec = Math.round((Date.now() - t) / 1000);
+    if (sec < 45) return 'just now';
+    if (sec < 3600) return Math.max(1, Math.round(sec / 60)) + 'm ago';
+    if (sec < 86400) return Math.max(1, Math.round(sec / 3600)) + 'h ago';
+    if (sec < 86400 * 30) return Math.max(1, Math.round(sec / 86400)) + 'd ago';
+    try {
+      return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    } catch (e) {
+      return '';
+    }
+  }
   function clamp(n) { n = Number(n || 0); return Math.max(0, Math.min(100, n)); }
 
   function ico(name, cls) {
     var c = 'ico' + (cls ? (' ' + cls) : '');
-    var common = ' class="'+c+'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+    var common = ' class="'+c+'" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
     var paths = {
       db: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
-      app: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6M9 13h6M9 17h4"/>',
+      app: '<rect x="4" y="4" width="16" height="16" rx="2.5"/><path d="M8 9h8M8 12h8M8 15h5"/>',
+      grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+      folder: '<path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>',
+      files: '<path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><path d="M3 11h18"/>',
       play: '<polygon points="8,5 19,12 8,19" fill="currentColor" stroke="none"/>',
       stop: '<rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" stroke="none"/>',
       refresh: '<path d="M21 12a9 9 0 1 1-2.6-6.2"/><polyline points="21,3 21,9 15,9"/>',
@@ -157,7 +181,7 @@
       download: '<path d="M12 4v12"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/>',
       upload: '<path d="M12 20V8"/><path d="M7 13l5-5 5 5"/><path d="M5 4h14"/>',
       shield: '<path d="M12 3l8 3v6c0 5-3.4 8.4-8 9-4.6-.6-8-4-8-9V6l8-3z"/>',
-      settings: '<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.86 1.01 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+      settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>',
       arrange: '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/>',
       zoomin: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/>',
       zoomout: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/>',
@@ -177,8 +201,9 @@
     var ic = icon ? ico(icon) : '';
     return '<button type="button" class="btn '+(cls||'')+(busy[id]?' loading':'')+(icon?' has-ico':'')+'" data-action="'+esc(id)+'" '+(disabled || busy[id] ? 'disabled' : '')+'><span class="spinner"></span>'+ic+'<span>'+esc(label)+'</span></button>';
   }
-  function field(label, name, value, type) {
-    return '<label>'+esc(label)+'<input type="'+esc(type||'text')+'" name="'+esc(name)+'" value="'+esc(value)+'" autocomplete="off"></label>';
+  function field(label, name, value, type, placeholder) {
+    var ph = placeholder ? ' placeholder="'+esc(placeholder)+'"' : '';
+    return '<label>'+esc(label)+'<input type="'+esc(type||'text')+'" name="'+esc(name)+'" value="'+esc(value)+'" autocomplete="off"'+ph+'></label>';
   }
   function publicHost() {
     try {

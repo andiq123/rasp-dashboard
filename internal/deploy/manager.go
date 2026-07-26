@@ -35,10 +35,13 @@ type Manager struct {
 	deletedMu    sync.Mutex
 	deleting     map[string]struct{} // group/slug being removed — ignore late build completion
 	stats        *statsHub
+	bgCtx        context.Context
+	bgCancel     context.CancelFunc
 }
 
 func NewManager(baseDir, homeDir string, pg *infra.Postgres, mn *infra.MinIO) *Manager {
 	deployDir := filepath.Join(homeDir, "deployments")
+	bgCtx, bgCancel := context.WithCancel(context.Background())
 	m := &Manager{
 		BaseDir:   baseDir,
 		DeployDir: deployDir,
@@ -47,6 +50,8 @@ func NewManager(baseDir, homeDir string, pg *infra.Postgres, mn *infra.MinIO) *M
 		MinIO:     mn,
 		Activity:  newActivityHub(),
 		Cache:     cache.New(deployDir),
+		bgCtx:     bgCtx,
+		bgCancel:  bgCancel,
 	}
 	m.bindActivityPersist()
 	go m.BootstrapQuickTunnels()
@@ -54,6 +59,23 @@ func NewManager(baseDir, homeDir string, pg *infra.Postgres, mn *infra.MinIO) *M
 	go m.BootstrapStats()
 	go m.BootstrapJobWatchdog()
 	return m
+}
+
+// Close stops background loops (stats, watchdog, auto-deploy). Safe to call twice.
+func (m *Manager) Close() {
+	if m == nil || m.bgCancel == nil {
+		return
+	}
+	m.bgCancel()
+}
+
+func (m *Manager) bgDone() <-chan struct{} {
+	if m == nil || m.bgCtx == nil {
+		ch := make(chan struct{})
+		close(ch)
+		return ch
+	}
+	return m.bgCtx.Done()
 }
 
 // ActivitySnapshot returns the current deploy/ops console state.
@@ -506,7 +528,14 @@ func (m *Manager) createPostgres(ctx context.Context, group string, name, versio
 	if _, idx := findService(reg, group, slug); idx >= 0 {
 		return Service{}, fmt.Errorf("service already exists in group")
 	}
-	m.logf("info", "New database · %s/%s", group, slug)
+	dbName := physicalDatabaseName(group, slug)
+	if dbName == "" {
+		return Service{}, fmt.Errorf("invalid database name")
+	}
+	if registryPhysicalTaken(reg, TypePostgres, dbName, "", "") {
+		return Service{}, fmt.Errorf("database name %s already used by another service", dbName)
+	}
+	m.logf("info", "New database · %s/%s → %s", group, slug, dbName)
 
 	m.stepProgress("engine")
 	m.detailProgress("Ensuring engine")
@@ -534,10 +563,6 @@ func (m *Manager) createPostgres(ctx context.Context, group string, name, versio
 		return Service{}, fmt.Errorf("engine: %w", err)
 	}
 
-	dbName := strings.ReplaceAll(group+"_"+slug, "-", "_")
-	if len(dbName) > 60 {
-		dbName = dbName[:60]
-	}
 	m.stepProgress("database")
 	m.detailProgress(dbName)
 	m.logf("step", "Creating role + database %s", dbName)
@@ -885,20 +910,28 @@ func (m *Manager) createGo(ctx context.Context, group string, in CreateGoRequest
 		}
 	}
 	m.mu.Unlock()
-	commit := gitHeadCommit(buildDir)
-	dpl, err := m.StartDeployment(svc, commit)
+	commit, message := gitHeadMeta(buildDir)
+	dpl, err := m.StartDeployment(svc, commit, message)
 	if err != nil {
 		return Service{}, "", err
 	}
 	svc.DeployID = dpl.ID
 	svc.ActiveDeployID = m.activeDeployID(group, slug)
 	m.persistService(svc)
-	m.logf("info", "Deployment %s · commit %s", dpl.ID, func() string {
+	m.logf("info", "Deployment %s · %s%s", dpl.ID, func() string {
 		if commit != "" {
 			return commit
 		}
 		return "unknown"
+	}(), func() string {
+		if message != "" {
+			return " · " + message
+		}
+		return ""
 	}())
+	if svc.AutoDeploy && strings.TrimSpace(repo) != "" {
+		go m.ensureAutoDeployGitHub(repo)
+	}
 	m.logf("info", "Service registered — building in background")
 	return svc, buildDir, nil
 }
@@ -1002,9 +1035,11 @@ func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in Set
 			recreate = true
 		}
 	}
+	wantHook := false
 	if in.AutoDeploy != nil && svc.Type == TypeGo {
 		svc.AutoDeploy = *in.AutoDeploy
 		svc.AutoDeploySet = true
+		wantHook = svc.AutoDeploy && strings.TrimSpace(svc.Repo) != ""
 	}
 	if in.LinkedDatabase != nil && svc.Type == TypeGo {
 		link := strings.TrimSpace(*in.LinkedDatabase)
@@ -1093,7 +1128,12 @@ func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in Set
 		return Service{}, err
 	}
 	_ = m.writeMeta(svc)
+	repoForHook := svc.Repo
 	m.mu.Unlock()
+
+	if wantHook {
+		go m.ensureAutoDeployGitHub(repoForHook)
+	}
 
 	if svc.Type == TypeGo {
 		if rebuild {

@@ -1,0 +1,48 @@
+#:schema https://json.schemastore.org/any.json
+
+# Local live-reload for FireWifi dashboard (Air).
+# Start: ./start.sh
+
+root = "."
+tmp_dir = "tmp"
+env_files = [".env"]
+
+[build]
+  # Pack JS modules, then build. Exclude generated app.js from watch to avoid loops.
+  cmd = "go generate ./internal/server/web && go build -buildvcs=false -o ./tmp/firewifi-dashboard ."
+  bin = "tmp/firewifi-dashboard"
+  entrypoint = ["./tmp/firewifi-dashboard"]
+  delay = 500
+  include_ext = ["go", "html", "css", "js"]
+  exclude_dir = ["tmp", "vendor", "scripts", ".devdata", ".git"]
+  exclude_regex = ["_test\\.go$", "app\\.js$", "dashboard\\.min\\.css$"]
+  exclude_unchanged = true
+  stop_on_error = true
+  send_interrupt = true
+  kill_delay = "500ms"
+  log = "air.log"
+
+[log]
+  time = false
+  main_only = false
+
+[color]
+  main = "magenta"
+  watcher = "cyan"
+  build = "yellow"
+  runner = "green"
+
+[misc]
+  clean_on_exit = true
+
+[screen]
+  clear_on_rebuild = false
+  keep_scroll = true
+
+# Browser auto-refresh while editing the embedded UI.
+# App still listens on PORT (default 8484); open the proxy URL instead.
+[proxy]
+  enabled = true
+  proxy_port = 8490
+  app_port = 8484
+  app_start_timeout = 8000

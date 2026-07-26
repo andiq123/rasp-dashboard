@@ -99,7 +99,7 @@
     if (disk) bits.push(disk);
     return ''
       +'<button type="button" class="group-tile'+(isActive ? ' active' : '')+'" data-action="group:open:'+esc(g.slug)+'">'
-        +'<span class="group-tile-ico" aria-hidden="true">'+ico('app')+'</span>'
+        +'<span class="group-tile-ico" aria-hidden="true">'+ico('folder')+'</span>'
         +'<div class="group-tile-main">'
           +'<div class="group-tile-title">'+esc(g.name || g.slug)+'</div>'
           +'<div class="group-tile-sub"><span class="mono">'+esc(g.slug)+'</span>'
@@ -119,25 +119,31 @@
     var empty = ''
       +'<div class="ws-empty ws-empty-compact">'
         +'<strong>No groups yet</strong>'
-        +'<p>Create a group with <strong>New group</strong> in the header to deploy databases and Go apps.</p>'
+        +'<p>Use <strong>New group</strong> to start deploying.</p>'
       +'</div>';
     var body = errBlock || (n ? cards : empty);
     return ''
       +'<div class="ws-col ws-col-groups">'
         +'<div class="ws-section-head">'
-          +'<div class="ws-section-title"><h3>'+ico('app')+' Groups</h3><span class="gd-count">'+String(n)+'</span></div>'
+          +'<div class="ws-section-title"><h3>'+ico('folder')+' Groups</h3><span class="gd-count">'+String(n)+'</span></div>'
         +'</div>'
         +'<div class="group-tile-list group-tile-list-col">'+body+'</div>'
       +'</div>';
   }
 
   function projectsWelcomePane() {
+    var empty = !(groups || []).length && !groupsError;
     return ''
-      +'<div class="ws-col ws-col-main projects-welcome">'
+      +'<div class="ws-col ws-col-main projects-welcome'+(empty?' is-empty':'')+'">'
         +'<div class="projects-welcome-inner">'
-          +'<div class="projects-welcome-icon" aria-hidden="true">'+ico('app')+'</div>'
-          +'<h3>Select a group</h3>'
-          +'<p class="ghost">Choose a project from the list. Use <strong>New group</strong> in the header to get started.</p>'
+          +'<div class="projects-welcome-icon" aria-hidden="true">'+ico(empty ? 'plus' : 'folder')+'</div>'
+          +'<h3>'+(empty ? 'Create a group' : 'Select a group')+'</h3>'
+          +'<p class="ghost">'+(empty
+            ? 'Groups hold databases and Go apps on this Pi.'
+            : 'Pick a group from the list, or create another.')+'</p>'
+          +(empty
+            ? '<button type="button" class="btn primary btn-compact has-ico" data-action="wizard:group">'+ico('plus')+'<span>New group</span></button>'
+            : '')
         +'</div>'
       +'</div>';
   }
@@ -150,7 +156,7 @@
           +'<section class="panel panel-svc panel-manage panel-workspace panel-projects-crm">'
             +'<header class="ws-head">'
               +'<div class="ws-head-main">'
-                +'<div class="ws-title-block"><h2><span class="ws-title-ico" aria-hidden="true">'+ico('app')+'</span> Projects</h2><p class="ghost">Groups &amp; services</p></div>'
+                +'<div class="ws-title-block"><h2><span class="ws-title-ico" aria-hidden="true">'+ico('folder')+'</span> Projects</h2><p class="ghost">Groups &amp; services</p></div>'
               +'</div>'
               +'<div class="ws-head-actions">'
                 +'<button type="button" class="btn primary btn-compact has-ico" data-action="wizard:group">'+ico('plus')+'<span>New group</span></button>'
@@ -476,22 +482,32 @@
       var st = d.status || '';
       var live = !!(liveId && d.id === liveId && (st === 'building' || st === 'queued'));
       var selected = !!(viewing && d.id === viewing);
+      var msg = String(d.message || '').trim();
+      if (msg.length > 72) msg = msg.slice(0, 70) + '…';
+      var title = msg || (d.commit ? 'Deploy ' + d.commit : 'New deployment');
       var meta = [];
       if (d.commit) meta.push(d.commit);
       if (d.branch) meta.push(d.branch);
-      if (d.id) meta.push(d.id);
+      var when = fmtRelative(d.finished_at || d.created_at);
+      if (when) meta.push(when);
+      var tip = [];
+      if (d.commit) tip.push(d.commit);
+      if (d.message) tip.push(d.message);
+      if (d.created_at) tip.push(d.created_at);
+      if (d.id) tip.push(d.id);
       var err = d.error ? '<div class="deploy-err">'+esc(String(d.error).slice(0,120))+'</div>' : '';
       var phase = (st === 'building' || st === 'queued')
-        ? '<div class="deploy-phase">Clone → Build → Start</div>'
+        ? '<div class="deploy-phase">Fetch → Build → Start</div>'
         : '';
       return ''
         +'<button type="button" class="deploy-row '+esc(st)+(live?' live':'')+(selected?' selected':'')+'"'
           +' data-action="deploy:logs:'+esc(svc.slug)+':'+esc(d.id)+'"'
           +' data-deploy-id="'+esc(d.id)+'"'
-          +' title="Open logs for this deployment">'
+          +' title="'+esc(tip.join(' · ') || 'Open logs')+'">'
           +'<span class="deploy-pill '+esc(st)+'">'+esc(deployStatusLabel(st))+(live?' · live':'')+'</span>'
           +'<div class="deploy-main">'
-            +'<div class="deploy-meta">'+esc(meta.join(' · ') || 'New deployment')+'</div>'
+            +'<div class="deploy-msg">'+esc(title)+'</div>'
+            +'<div class="deploy-meta">'+esc(meta.join(' · ') || '—')+'</div>'
             +phase
             +err
           +'</div>'
@@ -506,7 +522,13 @@
     var failed = list.filter(function(d){ return d.status === 'failed'; }).length;
     var active = list.filter(function(d){ return d.status === 'active' || d.active; })[0];
     if (building) return 'Building';
-    if (active) return 'Active';
+    if (active) {
+      var bits = ['Active'];
+      if (active.commit) bits.push(active.commit);
+      var ago = fmtRelative(active.finished_at || active.created_at);
+      if (ago) bits.push(ago);
+      return bits.join(' · ');
+    }
     if (failed) return failed + ' failed';
     return String(list.length);
   }
@@ -865,7 +887,7 @@
             })
             +'<label class="ui-check" style="display:flex;gap:8px;align-items:flex-start;margin-top:10px">'
               +'<input type="checkbox" name="auto_deploy" '+(autoDeploy?'checked ':'')+'/>'
-              +'<span><strong>Auto-deploy</strong><span class="ghost" style="display:block;font-size:11px;margin-top:2px">Redeploy when this branch gets a new commit on GitHub</span></span>'
+              +'<span><strong>Auto-deploy</strong><span class="ghost" style="display:block;font-size:11px;margin-top:2px">Redeploy on push (webhook if FIREWIFI_PUBLIC_URL is set, else polls GitHub every 60s)</span></span>'
             +'</label>'
           )
           +foldHTML(scope+':env', 'Environment', envSummaryText, envMergedBody)

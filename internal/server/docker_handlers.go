@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -40,7 +39,7 @@ func (s *Server) handleDocker(w http.ResponseWriter, r *http.Request) {
 		jsonReply(w, inv)
 	case r.URL.Path == "/api/docker" && r.Method == http.MethodPost:
 		var act deploy.DockerAction
-		if err := json.NewDecoder(r.Body).Decode(&act); err != nil {
+		if err := decodeJSONBody(r, &act); err != nil {
 			http.Error(w, "bad json", http.StatusBadRequest)
 			return
 		}
@@ -69,7 +68,7 @@ func (s *Server) handleEngine(w http.ResponseWriter, r *http.Request) {
 			PostgresVersion string `json:"postgres_version"`
 			GoToolchain     string `json:"go_toolchain"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := decodeJSONBody(r, &body); err != nil {
 			http.Error(w, "bad json", http.StatusBadRequest)
 			return
 		}

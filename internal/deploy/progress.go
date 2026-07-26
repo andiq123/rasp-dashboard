@@ -31,7 +31,7 @@ func DeployGoSteps() []ProgressStep {
 		{ID: "modules", Label: "Modules", Weight: 18, Status: "pending"},
 		{ID: "build", Label: "Compile", Weight: 30, Status: "pending"},
 		{ID: "promote", Label: "Promote binary", Weight: 6, Status: "pending"},
-		{ID: "purge", Label: "Clean source", Weight: 5, Status: "pending"},
+		{ID: "purge", Label: "Keep source", Weight: 5, Status: "pending"},
 		{ID: "start", Label: "Start container", Weight: 10, Status: "pending"},
 		{ID: "health", Label: "Health check", Weight: 8, Status: "pending"},
 	}

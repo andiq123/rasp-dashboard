@@ -940,10 +940,9 @@ func (m *Manager) buildAndRunGo(ctx context.Context, svc Service, repoDir, deplo
 	} else {
 		m.skipProgress("promote")
 	}
-	clonePath := filepath.Join(m.serviceDir(svc.Group, svc.Slug), "repo")
-	m.stepProgress("purge")
-	m.logf("info", "Purging source clone (%s)", fmtBytes(dirSize(clonePath)))
-	_ = os.RemoveAll(clonePath)
+	// Keep the shallow clone for fast fetch+rebuild on the next deploy.
+	m.skipProgress("purge")
+	m.logf("info", "Keeping source clone for fast redeploys (%s)", fmtBytes(dirSize(filepath.Join(m.serviceDir(svc.Group, svc.Slug), "repo"))))
 	if err := m.runGoContainer(ctx, svc); err != nil {
 		return fmt.Errorf("start: %w", err)
 	}
