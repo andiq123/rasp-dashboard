@@ -1,0 +1,21 @@
+.empty {
+  text-align: center;
+  padding: 28px 16px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  background: var(--panel-2);
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+
+.empty strong {
+  font-size: 14px;
+}
+
+.empty p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  max-width: 28rem;
+}

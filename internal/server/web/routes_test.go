@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// parseRoute mirrors assets/js/08-render.js parseRoute for regression tests.
+// parseRoute mirrors the dashboard client router for regression tests.
 func parseRoute(path string) map[string]string {
 	p := strings.TrimRight(path, "/")
 	if p == "" {
@@ -86,7 +86,7 @@ func shellRailItemAria(active bool) string {
 	return ""
 }
 
-// maskEnvValue mirrors assets/js/04-folds.js maskEnvValue for hidden env rows.
+// maskEnvValue mirrors client-side env masking for hidden env rows.
 func maskEnvValue(v string) string {
 	if strings.TrimSpace(v) == "" {
 		return "—"

@@ -1,10 +1,11 @@
 # rasp-dashboard
 
-FireWifi dashboard for Raspberry Pi — Go server with an embedded web UI for managing Docker Compose deployments, live resource monitoring, logs, and host settings.
+FireWifi dashboard for Raspberry Pi — Go server with an embedded React web UI for managing Docker Compose deployments, live resource monitoring, files, and host settings.
 
 ## Requirements
 
 - Go 1.26+ (see `go.mod`)
+- Node.js 20+ (to build the UI via `go generate`)
 - Docker (for managed compose services)
 - Linux (designed for Raspberry Pi); local macOS/Linux works for UI/API development
 
@@ -14,13 +15,17 @@ FireWifi dashboard for Raspberry Pi — Go server with an embedded web UI for ma
 ./start.sh
 ```
 
-Uses [Air](https://github.com/air-verse/air): on `.go` / UI source changes it runs `go generate` (packs + minifies assets), rebuilds, and restarts.
+Uses [Air](https://github.com/air-verse/air): on Go / `web-ui` source changes it runs `go generate` (Vite build), rebuilds, and restarts.
 
 - App: `http://localhost:8484` (`PORT` overrides)
 - Browser auto-refresh: `http://localhost:8490` (Air proxy)
 - Runtime data: `.devdata/` (`FIREWIFI_BASE` overrides)
 
-Air is installed automatically via `go install` if missing.
+UI-only Vite dev (proxies `/api` → `:8484`):
+
+```bash
+cd web-ui && npm run dev
+```
 
 ## Production rebuild (Pi)
 
@@ -49,17 +54,17 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -buildvcs=false -o firewifi-da
 ## Layout
 
 - `main.go` — entrypoint (graceful shutdown)
+- `web-ui/` — React 19 + TypeScript + CSS Modules (Vite)
 - `internal/deploy` — compose deploy manager
 - `internal/server` — HTTP API + SSE
-- `internal/server/web` — embedded HTML/CSS/JS UI
+- `internal/server/web` — embeds Vite `dist/` + `go generate`
 - `.air.toml` — Air live-reload config
 - `start.sh` — local dev entrypoint
 - `scripts/rebuild-dashboard.sh` — Pi generate + rebuild + systemd restart
-- `scripts/cmd/fwpatch` — remote source patch helper
 
 ## Notes
 
-- UI JS sources live in `internal/server/web/assets/js/*.js`; `app.js` is generated.
-- Edit `assets/dashboard.css`; `dashboard.min.css` is generated — do not edit minified outputs.
+- Edit UI under `web-ui/src/`; do not hand-edit `internal/server/web/dist/`.
+- Feature UI: `web-ui/src/features/<name>/`; shared primitives: `web-ui/src/components/ui/`.
 - Wi‑Fi password is never returned by `GET /api/config`; leave the password field blank to keep the stored value.
 - Do not commit secrets, tokens, or host-specific `.env` files.

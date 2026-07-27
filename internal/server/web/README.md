@@ -1,29 +1,41 @@
-# Dashboard web UI
+# Dashboard web UI (React)
 
-Concerns are split under `assets/js/`:
+Source lives in [`web-ui/`](../../../web-ui/) (Vite + React 19 + TypeScript + CSS Modules).
 
-| File | Responsibility |
-|------|----------------|
-| `01-core.js` | Shared state, API, toast, formatters |
-| `02-live-panels.js` | VPN + System panels (live-patched) |
-| `02b-ui.js` | Shared form/UI primitives |
-| `03-cselect.js` | Searchable combobox |
-| `04-folds.js` | Accordion folds |
-| `05-resources.js` | Pi capacity sliders |
-| `06-services.js` | Groups + service cards |
-| `06b-docker.js` | Docker housekeeping UI |
-| `06c-files.js` | Files browser |
-| `07-wizard.js` | Deploy wizards |
-| `08-render.js` | `render` / actions |
-| `09-activity.js` | Activity console |
-| `10-events.js` | DOM events + boot |
+```
+web-ui/src/
+  api/            # typed client + query keys
+  components/ui/  # shared primitives (Button, Field, Modal, …)
+  features/       # overview | projects | settings | files
+  shell/          # rail + topbar
+```
 
-`app.js` and `dashboard.min.css` are generated bundles embedded into the dashboard binary.
+Build embeds into `dist/` via Go generate:
 
 ```bash
-# From repo root (or from this directory):
 go generate ./internal/server/web
+# or from web-ui:
+npm run build
+```
 
-# Then rebuild:
+Then rebuild the binary:
+
+```bash
 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -buildvcs=false -o ~/apps/firewifi-dashboard .
 ```
+
+Dev (API proxied to Go on :8484):
+
+```bash
+# terminal 1
+./start.sh   # or go run .
+# terminal 2
+cd web-ui && npm run dev
+```
+
+## Adding a feature
+
+1. Create `web-ui/src/features/<name>/` with `Page.tsx` + `Page.module.css`
+2. Add API helpers under `web-ui/src/api/` if needed
+3. Register a route in `app/App.tsx`
+4. Reuse `components/ui/*` — do not duplicate button/field styles

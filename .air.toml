@@ -8,14 +8,14 @@ tmp_dir = "tmp"
 env_files = [".env"]
 
 [build]
-  # Pack JS modules, then build. Exclude generated app.js from watch to avoid loops.
+  # Build React UI, then Go binary. Exclude generated dist from watch to avoid loops.
   cmd = "go generate ./internal/server/web && go build -buildvcs=false -o ./tmp/firewifi-dashboard ."
   bin = "tmp/firewifi-dashboard"
   entrypoint = ["./tmp/firewifi-dashboard"]
   delay = 500
-  include_ext = ["go", "html", "css", "js"]
-  exclude_dir = ["tmp", "vendor", "scripts", ".devdata", ".git"]
-  exclude_regex = ["_test\\.go$", "app\\.js$", "dashboard\\.min\\.css$"]
+  include_ext = ["go", "html", "css", "js", "ts", "tsx", "json"]
+  exclude_dir = ["tmp", "vendor", "scripts", ".devdata", ".git", "web-ui/node_modules", "internal/server/web/dist"]
+  exclude_regex = ["_test\\.go$"]
   exclude_unchanged = true
   stop_on_error = true
   send_interrupt = true

@@ -37,3 +37,6 @@ id_ed25519*
 
 # Logs
 *.log
+
+# Node (UI deps; dist is committed for go embed without Node)
+web-ui/node_modules/

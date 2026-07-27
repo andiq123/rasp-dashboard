@@ -1,6 +1,6 @@
 package web
 
-//go:generate go run packjs.go
+//go:generate go run packui.go
 
 import (
 	"compress/gzip"
@@ -11,12 +11,12 @@ import (
 	"strings"
 )
 
-//go:embed index.html assets/dashboard.min.css assets/js/app.js
+//go:embed all:dist
 var content embed.FS
 
-// Handler serves /assets/* from the embedded filesystem (gzip when accepted).
+// Handler serves /assets/* from the Vite build (gzip when accepted).
 func Handler() http.Handler {
-	sub, err := fs.Sub(content, "assets")
+	sub, err := fs.Sub(content, "dist")
 	if err != nil {
 		panic(err)
 	}
@@ -37,7 +37,7 @@ func Handler() http.Handler {
 
 func compressibleAsset(path string) bool {
 	switch {
-	case strings.HasSuffix(path, ".js"), strings.HasSuffix(path, ".css"), strings.HasSuffix(path, ".html"), strings.HasSuffix(path, ".svg"):
+	case strings.HasSuffix(path, ".js"), strings.HasSuffix(path, ".css"), strings.HasSuffix(path, ".html"), strings.HasSuffix(path, ".svg"), strings.HasSuffix(path, ".map"):
 		return true
 	default:
 		return false
@@ -61,11 +61,17 @@ func (w *gzipResponseWriter) Write(b []byte) (int, error) {
 
 // PageHTML returns the dashboard HTML with initial state injected.
 func PageHTML(stateJSON string) string {
-	b, err := content.ReadFile("index.html")
+	b, err := content.ReadFile("dist/index.html")
 	if err != nil {
 		panic(err)
 	}
 	safe := strings.ReplaceAll(stateJSON, "<", `\u003c`)
 	safe = strings.ReplaceAll(safe, ">", `\u003e`)
-	return strings.Replace(string(b), "__STATE__", safe, 1)
+	html := string(b)
+	if !strings.Contains(html, "__STATE__") {
+		// Fallback: inject before </body> if template marker missing.
+		inject := `<script type="application/json" id="initial-state">` + safe + `</script>`
+		return strings.Replace(html, "</body>", inject+"</body>", 1)
+	}
+	return strings.Replace(html, "__STATE__", safe, 1)
 }
