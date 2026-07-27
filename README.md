@@ -5,7 +5,7 @@ FireWifi dashboard for Raspberry Pi — Go server with an embedded React web UI 
 ## Requirements
 
 - Go 1.26+ (see `go.mod`)
-- Node.js 20+ (to build the UI via `go generate`)
+- Node.js 20+ (to build the UI)
 - Docker (for managed compose services)
 - Linux (designed for Raspberry Pi); local macOS/Linux works for UI/API development
 
@@ -27,19 +27,32 @@ UI-only Vite dev (proxies `/api` → `:8484`):
 cd web-ui && npm run dev
 ```
 
-## Production rebuild (Pi)
+## Production (Pi) — after `git pull`
+
+One command packs the **latest** frontend into the binary and restarts the service:
 
 ```bash
-./scripts/rebuild-dashboard.sh
+./scripts/prod.sh
 ```
 
-Or manually:
+That always:
+
+1. `npm ci` when lockfile changed
+2. Builds Vite → `internal/server/web/dist` (`go generate`)
+3. Builds a trimmed Go binary with that UI **embedded**
+4. Restarts `firewifi-dashboard.service` (user unit) if present
 
 ```bash
-go generate ./internal/server/web
-CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -buildvcs=false -o firewifi-dashboard .
-./firewifi-dashboard
+# build only (no systemd)
+FIREWIFI_SKIP_RESTART=1 ./scripts/prod.sh
+
+# custom binary path
+FIREWIFI_BIN=/usr/local/bin/firewifi-dashboard ./scripts/prod.sh
 ```
+
+`./scripts/rebuild-dashboard.sh` is the same entrypoint (alias).
+
+**Important:** the UI is compile-time embedded. `git pull` alone does not update a running binary — run `./scripts/prod.sh` after pull.
 
 ## Optional hardening
 
@@ -50,17 +63,20 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -buildvcs=false -o firewifi-da
 | `FIREWIFI_BASE` | Config / token base directory |
 | `HOME` | Deployments root (`$HOME/deployments`) and default paths |
 | `PORT` | Listen port (default `8484`) |
+| `FIREWIFI_BIN` | Production binary path for `prod.sh` |
+| `FIREWIFI_SKIP_RESTART=1` | `prod.sh` builds only |
 
 ## Layout
 
 - `main.go` — entrypoint (graceful shutdown)
-- `web-ui/` — React 19 + TypeScript + CSS Modules (Vite)
+- `web-ui/` — React 19 + TypeScript + Tailwind/daisyUI (Vite)
 - `internal/deploy` — compose deploy manager
 - `internal/server` — HTTP API + SSE
 - `internal/server/web` — embeds Vite `dist/` + `go generate`
-- `.air.toml` — Air live-reload config
-- `start.sh` — local dev entrypoint
-- `scripts/rebuild-dashboard.sh` — Pi generate + rebuild + systemd restart
+- `scripts/build-ui.sh` — reusable UI pack into embed dist
+- `scripts/prod.sh` — production UI + binary + restart
+- `scripts/air-build.sh` — Air incremental build
+- `start.sh` — local Air dev entrypoint
 
 ## Notes
 

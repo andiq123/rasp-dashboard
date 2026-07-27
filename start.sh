@@ -17,26 +17,16 @@ if ! command -v air >/dev/null 2>&1; then
   go install github.com/air-verse/air@latest
 fi
 
-if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-  echo "error: node and npm are required to build web-ui" >&2
-  exit 1
-fi
-
-if [[ ! -d web-ui/node_modules ]]; then
-  echo "==> npm ci (web-ui)"
-  (cd web-ui && npm ci)
-fi
-
 if [[ ! -f internal/server/web/dist/index.html ]]; then
-  echo "==> initial web-ui build"
-  go generate ./internal/server/web
+  "$ROOT/scripts/build-ui.sh"
 fi
 
 echo "==> FireWifi dashboard (dev)"
 echo "    app    http://localhost:${PORT}"
 echo "    reload http://localhost:8490  (Air proxy · auto browser refresh)"
 echo "    data   ${FIREWIFI_BASE}"
-echo "    ui     web-ui/src → go generate on change"
+echo "    ui     web-ui/src → rebuild on change"
+echo "    prod   ./scripts/prod.sh"
 echo "    stop   Ctrl+C"
 echo
 

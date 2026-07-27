@@ -3,16 +3,21 @@ package deploy
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
+
+const githubPreviewMax = 256 << 10 // 256 KiB decoded text
 
 var ghHTTP = &http.Client{
 	Timeout: 20 * time.Second,
@@ -46,6 +51,25 @@ type GitHubBranch struct {
 type GitHubDir struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
+}
+
+// GitHubEntry is a directory or file from the Contents API.
+type GitHubEntry struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Type string `json:"type"` // dir|file
+	Size int64  `json:"size,omitempty"`
+}
+
+// GitHubFilePreview mirrors local files preview for remote GitHub files.
+type GitHubFilePreview struct {
+	Path      string `json:"path"`
+	Name      string `json:"name"`
+	Size      int64  `json:"size"`
+	Text      string `json:"text,omitempty"`
+	Binary    bool   `json:"binary,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 func (m *Manager) SaveToken(ctx context.Context, token string) (GitHubUser, error) {
@@ -274,7 +298,22 @@ func (m *Manager) ListBranches(ctx context.Context, repo string) ([]GitHubBranch
 	return all, nil
 }
 
-func (m *Manager) ListDirs(ctx context.Context, repo, branch, path string) ([]GitHubDir, error) {
+func (m *Manager) ListDirs(ctx context.Context, repo, branch, dirPath string) ([]GitHubDir, error) {
+	entries, err := m.ListContents(ctx, repo, branch, dirPath)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]GitHubDir, 0, len(entries))
+	for _, e := range entries {
+		if e.Type != "dir" {
+			continue
+		}
+		out = append(out, GitHubDir{Name: e.Name, Path: e.Path})
+	}
+	return out, nil
+}
+
+func (m *Manager) ListContents(ctx context.Context, repo, branch, dirPath string) ([]GitHubEntry, error) {
 	repo = normalizeRepo(repo)
 	if repo == "" {
 		return nil, fmt.Errorf("repo required as owner/name")
@@ -290,7 +329,7 @@ func (m *Manager) ListDirs(ctx context.Context, repo, branch, path string) ([]Gi
 	if branch == "" {
 		branch = "main"
 	}
-	norm, err := normalizeRootDir(path)
+	norm, err := normalizeRootDir(dirPath)
 	if err != nil {
 		return nil, err
 	}
@@ -307,20 +346,104 @@ func (m *Manager) ListDirs(ctx context.Context, repo, branch, path string) ([]Gi
 		Name string `json:"name"`
 		Path string `json:"path"`
 		Type string `json:"type"`
+		Size int64  `json:"size"`
 	}
 	if err := json.Unmarshal(body, &batch); err != nil {
-		// GitHub returns object when path is a file
 		return nil, fmt.Errorf("not a directory")
 	}
-	out := make([]GitHubDir, 0, len(batch))
+	out := make([]GitHubEntry, 0, len(batch))
 	for _, e := range batch {
-		if e.Type != "dir" {
+		t := e.Type
+		if t != "dir" && t != "file" {
 			continue
 		}
-		out = append(out, GitHubDir{Name: e.Name, Path: e.Path})
+		out = append(out, GitHubEntry{Name: e.Name, Path: e.Path, Type: t, Size: e.Size})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Type != out[j].Type {
+			return out[i].Type == "dir"
+		}
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
+	return out, nil
+}
+
+func (m *Manager) GetFilePreview(ctx context.Context, repo, branch, filePath string) (GitHubFilePreview, error) {
+	repo = normalizeRepo(repo)
+	if repo == "" {
+		return GitHubFilePreview{}, fmt.Errorf("repo required as owner/name")
+	}
+	norm, err := normalizeRootDir(filePath)
+	if err != nil || norm == "" {
+		return GitHubFilePreview{}, fmt.Errorf("file path required")
+	}
+	token, err := m.readToken()
+	if err != nil {
+		return GitHubFilePreview{}, err
+	}
+	if token == "" {
+		return GitHubFilePreview{}, fmt.Errorf("github not connected")
+	}
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		branch = "main"
+	}
+	url := "https://api.github.com/repos/" + repo + "/contents/" + norm + "?ref=" + strings.ReplaceAll(branch, " ", "%20")
+	body, err := m.ghGET(ctx, url, token)
+	if err != nil {
+		return GitHubFilePreview{}, err
+	}
+	var obj struct {
+		Type     string `json:"type"`
+		Name     string `json:"name"`
+		Path     string `json:"path"`
+		Size     int64  `json:"size"`
+		Encoding string `json:"encoding"`
+		Content  string `json:"content"`
+	}
+	if err := json.Unmarshal(body, &obj); err != nil {
+		return GitHubFilePreview{}, fmt.Errorf("not a file")
+	}
+	out := GitHubFilePreview{
+		Path: obj.Path,
+		Name: obj.Name,
+		Size: obj.Size,
+	}
+	if out.Name == "" {
+		out.Name = path.Base(norm)
+	}
+	if out.Path == "" {
+		out.Path = norm
+	}
+	if obj.Type != "file" {
+		out.Error = "not a file"
+		return out, nil
+	}
+	if obj.Content == "" || obj.Encoding != "base64" {
+		if obj.Size > githubPreviewMax {
+			out.Truncated = true
+			out.Error = "file too large to preview"
+			return out, nil
+		}
+		out.Binary = true
+		out.Error = "binary file — preview unavailable"
+		return out, nil
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(obj.Content, "\n", ""))
+	if err != nil {
+		out.Binary = true
+		out.Error = "could not decode file"
+		return out, nil
+	}
+	if int64(len(raw)) > githubPreviewMax {
+		raw = raw[:githubPreviewMax]
+		out.Truncated = true
+	}
+	if !utf8.Valid(raw) {
+		out.Binary = true
+		out.Error = "binary file — preview unavailable"
+		return out, nil
+	}
+	out.Text = string(raw)
 	return out, nil
 }

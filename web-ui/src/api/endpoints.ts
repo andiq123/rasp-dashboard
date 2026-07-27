@@ -5,6 +5,8 @@ import type {
   EngineView,
   FilesListing,
   GitHubBranch,
+  GitHubEntry,
+  GitHubFilePreview,
   GitHubRepo,
   GitHubStatus,
   Group,
@@ -51,6 +53,16 @@ export const fetchDirs = (repo: string, branch: string) =>
     suggested_root?: string
   }>(
     `/api/github/dirs?repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}`,
+  )
+
+export const fetchGitHubContents = (repo: string, branch: string, path = '') =>
+  api<{ entries: GitHubEntry[] }>(
+    `/api/github/contents?repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}`,
+  ).then((r) => r.entries || [])
+
+export const fetchGitHubFile = (repo: string, branch: string, path: string) =>
+  api<GitHubFilePreview>(
+    `/api/github/file?repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}`,
   )
 
 export const fetchGroups = () =>

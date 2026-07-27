@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Air build: Vite UI → embed dist, then Go binary.
-# UI rebuild only when web-ui sources are newer than dist (avoids slow loops on Go-only edits).
+# Air build: Vite UI → embed dist (when stale), then Go binary.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,14 +14,13 @@ need_ui=0
 if [[ ! -f "$DIST_INDEX" ]]; then
   need_ui=1
 elif [[ -n "$(find web-ui/src web-ui/index.html web-ui/vite.config.ts web-ui/package.json \
-  web-ui/tsconfig.json web-ui/tsconfig.app.json web-ui/tsconfig.node.json \
+  web-ui/package-lock.json web-ui/tsconfig.json web-ui/tsconfig.app.json web-ui/tsconfig.node.json \
   -type f -newer "$DIST_INDEX" 2>/dev/null | head -n 1)" ]]; then
   need_ui=1
 fi
 
 if [[ "$need_ui" -eq 1 ]]; then
-  echo "==> building web-ui"
-  go generate ./internal/server/web
+  "$ROOT/scripts/build-ui.sh"
 else
   echo "==> web-ui dist up to date"
 fi

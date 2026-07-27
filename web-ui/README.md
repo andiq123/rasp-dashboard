@@ -1,11 +1,9 @@
-# FireWifi web UI
+# web-ui
 
-React 19 + TypeScript + Vite + CSS Modules. Embedded by the Go server after `go generate ./internal/server/web`.
+React dashboard source. Production assets are packed into `../internal/server/web/dist` and **embedded in the Go binary**.
 
 ```bash
-npm install
-npm run dev      # http://localhost:5173 (proxies /api → :8484)
-npm run build    # → ../internal/server/web/dist
+npm run dev      # Vite, proxies /api → :8484
+./scripts/build-ui.sh   # from repo root — pack into embed dist
+./scripts/prod.sh       # from repo root — pack UI + production binary
 ```
-
-Conventions: feature folders under `src/features/`, shared UI under `src/components/ui/`. Styling: Tailwind CSS 4 + daisyUI (dark theme) + Lucide icons.

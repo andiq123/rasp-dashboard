@@ -51,6 +51,23 @@ export type GitHubBranch = {
   default?: boolean
 }
 
+export type GitHubEntry = {
+  name: string
+  path: string
+  type: 'dir' | 'file' | string
+  size?: number
+}
+
+export type GitHubFilePreview = {
+  path: string
+  name: string
+  size: number
+  text?: string
+  binary?: boolean
+  truncated?: boolean
+  error?: string
+}
+
 export type Group = {
   slug: string
   name: string

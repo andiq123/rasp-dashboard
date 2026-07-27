@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Database, FolderGit2, RefreshCw } from 'lucide-react'
 import {
@@ -21,9 +22,10 @@ import { PageHeader, PageSub } from '@/components/ui/PageHeader/PageHeader'
 import { muted } from '@/lib/ui'
 
 export function SettingsPage() {
+  const navigate = useNavigate()
   const { showToast } = useToast()
   const qc = useQueryClient()
-  const { consumePending } = usePendingAddGo()
+  const { pending, consumePending } = usePendingAddGo()
   const [token, setToken] = useState('')
 
   const gh = useQuery({ queryKey: queryKeys.githubStatus, queryFn: fetchGitHubStatus })
@@ -36,7 +38,8 @@ export function SettingsPage() {
       setToken('')
       showToast('GitHub connected')
       await qc.invalidateQueries({ queryKey: queryKeys.githubStatus })
-      consumePending()
+      if (pending) consumePending()
+      else navigate('/code')
     },
     onError: (e: Error) => showToast(e.message || 'GitHub failed'),
   })
@@ -91,9 +94,18 @@ export function SettingsPage() {
               {(gh.data.user && gh.data.user.login) || 'GitHub'}
             </div>
             <p className={`text-sm ${muted} m-0`}>Connected. Disconnect to switch accounts.</p>
-            <Button variant="dangerSoft" loading={disconnect.isPending} onClick={() => disconnect.mutate()}>
-              Disconnect
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="primary"
+                icon={<FolderGit2 className="h-4 w-4" aria-hidden />}
+                onClick={() => navigate('/code')}
+              >
+                Browse code
+              </Button>
+              <Button variant="dangerSoft" loading={disconnect.isPending} onClick={() => disconnect.mutate()}>
+                Disconnect
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="grid w-full max-w-md gap-3 justify-items-start">

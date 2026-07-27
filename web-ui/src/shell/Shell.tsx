@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   FolderKanban,
+  FolderGit2,
   LayoutDashboard,
   FolderOpen,
   Settings,
@@ -12,6 +13,7 @@ import { muted } from '@/lib/ui'
 const items: Array<{ to: string; label: string; icon: LucideIcon; end?: boolean }> = [
   { to: '/overview', label: 'Overview', icon: LayoutDashboard, end: true },
   { to: '/projects', label: 'Projects', icon: FolderKanban },
+  { to: '/code', label: 'Code', icon: FolderGit2 },
   { to: '/files', label: 'Files', icon: FolderOpen },
   { to: '/settings', label: 'Settings', icon: Settings },
 ]
