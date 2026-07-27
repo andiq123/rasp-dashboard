@@ -27,32 +27,38 @@ UI-only Vite dev (proxies `/api` → `:8484`):
 cd web-ui && npm run dev
 ```
 
-## Production (Pi) — after `git pull`
+## Production (Pi) — get latest + rebuild
 
-One command packs the **latest** frontend into the binary and restarts the service:
+One command on the Pi pulls `main`, packs the **latest** frontend into the binary, and restarts the service:
 
 ```bash
-./scripts/prod.sh
+cd ~/sources/dashboard
+./scripts/update.sh
 ```
 
 That always:
 
-1. `npm ci` when lockfile changed
-2. Builds Vite → `internal/server/web/dist` (`go generate`)
-3. Builds a trimmed Go binary with that UI **embedded**
-4. Restarts `firewifi-dashboard.service` (user unit) if present
+1. `git pull --ff-only` (fails if tracked files are dirty)
+2. `npm ci` when lockfile changed
+3. Builds Vite → `internal/server/web/dist` (`go generate`)
+4. Builds a trimmed Go binary with that UI **embedded**
+5. Restarts `firewifi-dashboard.service` (user unit) if present
 
 ```bash
+# rebuild current checkout only (no pull)
+FIREWIFI_SKIP_PULL=1 ./scripts/update.sh
+
 # build only (no systemd)
-FIREWIFI_SKIP_RESTART=1 ./scripts/prod.sh
+FIREWIFI_SKIP_RESTART=1 ./scripts/update.sh
 
 # custom binary path
-FIREWIFI_BIN=/usr/local/bin/firewifi-dashboard ./scripts/prod.sh
+FIREWIFI_BIN=/usr/local/bin/firewifi-dashboard ./scripts/update.sh
 ```
 
-`./scripts/rebuild-dashboard.sh` is the same entrypoint (alias).
+`./scripts/prod.sh` is the build+restart step only (no git pull).  
+`./scripts/rebuild-dashboard.sh` aliases `prod.sh`.
 
-**Important:** the UI is compile-time embedded. `git pull` alone does not update a running binary — run `./scripts/prod.sh` after pull.
+**Important:** the UI is compile-time embedded. `git pull` alone does not update a running binary — run `./scripts/update.sh` (or `prod.sh` after pull).
 
 ## Optional hardening
 
@@ -63,8 +69,9 @@ FIREWIFI_BIN=/usr/local/bin/firewifi-dashboard ./scripts/prod.sh
 | `FIREWIFI_BASE` | Config / token base directory |
 | `HOME` | Deployments root (`$HOME/deployments`) and default paths |
 | `PORT` | Listen port (default `8484`) |
-| `FIREWIFI_BIN` | Production binary path for `prod.sh` |
-| `FIREWIFI_SKIP_RESTART=1` | `prod.sh` builds only |
+| `FIREWIFI_BIN` | Production binary path for `prod.sh` / `update.sh` |
+| `FIREWIFI_SKIP_RESTART=1` | `prod.sh` / `update.sh` builds only |
+| `FIREWIFI_SKIP_PULL=1` | `update.sh` skips `git pull` |
 
 ## Layout
 
@@ -75,6 +82,7 @@ FIREWIFI_BIN=/usr/local/bin/firewifi-dashboard ./scripts/prod.sh
 - `internal/server/web` — embeds Vite `dist/` + `go generate`
 - `scripts/build-ui.sh` — reusable UI pack into embed dist
 - `scripts/prod.sh` — production UI + binary + restart
+- `scripts/update.sh` — `git pull` then `prod.sh` (Pi one-liner)
 - `scripts/air-build.sh` — Air incremental build
 - `start.sh` — local Air dev entrypoint
 
