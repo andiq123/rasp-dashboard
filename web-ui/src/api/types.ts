@@ -129,22 +129,137 @@ export type FilesListing = {
     entry_count?: number
     dirs?: number
     files?: number
+    hidden?: number
     total_human?: string
   }
   error?: string
 }
 
+export type DockerDiskRow = {
+  type: string
+  total_count?: number
+  active?: number
+  size?: string
+  size_bytes?: number
+  reclaimable?: string
+  reclaimable_bytes?: number
+  reclaimable_pct?: number
+}
+
+export type DockerImage = {
+  id: string
+  repository?: string
+  tag?: string
+  ref: string
+  size?: string
+  size_bytes?: number
+  containers?: number
+  created_since?: string
+  dangling?: boolean
+  in_use?: boolean
+  used_by?: string[]
+  services?: string[]
+}
+
+export type DockerContainer = {
+  id: string
+  name: string
+  image?: string
+  state?: string
+  status?: string
+  size?: string
+  running?: boolean
+  managed?: boolean
+  group?: string
+  service?: string
+  role?: string
+  project?: string
+}
+
+export type DockerVolume = {
+  name: string
+  driver?: string
+  size?: string
+  size_bytes?: number
+  in_use?: boolean
+  mountpoint?: string
+}
+
+export type DockerInventory = {
+  disk?: DockerDiskRow[]
+  images?: DockerImage[]
+  containers?: DockerContainer[]
+  volumes?: DockerVolume[]
+  total_bytes?: number
+  reclaim_bytes?: number
+  fetched_at?: string
+}
+
+export type DockerDaemonStatus = {
+  running?: boolean
+  active?: string
+  enabled?: boolean
+  version?: string
+  error?: string
+}
+
+export type DockerAction = {
+  action: string
+  id?: string
+  force?: boolean
+  images?: boolean
+  containers?: boolean
+  volumes?: boolean
+  build_cache?: boolean
+  all_unused?: boolean
+}
+
+export type DockerActionResult = {
+  ok?: boolean
+  action?: string
+  message?: string
+  output?: string
+}
+
+export type PublishedPort = {
+  kind?: string
+  group?: string
+  slug?: string
+  name: string
+  port?: number
+  url?: string
+  running?: boolean
+  status?: string
+}
+
 export type ManageOverview = {
-  docker?: { containers?: unknown[] }
-  daemon?: { running?: boolean }
-  [key: string]: unknown
+  deploy_bytes?: number
+  cache_bytes?: number
+  group_bytes?: number
+  published?: PublishedPort[]
+  docker?: DockerInventory
+  docker_error?: string
+  daemon?: DockerDaemonStatus
+}
+
+export type VersionOption = {
+  id: string
+  label?: string
+  image?: string
+  hint?: string
+  current?: boolean
 }
 
 export type EngineView = {
   postgres_running?: boolean
+  minio_running?: boolean
+  postgres_image?: string
+  minio_image?: string
+  minio_endpoint?: string
+  go_resolved_hint?: string
   settings?: { go_toolchain?: string; postgres_version?: string }
-  postgres_options?: Array<{ value: string; label?: string }>
-  go_options?: Array<{ value: string; label?: string }>
+  postgres_options?: VersionOption[]
+  go_options?: VersionOption[]
 }
 
 export type ActivityLine = {

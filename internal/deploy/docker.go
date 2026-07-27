@@ -813,8 +813,8 @@ func (m *Manager) runGoContainer(ctx context.Context, svc Service) error {
 	}
 	if overs := productionEnvOverrides(beforeProd, merged); len(overs) > 0 {
 		m.logf("warn", "Forced production env: %s", strings.Join(overs, ", "))
-	} else {
-		m.logf("info", "Runtime mode production (APP_ENV/GIN_MODE/NODE_ENV)")
+	} else if keys := productionEnvPresent(merged); len(keys) > 0 {
+		m.logf("info", "Runtime mode production (%s)", strings.Join(keys, "/"))
 	}
 	if svc.LinkedDatabase != "" {
 		before := merged

@@ -5,6 +5,8 @@ import type {
   AppState,
   Config,
   Deployment,
+  DockerAction,
+  DockerActionResult,
   EngineView,
   FilesListing,
   GitHubBranch,
@@ -134,8 +136,12 @@ export const fetchPorts = () =>
 
 export const fetchManage = () => api<ManageOverview>('/api/manage')
 export const fetchEngine = () => api<EngineView>('/api/engine')
-export const engineAction = (action: 'start' | 'stop') =>
-  api(`/api/infra/postgres/${action}`, { method: 'POST' })
+export const engineAction = (action: 'start' | 'stop' | 'minio_start' | 'minio_stop') =>
+  api<EngineView>('/api/engine', { method: 'POST', body: { action } })
+export const updateEngine = (body: { postgres_version?: string; go_toolchain?: string }) =>
+  api<EngineView>('/api/engine', { method: 'POST', body: { action: 'update', ...body } })
+export const dockerAction = (body: DockerAction) =>
+  api<DockerActionResult>('/api/docker', { method: 'POST', body })
 
 export const setMode = (mode: string) => api('/api/mode', { method: 'POST', body: { mode } })
 export const hotspotAction = (action: 'start' | 'stop' | 'restart') =>

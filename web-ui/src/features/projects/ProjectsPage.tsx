@@ -290,7 +290,7 @@ export function ProjectsPage() {
   return (
     <div className="min-h-[calc(100vh-100px)]">
       <div className="grid grid-cols-1 gap-3.5 items-start min-h-[60vh] md:grid-cols-[minmax(200px,260px)_minmax(0,1fr)]">
-        <aside className={`card ${surface}`}>
+        <aside className={`card ${surface} section-enter`}>
           <div className="card-body gap-3 p-3">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-bold m-0">Groups</h3>
@@ -318,8 +318,8 @@ export function ProjectsPage() {
                       to={`/projects/${encodeURIComponent(g.slug)}`}
                       className={
                         g.slug === groupSlug
-                          ? 'active bg-primary/15 text-primary border border-primary/30'
-                          : 'border border-transparent'
+                          ? 'active bg-primary/15 text-primary border border-primary/30 transition-colors duration-200'
+                          : 'border border-transparent transition-colors duration-200'
                       }
                     >
                       <Folder className={`h-4 w-4 shrink-0 ${muted}`} aria-hidden />
@@ -340,7 +340,7 @@ export function ProjectsPage() {
         </aside>
 
         <section
-          className={`card ${surface} ${deployingN ? 'border-info/40' : ''}`}
+          className={`card ${surface} section-enter ${deployingN ? 'border-info/40' : ''}`}
         >
           <div className="card-body gap-4 p-3 sm:p-4">
             {!groupSlug ? (

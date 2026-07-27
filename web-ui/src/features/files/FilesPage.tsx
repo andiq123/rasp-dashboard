@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUp, Eye, File, Folder, Home, Trash2 } from 'lucide-react'
+import { ArrowUp, Eye, EyeOff, File, Folder, Home, Trash2 } from 'lucide-react'
 import { fetchFilePreview, fetchFiles, filesOp, readInitialState } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
+import type { FilesEntry } from '@/api/types'
 import { Button } from '@/components/ui/Button/Button'
 import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { Empty } from '@/components/ui/Empty/Empty'
@@ -19,6 +20,12 @@ function parentPath(path: string): string {
   const i = p.lastIndexOf('/')
   if (i <= 0) return '/'
   return p.slice(0, i) || '/'
+}
+
+/** Dotfile / hidden folder — matches server `hidden` (name starts with "."). */
+function isHiddenEntry(e: FilesEntry): boolean {
+  if (e.hidden === true) return true
+  return e.name.startsWith('.')
 }
 
 export function FilesPage() {
@@ -67,14 +74,24 @@ export function FilesPage() {
     if (ok) delMut.mutate(selected)
   }
 
+  const allEntries = listingQ.data?.entries || []
+  const hiddenCount = listingQ.data?.summary?.hidden ?? allEntries.filter(isHiddenEntry).length
+
   const entries = useMemo(() => {
-    const list = listingQ.data?.entries || []
-    return list.filter((e) => {
-      if (!showHidden && e.hidden) return false
-      if (!query.trim()) return true
-      return e.name.toLowerCase().includes(query.trim().toLowerCase())
+    const q = query.trim().toLowerCase()
+    return allEntries.filter((e) => {
+      if (!showHidden && isHiddenEntry(e)) return false
+      if (!q) return true
+      return e.name.toLowerCase().includes(q)
     })
-  }, [listingQ.data, query, showHidden])
+  }, [allEntries, query, showHidden])
+
+  // Drop selection when the file leaves the visible list (e.g. hide toggled off).
+  useEffect(() => {
+    if (!selected) return
+    const stillVisible = entries.some((e) => e.path === selected)
+    if (!stillVisible) setSelected(null)
+  }, [entries, selected])
 
   const canUp = path !== home && path.startsWith(home)
 
@@ -89,48 +106,62 @@ export function FilesPage() {
   const relativeParts =
     path.startsWith(home) && path !== home ? pathParts.slice(homeParts.length) : []
 
+  const emptyBody =
+    !showHidden && hiddenCount > 0 && !query.trim()
+      ? `${hiddenCount} hidden — enable Hidden to show them.`
+      : query.trim()
+        ? 'Nothing matches this filter.'
+        : undefined
+
   return (
-    <div className="grid gap-3">
+    <div className="grid gap-3.5">
       <PageHeader
         actions={
-          <div className="join join-horizontal flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="join">
+              <Button
+                variant="infoSoft"
+                className="join-item"
+                icon={<ArrowUp className="h-3.5 w-3.5" aria-hidden />}
+                disabled={!canUp}
+                onClick={() => go(parentPath(path))}
+              >
+                Up
+              </Button>
+              <Button
+                variant="infoSoft"
+                className="join-item"
+                icon={<Home className="h-3.5 w-3.5" aria-hidden />}
+                onClick={() => go(home)}
+              >
+                Home
+              </Button>
+            </div>
             <Button
-              variant="infoSoft"
-              icon={<ArrowUp className="h-3.5 w-3.5" aria-hidden />}
-              disabled={!canUp}
-              onClick={() => go(parentPath(path))}
+              variant={showHidden ? 'primary' : 'quiet'}
+              icon={
+                showHidden ? (
+                  <Eye className="h-3.5 w-3.5" aria-hidden />
+                ) : (
+                  <EyeOff className="h-3.5 w-3.5" aria-hidden />
+                )
+              }
+              aria-pressed={showHidden}
+              onClick={() => setShowHidden((v) => !v)}
             >
-              Up
+              Hidden{hiddenCount > 0 ? ` · ${hiddenCount}` : ''}
             </Button>
-            <Button
-              variant="infoSoft"
-              icon={<Home className="h-3.5 w-3.5" aria-hidden />}
-              onClick={() => go(home)}
-            >
-              Home
-            </Button>
-            <label className="label cursor-pointer gap-1.5 px-2 py-0">
-              <input
-                type="checkbox"
-                className="checkbox checkbox-xs"
-                checked={showHidden}
-                onChange={(e) => setShowHidden(e.target.checked)}
-              />
-              <span className={`label-text text-xs font-semibold ${muted} inline-flex items-center gap-1`}>
-                <Eye className="h-3 w-3" aria-hidden />
-                Hidden
-              </span>
-            </label>
             <Input
-              className="w-40 join-item"
+              className="w-44"
               placeholder="Filter…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              aria-label="Filter files"
             />
           </div>
         }
       >
-        <div className={`breadcrumbs text-xs ${muted} py-0 mt-1`}>
+        <nav className={`breadcrumbs text-xs ${muted} py-0 mt-1`} aria-label="Path">
           <ul className="font-mono">
             <li>
               <button type="button" className="link link-hover" onClick={() => go(home)}>
@@ -149,11 +180,11 @@ export function FilesPage() {
               )
             })}
           </ul>
-        </div>
+        </nav>
       </PageHeader>
 
-      <div className="grid grid-cols-1 gap-3 min-h-[60vh] lg:grid-cols-[minmax(0,1.2fr)_minmax(240px,0.8fr)]">
-        <div className={`card ${surface} overflow-auto min-h-[360px]`}>
+      <div className="grid grid-cols-1 gap-3.5 min-h-[60vh] lg:grid-cols-[minmax(0,1.25fr)_minmax(260px,0.75fr)]">
+        <div className={`card ${surface} overflow-hidden section-enter min-h-[360px] flex flex-col`}>
           {listingQ.isLoading ? (
             <div className="p-4">
               <Spinner label="Loading…" />
@@ -164,61 +195,70 @@ export function FilesPage() {
             </div>
           ) : !entries.length ? (
             <div className="p-4">
-              <Empty title="Empty folder" />
+              <Empty title="Empty folder" body={emptyBody} />
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="table table-sm table-zebra">
+            <div className="overflow-auto flex-1">
+              <table className="table table-sm">
                 <thead className="sticky top-0 bg-base-100 z-1">
-                  <tr>
-                    <th>Name</th>
-                    <th>Size</th>
+                  <tr className="border-b border-base-300">
+                    <th className="font-semibold">Name</th>
+                    <th className={`font-semibold w-28 text-right ${muted}`}>Size</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {entries.map((e) => (
-                    <tr
-                      key={e.path}
-                      className={`cursor-pointer hover:bg-primary/5 ${
-                        selected === e.path ? 'bg-primary/10' : ''
-                      }`}
-                      onClick={() => {
-                        if (e.type === 'dir') go(e.path)
-                        else setSelected(e.path)
-                      }}
-                      onDoubleClick={() => {
-                        if (e.type === 'dir') go(e.path)
-                      }}
-                    >
-                      <td>
-                        <span className="inline-flex items-center gap-2 font-medium">
-                          {e.type === 'dir' ? (
-                            <Folder className={`h-4 w-4 ${muted} shrink-0`} aria-hidden />
-                          ) : (
-                            <File className={`h-4 w-4 ${muted} shrink-0`} aria-hidden />
-                          )}
-                          {e.name}
-                        </span>
-                      </td>
-                      <td className={`${muted}`}>
-                        {e.type === 'dir' ? '—' : e.size_human || fmtBytes(e.size)}
-                      </td>
-                    </tr>
-                  ))}
+                  {entries.map((e, i) => {
+                    const active = selected === e.path
+                    const hidden = isHiddenEntry(e)
+                    return (
+                      <tr
+                        key={e.path}
+                        className={`list-row cursor-pointer border-b border-base-300/70 last:border-0 hover:bg-primary/5 ${
+                          active ? 'bg-primary/10' : ''
+                        }`}
+                        style={{ animationDelay: `${Math.min(i, 12) * 18}ms` }}
+                        onClick={() => {
+                          if (e.type === 'dir') go(e.path)
+                          else setSelected(e.path)
+                        }}
+                      >
+                        <td>
+                          <span
+                            className={`inline-flex items-center gap-2 font-medium min-w-0 ${
+                              hidden ? muted : ''
+                            }`}
+                          >
+                            {e.type === 'dir' ? (
+                              <Folder className={`h-4 w-4 ${muted} shrink-0`} aria-hidden />
+                            ) : (
+                              <File className={`h-4 w-4 ${muted} shrink-0`} aria-hidden />
+                            )}
+                            <span className="truncate">{e.name}</span>
+                          </span>
+                        </td>
+                        <td className={`text-right tabular-nums ${muted}`}>
+                          {e.type === 'dir' ? '—' : e.size_human || fmtBytes(e.size)}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
           )}
         </div>
-        <aside className={`card ${surface} min-h-[360px]`}>
-          <div className="card-body gap-2.5 p-3 grid grid-rows-[auto_1fr]">
+
+        <aside className={`card ${surface} section-enter min-h-[360px] flex flex-col`}>
+          <div className="card-body gap-2.5 p-3.5 flex-1 min-h-0 grid grid-rows-[auto_1fr]">
             {!selected ? (
-              <Empty
-                compact
-                icon={<Eye className="h-5 w-5" aria-hidden />}
-                title="Select a file"
-                body="Preview text files here."
-              />
+              <div className="grid place-items-center">
+                <Empty
+                  compact
+                  icon={<Eye className="h-5 w-5" aria-hidden />}
+                  title="Select a file"
+                  body="Preview text files here."
+                />
+              </div>
             ) : previewQ.isLoading ? (
               <Spinner compact label="Loading preview…" />
             ) : previewQ.isError ? (
@@ -229,13 +269,16 @@ export function FilesPage() {
               <Empty compact title="Preview failed" body={previewQ.data.error} />
             ) : (
               <>
-                <div className="flex justify-between gap-2 items-center">
-                  <strong className="text-sm truncate inline-flex items-center gap-2">
+                <div className="flex justify-between gap-2 items-center min-w-0">
+                  <strong className="text-sm truncate inline-flex items-center gap-2 min-w-0">
                     <File className={`h-4 w-4 shrink-0 ${muted}`} aria-hidden />
-                    {previewQ.data?.name || selected.split('/').pop()}
+                    <span className="truncate">
+                      {previewQ.data?.name || selected.split('/').pop()}
+                    </span>
                   </strong>
                   <Button
                     variant="dangerSoft"
+                    className="shrink-0"
                     icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />}
                     loading={delMut.isPending}
                     onClick={() => void onDeleteSelected()}
@@ -243,7 +286,7 @@ export function FilesPage() {
                     Delete
                   </Button>
                 </div>
-                <pre className={codeSurface}>{previewQ.data?.text || ''}</pre>
+                <pre className={`${codeSurface} min-h-0 h-full`}>{previewQ.data?.text || ''}</pre>
               </>
             )}
           </div>

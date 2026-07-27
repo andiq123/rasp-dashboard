@@ -117,3 +117,41 @@ func TestGetServiceEnvPostgresIsSelfContained(t *testing.T) {
 		t.Fatal("postgres should expose connection env")
 	}
 }
+
+func TestGetServiceEnvPostgresStripsFrameworkPollution(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(dir, dir, nil, nil)
+	defer m.Close()
+
+	reg := registry{
+		Groups:   []Group{{Slug: "g", Name: "G"}},
+		Services: []Service{{Group: "g", Slug: "pg", Type: TypePostgres, Name: "PG"}},
+	}
+	if err := m.saveRegistry(reg); err != nil {
+		t.Fatal(err)
+	}
+	pgDir := m.serviceDir("g", "pg")
+	_ = os.MkdirAll(pgDir, 0o755)
+	body := postgresServiceEnv("postgres://u:p@127.0.0.1:5432/db", "db", "u", "p")
+	body = upsertEnv(body, "APP_ENV", "production")
+	body = upsertEnv(body, "NODE_ENV", "production")
+	body = upsertEnv(body, "GIN_MODE", "release")
+	body = upsertEnv(body, "GO_ENV", "production")
+	_ = os.WriteFile(filepath.Join(pgDir, "env"), []byte(body), 0o600)
+
+	view, err := m.GetServiceEnv("g", "pg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mp := parseEnvMap(view.Env)
+	for _, k := range frameworkEnvKeys {
+		if mp[k] != "" {
+			t.Fatalf("%s should be migrated off postgres: %#v", k, mp)
+		}
+	}
+	disk, _ := os.ReadFile(filepath.Join(pgDir, "env"))
+	if parseEnvMap(string(disk))["APP_ENV"] != "" {
+		t.Fatal("disk should be migrated")
+	}
+}
+

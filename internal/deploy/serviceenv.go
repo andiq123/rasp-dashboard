@@ -54,10 +54,13 @@ func (m *Manager) GetServiceEnv(group, slug string) (ServiceEnvView, error) {
 	body := string(raw)
 
 	view := ServiceEnvView{Kind: string(svc.Type)}
+	hints := envStackHints{}
 	if svc.Type == TypeGo {
+		hints = m.envHintsFor(group, slug)
 		own := ownEnvBody(body, svc)
+		own = sanitizeServiceEnv(own, svc.Type, hints)
 		if normalizeEnv(own) != normalizeEnv(body) {
-			// Migrate legacy files that persisted linked secrets into the Go env.
+			// Migrate legacy files: strip linked secrets + wrong stack keys.
 			_ = os.WriteFile(path, []byte(normalizeEnv(own)), 0o600)
 		}
 		view.Env = own
@@ -66,8 +69,12 @@ func (m *Manager) GetServiceEnv(group, slug string) (ServiceEnvView, error) {
 		return view, nil
 	}
 
-	view.Env = body
-	view.EnvJSON = envToJSON(body)
+	clean := sanitizeServiceEnv(body, svc.Type, hints)
+	if normalizeEnv(clean) != normalizeEnv(body) {
+		_ = os.WriteFile(path, []byte(normalizeEnv(clean)), 0o600)
+	}
+	view.Env = clean
+	view.EnvJSON = envToJSON(clean)
 	return view, nil
 }
 
@@ -97,13 +104,13 @@ func (m *Manager) linkedEnvBlocks(svc Service) []LinkedEnvBlock {
 			})
 		}
 	}
-	if b := strings.TrimSpace(svc.LinkedBucket); b != "" {
-		preview := normalizeEnv(m.injectLinkedBucket("", svc.Group, b))
+	if bucket := strings.TrimSpace(svc.LinkedBucket); bucket != "" {
+		preview := normalizeEnv(m.injectLinkedBucket("", svc.Group, bucket))
 		if strings.TrimSpace(preview) != "" {
 			out = append(out, LinkedEnvBlock{
 				Kind:    "bucket",
-				Source:  b,
-				Label:   "Bucket · " + b,
+				Source:  bucket,
+				Label:   "Bucket · " + bucket,
 				Env:     preview,
 				EnvJSON: envToJSON(preview),
 			})

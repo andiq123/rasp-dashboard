@@ -25,16 +25,18 @@ type DockerDiskRow struct {
 
 // DockerImage is a local image with usage hints.
 type DockerImage struct {
-	ID           string `json:"id"`
-	Repository   string `json:"repository"`
-	Tag          string `json:"tag"`
-	Ref          string `json:"ref"`
-	Size         string `json:"size"`
-	SizeBytes    int64  `json:"size_bytes"`
-	Containers   int    `json:"containers"`
-	CreatedSince string `json:"created_since"`
-	Dangling     bool   `json:"dangling"`
-	InUse        bool   `json:"in_use"`
+	ID           string   `json:"id"`
+	Repository   string   `json:"repository"`
+	Tag          string   `json:"tag"`
+	Ref          string   `json:"ref"`
+	Size         string   `json:"size"`
+	SizeBytes    int64    `json:"size_bytes"`
+	Containers   int      `json:"containers"`
+	CreatedSince string   `json:"created_since"`
+	Dangling     bool     `json:"dangling"`
+	InUse        bool     `json:"in_use"`
+	UsedBy       []string `json:"used_by,omitempty"`  // container names
+	Services     []string `json:"services,omitempty"` // group/slug for managed apps
 }
 
 // DockerContainer is a local container.
@@ -324,7 +326,60 @@ func (m *Manager) DockerInventory(ctx context.Context) (DockerInventory, error) 
 		return inv.Volumes[i].SizeBytes > inv.Volumes[j].SizeBytes
 	})
 
+	attachImageUsage(&inv)
 	return inv, nil
+}
+
+// attachImageUsage links images → containers (and managed services) for the Settings UI.
+func attachImageUsage(inv *DockerInventory) {
+	for i := range inv.Images {
+		img := &inv.Images[i]
+		var usedBy, services []string
+		seenSvc := map[string]bool{}
+		for _, c := range inv.Containers {
+			if !imageMatchesContainer(img, c.Image) {
+				continue
+			}
+			usedBy = append(usedBy, c.Name)
+			if c.Group != "" && c.Service != "" {
+				key := c.Group + "/" + c.Service
+				if !seenSvc[key] {
+					seenSvc[key] = true
+					services = append(services, key)
+				}
+			}
+		}
+		img.UsedBy = usedBy
+		img.Services = services
+		if len(usedBy) > 0 {
+			img.Containers = len(usedBy)
+			img.InUse = true
+		}
+	}
+}
+
+func imageMatchesContainer(img *DockerImage, containerImage string) bool {
+	ci := strings.TrimSpace(containerImage)
+	if ci == "" || img == nil {
+		return false
+	}
+	if ci == img.Ref || ci == img.ID {
+		return true
+	}
+	if img.Repository != "" && img.Repository != "<none>" {
+		if ci == img.Repository {
+			return true
+		}
+		if img.Tag != "" && img.Tag != "<none>" && ci == img.Repository+":"+img.Tag {
+			return true
+		}
+	}
+	// Short ID / digest prefixes from `docker ps`.
+	id := strings.TrimPrefix(img.ID, "sha256:")
+	if len(id) >= 12 && (strings.HasPrefix(ci, id[:12]) || strings.Contains(ci, "@sha256:"+id[:12])) {
+		return true
+	}
+	return false
 }
 
 type volSize struct {

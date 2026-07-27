@@ -2,6 +2,8 @@ package deploy
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -75,35 +77,105 @@ func replaceEnvAssign(cmd, key, value string) string {
 	return strings.Join(out, " ")
 }
 
-// ensureProductionEnv forces production runtime mode for common frameworks.
-// Deployed services always run as production — never development/debug.
-// Missing JWT_SECRET gets a ${{secret(32)}} placeholder (materialized on save/start).
-func ensureProductionEnv(body string) string {
-	for _, d := range []struct{ key, value string }{
-		{"APP_ENV", "production"},
-		{"GO_ENV", "production"},
-		{"GIN_MODE", "release"},
-		{"NODE_ENV", "production"},
-	} {
-		body = upsertEnv(body, d.key, d.value)
+// envStackHints selects which production keys belong on a service.
+type envStackHints struct {
+	Go   bool // Go service / module
+	Gin  bool // gin-gonic present or GIN_MODE already set
+	Node bool // package.json present or NODE_ENV already set by the app
+}
+
+// frameworkEnvKeys are never stored on postgres/bucket connection services.
+var frameworkEnvKeys = []string{
+	"APP_ENV", "GO_ENV", "GIN_MODE", "NODE_ENV", "JWT_SECRET",
+}
+
+// detectEnvStackHints inspects a source tree (build/repo root) for framework cues.
+func detectEnvStackHints(srcDir string) envStackHints {
+	h := envStackHints{}
+	srcDir = strings.TrimSpace(srcDir)
+	if srcDir == "" {
+		return h
 	}
+	if _, err := os.Stat(filepath.Join(srcDir, "go.mod")); err == nil {
+		h.Go = true
+		h.Gin = moduleRequiresGin(srcDir)
+	}
+	if _, err := os.Stat(filepath.Join(srcDir, "package.json")); err == nil {
+		h.Node = true
+	}
+	return h
+}
+
+func moduleRequiresGin(srcDir string) bool {
+	b, err := os.ReadFile(filepath.Join(srcDir, "go.mod"))
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(b), "github.com/gin-gonic/gin")
+}
+
+// ensureProductionEnv applies only stack-appropriate production keys.
+// Never invents NODE_ENV on pure Go apps or framework keys on databases.
+// Hints come from source detection — existing polluted keys are stripped, not preserved.
+func ensureProductionEnv(body string, h envStackHints) string {
+	if !h.Go && !h.Node && !h.Gin {
+		// Connection services (postgres/bucket) or unknown — strip framework leftovers.
+		return clearEnvKeys(body, frameworkEnvKeys...)
+	}
+
+	if h.Go {
+		body = upsertEnv(body, "APP_ENV", "production")
+		body = upsertEnv(body, "GO_ENV", "production")
+	} else {
+		body = clearEnvKeys(body, "APP_ENV", "GO_ENV")
+	}
+
+	if h.Gin {
+		body = upsertEnv(body, "GIN_MODE", "release")
+	} else {
+		body = clearEnvKeys(body, "GIN_MODE")
+	}
+
+	if h.Node {
+		body = upsertEnv(body, "NODE_ENV", "production")
+	} else {
+		body = clearEnvKeys(body, "NODE_ENV")
+	}
+
 	mp := parseEnvMap(body)
-	for _, s := range bootstrapSecretKeys {
-		cur := strings.TrimSpace(mp[s.Key])
-		need := cur == "" || isDevEnvValue(cur) || len(cur) < s.Len
-		if !need || strings.Contains(cur, "${{") {
-			continue
+	if h.Go {
+		for _, s := range bootstrapSecretKeys {
+			cur := strings.TrimSpace(mp[s.Key])
+			need := cur == "" || isDevEnvValue(cur) || len(cur) < s.Len
+			if !need || strings.Contains(cur, "${{") {
+				continue
+			}
+			n := s.Len
+			if n < 16 {
+				n = 16
+			}
+			if n > 64 {
+				n = 64
+			}
+			body = upsertEnv(body, s.Key, "${{secret("+strconv.Itoa(n)+")}}")
 		}
-		n := s.Len
-		if n < 16 {
-			n = 16
-		}
-		if n > 64 {
-			n = 64
-		}
-		body = upsertEnv(body, s.Key, "${{secret("+strconv.Itoa(n)+")}}")
+	} else {
+		body = clearEnvKeys(body, "JWT_SECRET")
 	}
 	return body
+}
+
+// sanitizeServiceEnv removes framework keys that do not belong on this service type.
+func sanitizeServiceEnv(body string, svcType string, hints envStackHints) string {
+	switch svcType {
+	case TypePostgres, TypeBucket:
+		return clearEnvKeys(body, frameworkEnvKeys...)
+	case TypeGo:
+		hints.Go = true
+		return ensureProductionEnv(body, hints)
+	default:
+		return body
+	}
 }
 
 func isDevEnvValue(v string) bool {
@@ -122,8 +194,20 @@ func productionEnvOverrides(before, after string) []string {
 	for _, k := range []string{"APP_ENV", "GO_ENV", "GIN_MODE", "NODE_ENV"} {
 		bv := strings.TrimSpace(b[k])
 		av := strings.TrimSpace(a[k])
-		if bv != "" && bv != av {
+		if bv != "" && av != "" && bv != av {
 			out = append(out, k+"="+bv+"→"+av)
+		}
+	}
+	return out
+}
+
+// productionEnvPresent lists stack production keys actually set on the env body.
+func productionEnvPresent(body string) []string {
+	mp := parseEnvMap(body)
+	var out []string
+	for _, k := range []string{"APP_ENV", "GO_ENV", "GIN_MODE", "NODE_ENV"} {
+		if strings.TrimSpace(mp[k]) != "" {
+			out = append(out, k)
 		}
 	}
 	return out

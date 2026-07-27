@@ -615,7 +615,8 @@ func (m *Manager) createPostgres(ctx context.Context, group string, name, versio
 		_ = m.Postgres.DropDatabase(ctx, db.Name)
 		return Service{}, err
 	}
-	envBody := ensureProductionEnv(postgresServiceEnv(db.URL, db.Name, db.User, db.Password))
+	envBody := postgresServiceEnv(db.URL, db.Name, db.User, db.Password)
+	envBody = clearEnvKeys(envBody, frameworkEnvKeys...)
 	if err := os.WriteFile(filepath.Join(dir, "env"), []byte(envBody), 0o600); err != nil {
 		_ = m.Postgres.DropDatabase(ctx, db.Name)
 		return Service{}, err
@@ -896,7 +897,9 @@ func (m *Manager) createGo(ctx context.Context, group string, in CreateGoRequest
 	if blink != "" || (existIdx >= 0 && existing.LinkedBucket != "") {
 		envBody = removeLinkedBucketEnv(envBody)
 	}
-	envBody = ensureProductionEnv(envBody)
+	hints := detectEnvStackHints(buildDir)
+	hints.Go = true
+	envBody = ensureProductionEnv(envBody, hints)
 	envBody, _ = materializeSecrets(envBody)
 	_ = os.WriteFile(envPath, []byte(normalizeEnv(envBody)), 0o600)
 	m.logf("info", "Port %d · %dMB · %.1f CPU%s", port, mem, cpus, func() string {
@@ -1139,6 +1142,11 @@ func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in Set
 			if svc.Type == TypeGo {
 				body = ownEnvBody(body, svc)
 			}
+			hints := envStackHints{}
+			if svc.Type == TypeGo {
+				hints = m.envHintsForService(svc)
+			}
+			body = sanitizeServiceEnv(body, svc.Type, hints)
 			if body != curNorm {
 				if err := os.WriteFile(path, []byte(normalizeEnv(body)), 0o600); err != nil {
 					m.mu.Unlock()

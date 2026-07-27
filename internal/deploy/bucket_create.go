@@ -88,7 +88,7 @@ func (m *Manager) createBucket(ctx context.Context, group, name string) (Service
 		_ = m.MinIO.DeleteBucket(ctx, info.Name)
 		return Service{}, err
 	}
-	envBody := bucketServiceEnv(info.Name, info.Endpoint, info.AccessKey, info.SecretKey)
+	envBody := clearEnvKeys(bucketServiceEnv(info.Name, info.Endpoint, info.AccessKey, info.SecretKey), frameworkEnvKeys...)
 	if err := os.WriteFile(filepath.Join(dir, "env"), []byte(envBody), 0o600); err != nil {
 		_ = m.MinIO.DeleteBucket(ctx, info.Name)
 		return Service{}, err

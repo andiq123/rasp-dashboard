@@ -32,6 +32,7 @@ type fileEntry struct {
 	Modified   string `json:"modified"`
 	ModifiedMs int64  `json:"modified_ms"`
 	Readable   bool   `json:"readable"`
+	Hidden     bool   `json:"hidden,omitempty"`
 	Textual    bool   `json:"textual,omitempty"`
 	LinkTarget string `json:"link_target,omitempty"`
 }
@@ -270,12 +271,14 @@ func listFiles(raw string) (filesListing, error) {
 			continue
 		}
 		full := filepath.Join(clean, name)
+		hidden := strings.HasPrefix(name, ".")
 		ent := fileEntry{
 			Name:     name,
 			Path:     full,
 			Readable: true,
+			Hidden:   hidden,
 		}
-		if strings.HasPrefix(name, ".") {
+		if hidden {
 			sum.Hidden++
 		}
 
