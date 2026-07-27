@@ -1,5 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  Activity,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Play,
+  RefreshCw,
+  Shield,
+  Square,
+} from 'lucide-react'
+import {
   fetchConfig,
   hotspotAction,
   saveConfig,
@@ -13,7 +22,7 @@ import { Panel } from '@/components/ui/Panel/Panel'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { useLiveState } from '@/hooks/useLiveState'
 import { fmtBytes, fmtPct, fmtRate } from '@/lib/format'
-import styles from './OverviewPage.module.css'
+import { muted, tile } from '@/lib/ui'
 
 function Metric({
   label,
@@ -28,13 +37,11 @@ function Metric({
 }) {
   const p = Math.max(0, Math.min(100, percent || 0))
   return (
-    <div className={styles.metric}>
-      <div className={styles.k}>{label}</div>
-      <div className={styles.v}>{value}</div>
-      <div className={styles.d}>{detail}</div>
-      <div className={styles.bar}>
-        <span style={{ width: `${p}%` }} />
-      </div>
+    <div className={`${tile} p-3`}>
+      <div className={`text-[11px] font-bold uppercase tracking-wide ${muted}`}>{label}</div>
+      <div className="text-xl font-bold tracking-tight">{value}</div>
+      <div className={`text-xs ${muted} mt-0.5`}>{detail}</div>
+      <progress className="progress progress-primary w-full mt-2 h-1.5" value={p} max={100} />
     </div>
   )
 }
@@ -103,44 +110,54 @@ export function OverviewPage() {
   const c = configQ.data || {}
 
   return (
-    <div className={styles.grid}>
+    <div className="grid gap-4 lg:grid-cols-2 items-start">
       <Panel
-        title={`${mode === 'residential' ? 'Residential' : 'Mullvad'}`}
+        title={
+          <span className="inline-flex items-center gap-2">
+            <Shield className="h-4 w-4" aria-hidden />
+            {mode === 'residential' ? 'Residential' : 'Mullvad'}
+          </span>
+        }
         hint={mode === 'residential' ? 'Proxy route' : 'WireGuard route'}
       >
-        <div className={styles.vpnTop}>
+        <div className="flex items-start justify-between gap-3">
           <div>
-            <div className={styles.big}>{mode === 'residential' ? 'Residential' : 'Mullvad'}</div>
-            <div className="ghost">{mode === 'residential' ? 'SOCKS via hotspot' : 'WG via hotspot'}</div>
+            <div className="text-lg font-bold tracking-tight">
+              {mode === 'residential' ? 'Residential' : 'Mullvad'}
+            </div>
+            <div className={`text-xs ${muted}`}>
+              {mode === 'residential' ? 'SOCKS via hotspot' : 'WG via hotspot'}
+            </div>
           </div>
-          <div className={`${styles.pill} ${healthy ? '' : styles.off}`}>
-            <span className={`${styles.pulse} ${healthy ? '' : styles.pulseOff}`} />
+          <div className={`badge gap-1.5 ${healthy ? 'badge-success' : 'badge-error'}`}>
+            <span className={`status ${healthy ? 'status-success' : 'status-error'}`} />
             {healthy ? 'Online' : 'Offline'}
           </div>
         </div>
 
-        <div className={styles.seg}>
-          <button
-            type="button"
-            className={mode === 'mullvad' ? styles.segActive : undefined}
+        <div className="join w-full">
+          <Button
+            className="join-item flex-1"
+            variant={mode === 'mullvad' ? 'primary' : 'quiet'}
             disabled={modeMut.isPending}
             onClick={() => modeMut.mutate('mullvad')}
           >
             Mullvad
-          </button>
-          <button
-            type="button"
-            className={mode === 'residential' ? styles.segActive : undefined}
+          </Button>
+          <Button
+            className="join-item flex-1"
+            variant={mode === 'residential' ? 'primary' : 'quiet'}
             disabled={modeMut.isPending}
             onClick={() => modeMut.mutate('residential')}
           >
             Residential
-          </button>
+          </Button>
         </div>
 
-        <div className={styles.actions}>
+        <div className="flex flex-wrap gap-2">
           <Button
             variant="primary"
+            icon={<Play className="h-4 w-4" />}
             disabled={state.hotspot_running}
             loading={hs.isPending && hs.variables === 'start'}
             onClick={() => hs.mutate('start')}
@@ -149,6 +166,7 @@ export function OverviewPage() {
           </Button>
           <Button
             variant="dangerSoft"
+            icon={<Square className="h-4 w-4" />}
             disabled={!state.hotspot_running}
             loading={hs.isPending && hs.variables === 'stop'}
             onClick={() => hs.mutate('stop')}
@@ -157,6 +175,7 @@ export function OverviewPage() {
           </Button>
           <Button
             variant="quiet"
+            icon={<RefreshCw className="h-4 w-4" />}
             loading={hs.isPending && hs.variables === 'restart'}
             onClick={() => hs.mutate('restart')}
           >
@@ -164,57 +183,62 @@ export function OverviewPage() {
           </Button>
         </div>
 
-        <div className={styles.rows}>
-          <div>
-            <span>SSID</span>
-            <strong>{state.ssid || '—'}</strong>
-          </div>
-          <div>
-            <span>Gateway</span>
-            <strong>{state.hotspot_ip || '—'}</strong>
-          </div>
-          <div>
-            <span>DHCP</span>
-            <strong>
-              {state.dhcp_start && state.dhcp_end ? `${state.dhcp_start} – ${state.dhcp_end}` : 'Not set'}
-            </strong>
-          </div>
+        <div className={`overflow-hidden ${tile} divide-y divide-base-300`}>
+          {[
+            ['SSID', state.ssid || '—'],
+            ['Gateway', state.hotspot_ip || '—'],
+            [
+              'DHCP',
+              state.dhcp_start && state.dhcp_end ? `${state.dhcp_start} – ${state.dhcp_end}` : 'Not set',
+            ],
+          ].map(([k, v]) => (
+            <div key={k} className="flex justify-between gap-3 px-3 py-2.5 bg-base-100/60">
+              <span className={`${muted} text-sm`}>{k}</span>
+              <strong className="text-sm font-semibold">{v}</strong>
+            </div>
+          ))}
         </div>
 
-        <details className={styles.settings}>
-          <summary>Edit hotspot settings</summary>
-          <form
-            className={styles.form}
-            onSubmit={(e) => {
-              e.preventDefault()
-              save.mutate(new FormData(e.currentTarget))
-            }}
-          >
-            <Field label="SSID">
-              <Input name="ssid" defaultValue={c.ssid || state.ssid || ''} />
-            </Field>
-            <Field label="Password" tip={c.password_set ? 'Unchanged if left blank' : undefined}>
-              <Input name="password" type="password" autoComplete="new-password" />
-            </Field>
-            <Field label="Gateway IP">
-              <Input name="hotspot_ip" defaultValue={c.hotspot_ip || state.hotspot_ip || ''} />
-            </Field>
-            <Field label="DHCP start">
-              <Input name="dhcp_start" defaultValue={c.dhcp_start || state.dhcp_start || ''} />
-            </Field>
-            <Field label="DHCP end">
-              <Input name="dhcp_end" defaultValue={c.dhcp_end || state.dhcp_end || ''} />
-            </Field>
-            <Button type="submit" variant="primary" loading={save.isPending}>
-              Save
-            </Button>
-          </form>
+        <details className={`collapse collapse-arrow ${tile}`}>
+          <summary className="collapse-title text-sm font-semibold min-h-0 py-3">
+            Edit hotspot settings
+          </summary>
+          <div className="collapse-content">
+            <form
+              className="grid gap-2 pt-1"
+              onSubmit={(e) => {
+                e.preventDefault()
+                save.mutate(new FormData(e.currentTarget))
+              }}
+            >
+              <Field label="SSID">
+                <Input name="ssid" defaultValue={c.ssid || state.ssid || ''} />
+              </Field>
+              <Field label="Password" tip={c.password_set ? 'Unchanged if left blank' : undefined}>
+                <Input name="password" type="password" autoComplete="new-password" />
+              </Field>
+              <Field label="Gateway IP">
+                <Input name="hotspot_ip" defaultValue={c.hotspot_ip || state.hotspot_ip || ''} />
+              </Field>
+              <Field label="DHCP start">
+                <Input name="dhcp_start" defaultValue={c.dhcp_start || state.dhcp_start || ''} />
+              </Field>
+              <Field label="DHCP end">
+                <Input name="dhcp_end" defaultValue={c.dhcp_end || state.dhcp_end || ''} />
+              </Field>
+              <Button type="submit" variant="primary" loading={save.isPending}>
+                Save
+              </Button>
+            </form>
+          </div>
         </details>
 
-        <div className={styles.syncrox}>
+        <div className="flex items-center justify-between gap-3 border-t border-base-300 pt-3">
           <div>
-            <strong>Syncrox</strong>
-            <p className="ghost">{state.syncrox_running ? 'Running on :5090' : 'Stopped'}</p>
+            <strong className="block">Syncrox</strong>
+            <p className={`text-sm ${muted} m-0 mt-0.5`}>
+              {state.syncrox_running ? 'Running on :5090' : 'Stopped'}
+            </p>
           </div>
           <Button
             variant={state.syncrox_running ? 'dangerSoft' : 'primary'}
@@ -226,8 +250,15 @@ export function OverviewPage() {
         </div>
       </Panel>
 
-      <Panel title="System" hint="Live">
-        <div className={styles.metrics}>
+      <Panel
+        title={
+          <span className="inline-flex items-center gap-2">
+            <Activity className="h-4 w-4" aria-hidden /> System
+          </span>
+        }
+        hint="Live"
+      >
+        <div className="grid grid-cols-2 gap-2">
           <Metric
             label="CPU"
             value={fmtPct(cpu.busy_percent)}
@@ -253,14 +284,18 @@ export function OverviewPage() {
             percent={storage.used_percent || 0}
           />
         </div>
-        <div className={styles.net}>
-          <div>
-            <span>Down</span>
-            <strong>{fmtRate(net.down_bytes_per_sec)}</strong>
+        <div className="grid grid-cols-2 gap-2">
+          <div className={`${tile} p-3`}>
+            <span className={`inline-flex items-center gap-1 text-[11px] font-bold uppercase ${muted}`}>
+              <ArrowDownToLine className="h-3 w-3" /> Down
+            </span>
+            <strong className="block text-base mt-1">{fmtRate(net.down_bytes_per_sec)}</strong>
           </div>
-          <div>
-            <span>Up</span>
-            <strong>{fmtRate(net.up_bytes_per_sec)}</strong>
+          <div className={`${tile} p-3`}>
+            <span className={`inline-flex items-center gap-1 text-[11px] font-bold uppercase ${muted}`}>
+              <ArrowUpFromLine className="h-3 w-3" /> Up
+            </span>
+            <strong className="block text-base mt-1">{fmtRate(net.up_bytes_per_sec)}</strong>
           </div>
         </div>
       </Panel>

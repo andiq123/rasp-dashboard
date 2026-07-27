@@ -1,5 +1,13 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
-import styles from './Toast.module.css'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 
 type ToastCtx = { showToast: (message: string) => void }
 
@@ -7,24 +15,31 @@ const Ctx = createContext<ToastCtx | null>(null)
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [message, setMessage] = useState<string | null>(null)
-  const [timer, setTimer] = useState<ReturnType<typeof setTimeout> | null>(null)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const showToast = useCallback(
-    (msg: string) => {
-      if (timer) clearTimeout(timer)
-      setMessage(msg)
-      setTimer(setTimeout(() => setMessage(null), 2800))
-    },
-    [timer],
-  )
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [])
+
+  const showToast = useCallback((msg: string) => {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    setMessage(msg)
+    timerRef.current = setTimeout(() => setMessage(null), 2800)
+  }, [])
 
   const value = useMemo(() => ({ showToast }), [showToast])
 
   return (
     <Ctx.Provider value={value}>
       {children}
-      <div className={`${styles.toast} ${message ? styles.show : ''}`} role="status" aria-live="polite">
-        {message}
+      <div className="toast toast-bottom toast-center z-[60]">
+        {message ? (
+          <div className="alert alert-success shadow-md" role="status" aria-live="polite">
+            <span>{message}</span>
+          </div>
+        ) : null}
       </div>
     </Ctx.Provider>
   )

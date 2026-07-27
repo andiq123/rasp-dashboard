@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import styles from './Panel.module.css'
+import { muted, surface } from '@/lib/ui'
 
 type Props = {
   title?: ReactNode
@@ -9,16 +9,18 @@ type Props = {
   id?: string
 }
 
-export function Panel({ title, hint, children, className, id }: Props) {
+export function Panel({ title, hint, children, className = '', id }: Props) {
   return (
-    <section id={id} className={[styles.panel, className].filter(Boolean).join(' ')}>
-      {(title || hint) && (
-        <div className={styles.head}>
-          <h2>{title}</h2>
-          {hint ? <span className={styles.hint}>{hint}</span> : null}
-        </div>
-      )}
-      {children}
+    <section id={id} className={`card ${surface} ${className}`}>
+      <div className="card-body gap-4 p-4 sm:p-5">
+        {(title || hint) && (
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="card-title text-base tracking-tight m-0">{title}</h2>
+            {hint ? <span className={`text-xs ${muted}`}>{hint}</span> : null}
+          </div>
+        )}
+        {children}
+      </div>
     </section>
   )
 }

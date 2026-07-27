@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
-import styles from './Button.module.css'
+import { Loader2 } from 'lucide-react'
 
 type Variant = 'default' | 'primary' | 'quiet' | 'danger' | 'dangerSoft'
 
@@ -7,36 +7,37 @@ type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: Variant
   loading?: boolean
   icon?: ReactNode
+  size?: 'sm' | 'md'
+}
+
+const variantClass: Record<Variant, string> = {
+  default: 'btn-outline border-base-300',
+  primary: 'btn-primary',
+  quiet: 'btn-ghost',
+  danger: 'btn-error btn-outline',
+  dangerSoft: 'btn-error btn-soft',
 }
 
 export function Button({
   variant = 'default',
   loading,
   icon,
-  className,
+  size = 'sm',
+  className = '',
   children,
   disabled,
   type = 'button',
   ...rest
 }: Props) {
-  const cls = [
-    styles.btn,
-    variant === 'primary' && styles.primary,
-    variant === 'quiet' && styles.quiet,
-    variant === 'danger' && styles.danger,
-    variant === 'dangerSoft' && styles.dangerSoft,
-    loading && styles.loading,
-    (icon || loading) && styles.hasIco,
-    className,
-  ]
-    .filter(Boolean)
-    .join(' ')
-
   return (
-    <button type={type} className={cls} disabled={disabled || loading} {...rest}>
-      <span className={styles.spinner} aria-hidden="true" />
-      {icon}
-      {children != null && <span>{children}</span>}
+    <button
+      type={type}
+      className={`btn ${size === 'sm' ? 'btn-sm' : ''} ${variantClass[variant]} ${className}`}
+      disabled={disabled || loading}
+      {...rest}
+    >
+      {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : icon}
+      {children != null ? <span>{children}</span> : null}
     </button>
   )
 }

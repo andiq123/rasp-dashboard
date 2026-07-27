@@ -1,22 +1,48 @@
-#:schema https://json.schemastore.org/any.json
-
 # Local live-reload for FireWifi dashboard (Air).
 # Start: ./start.sh
 
 root = "."
 tmp_dir = "tmp"
+testdata_dir = "testdata"
 env_files = [".env"]
 
 [build]
-  # Build React UI, then Go binary. Exclude generated dist from watch to avoid loops.
-  cmd = "go generate ./internal/server/web && go build -buildvcs=false -o ./tmp/firewifi-dashboard ."
+  # Rebuild Vite UI when sources change, then Go binary (see scripts/air-build.sh).
+  cmd = "./scripts/air-build.sh"
   bin = "tmp/firewifi-dashboard"
   entrypoint = ["./tmp/firewifi-dashboard"]
-  delay = 500
-  include_ext = ["go", "html", "css", "js", "ts", "tsx", "json"]
-  exclude_dir = ["tmp", "vendor", "scripts", ".devdata", ".git", "web-ui/node_modules", "internal/server/web/dist"]
-  exclude_regex = ["_test\\.go$"]
+  delay = 700
+  # Only watch app + UI source — never walk web-ui/node_modules or dist.
+  include_dir = ["internal", "web-ui/src"]
+  include_file = [
+    "main.go",
+    "go.mod",
+    "go.sum",
+    "web-ui/index.html",
+    "web-ui/vite.config.ts",
+    "web-ui/package.json",
+    "web-ui/tsconfig.json",
+    "web-ui/tsconfig.app.json",
+    "web-ui/tsconfig.node.json",
+  ]
+  include_ext = ["go", "ts", "tsx", "css", "html"]
+  exclude_dir = [
+    "tmp",
+    "vendor",
+    "scripts",
+    ".devdata",
+    ".git",
+    "node_modules",
+    "dist",
+    "testdata",
+    "internal/server/web/dist",
+    "web-ui/node_modules",
+    "web-ui/public",
+    "web-ui/dist",
+  ]
+  exclude_regex = ["_test\\.go$", "(^|/)node_modules(/|$)", "(^|/)dist(/|$)"]
   exclude_unchanged = true
+  follow_symlink = false
   stop_on_error = true
   send_interrupt = true
   kill_delay = "500ms"
@@ -39,10 +65,9 @@ env_files = [".env"]
   clear_on_rebuild = false
   keep_scroll = true
 
-# Browser auto-refresh while editing the embedded UI.
-# App still listens on PORT (default 8484); open the proxy URL instead.
+# Browser auto-refresh while editing. App listens on PORT (default 8484).
 [proxy]
   enabled = true
   proxy_port = 8490
   app_port = 8484
-  app_start_timeout = 8000
+  app_start_timeout = 12000

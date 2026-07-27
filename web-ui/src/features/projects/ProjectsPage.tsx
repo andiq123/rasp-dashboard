@@ -1,6 +1,19 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  ArrowLeft,
+  Box,
+  Database,
+  Folder,
+  FolderGit2,
+  Loader2,
+  Plus,
+  Play,
+  RefreshCw,
+  Square,
+  Trash2,
+} from 'lucide-react'
 import {
   createBucket,
   createGroup,
@@ -19,32 +32,17 @@ import {
   serviceAction,
 } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
-import type { Service } from '@/api/types'
 import { Button } from '@/components/ui/Button/Button'
+import { Choice } from '@/components/ui/Choice/Choice'
 import { Empty } from '@/components/ui/Empty/Empty'
 import { Field, Input, Select, TextArea } from '@/components/ui/Field/Field'
 import { Modal } from '@/components/ui/Modal/Modal'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { fmtBytes, fmtRelative, slugify } from '@/lib/format'
+import { muted, surface, tile } from '@/lib/ui'
 import { usePendingAddGo } from './pendingAddGo'
-import styles from './ProjectsPage.module.css'
-
-function isBuilding(svc: Service): boolean {
-  if (svc.type === 'postgres' || svc.type === 'bucket') return false
-  if (svc.status === 'building') return true
-  return !!(svc.deployments || []).some((d) => d.status === 'building' || d.status === 'queued')
-}
-
-function statusLabel(svc: Service): { text: string; cls: string } {
-  if (svc.type === 'postgres' || svc.type === 'bucket') {
-    return svc.running ? { text: 'Ready', cls: styles.ok } : { text: 'Offline', cls: styles.off }
-  }
-  if (isBuilding(svc)) return { text: 'Building', cls: styles.build }
-  if (svc.status === 'failed') return { text: 'Failed', cls: styles.fail }
-  if (svc.running) return { text: 'Running', cls: styles.ok }
-  return { text: 'Stopped', cls: styles.off }
-}
+import { isBuilding, statusLabel } from './serviceStatus'
 
 type WizardStep = 'type' | 'github' | 'group' | 'go' | 'postgres' | 'bucket' | null
 
@@ -235,8 +233,8 @@ export function ProjectsPage() {
     onError: (e: Error) => showToast(e.message),
   })
 
-  const dbs = useMemo(() => services.filter((s) => s.type === 'postgres'), [services])
-  const buckets = useMemo(() => services.filter((s) => s.type === 'bucket'), [services])
+  const dbs = services.filter((s) => s.type === 'postgres')
+  const buckets = services.filter((s) => s.type === 'bucket')
 
   function openAddService() {
     if (!groupSlug) {
@@ -268,242 +266,315 @@ export function ProjectsPage() {
   const nameDirty = group && draftName.trim() !== (group.name || group.slug).trim()
 
   return (
-    <div className={styles.page}>
-      <div className={styles.split}>
-        <aside className={styles.sidebar}>
-          <div className={styles.sideHead}>
-            <h3>Groups</h3>
-            <span className={styles.count}>{(groupsQ.data || []).length}</span>
-            <Button variant="primary" className={styles.newGroup} onClick={() => setWizard('group')}>
-              New
-            </Button>
-          </div>
-          {groupsQ.isLoading ? (
-            <Spinner label="Loading groups…" />
-          ) : groupsQ.isError ? (
-            <Empty title="Could not load groups" body={(groupsQ.error as Error).message} />
-          ) : !(groupsQ.data || []).length ? (
-            <Empty title="No groups yet" body="Create a group to deploy apps and databases." />
-          ) : (
-            <div className={styles.groupList}>
-              {(groupsQ.data || []).map((g) => (
-                <Link
-                  key={g.slug}
-                  to={`/projects/${encodeURIComponent(g.slug)}`}
-                  className={`${styles.groupTile} ${g.slug === groupSlug ? styles.groupActive : ''}`}
-                >
-                  <strong>{g.name || g.slug}</strong>
-                  <span className="mono">
-                    {g.slug}
-                    {g.service_count != null ? ` · ${g.service_count}` : ''}
-                    {g.disk_bytes ? ` · ${fmtBytes(g.disk_bytes)}` : ''}
-                  </span>
-                </Link>
-              ))}
+    <div className="min-h-[calc(100vh-100px)]">
+      <div className="grid grid-cols-1 gap-3.5 items-start min-h-[60vh] md:grid-cols-[minmax(200px,260px)_minmax(0,1fr)]">
+        <aside className={`card ${surface}`}>
+          <div className="card-body gap-3 p-3">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-bold m-0">Groups</h3>
+              <span className={`text-xs font-semibold ${muted}`}>{(groupsQ.data || []).length}</span>
+              <Button
+                variant="primary"
+                className="ml-auto"
+                icon={<Plus className="h-3.5 w-3.5" aria-hidden />}
+                onClick={() => setWizard('group')}
+              >
+                New
+              </Button>
             </div>
-          )}
+            {groupsQ.isLoading ? (
+              <Spinner label="Loading groups…" />
+            ) : groupsQ.isError ? (
+              <Empty title="Could not load groups" body={(groupsQ.error as Error).message} />
+            ) : !(groupsQ.data || []).length ? (
+              <Empty title="No groups yet" body="Create a group to deploy apps and databases." />
+            ) : (
+              <nav className="menu menu-sm gap-1 p-0" aria-label="Groups">
+                {(groupsQ.data || []).map((g) => (
+                  <li key={g.slug}>
+                    <Link
+                      to={`/projects/${encodeURIComponent(g.slug)}`}
+                      className={
+                        g.slug === groupSlug
+                          ? 'active bg-primary/15 text-primary border border-primary/30'
+                          : 'border border-transparent'
+                      }
+                    >
+                      <Folder className={`h-4 w-4 shrink-0 ${muted}`} aria-hidden />
+                      <span className="min-w-0">
+                        <strong className="block truncate">{g.name || g.slug}</strong>
+                        <span className={`block font-mono text-[11px] ${muted} font-normal`}>
+                          {g.slug}
+                          {g.service_count != null ? ` · ${g.service_count}` : ''}
+                          {g.disk_bytes ? ` · ${fmtBytes(g.disk_bytes)}` : ''}
+                        </span>
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </nav>
+            )}
+          </div>
         </aside>
 
-        <section className={`${styles.main} ${buildingN ? styles.deploying : ''}`}>
-          {!groupSlug ? (
-            <div className={styles.welcome}>
-              <h3>{(groupsQ.data || []).length ? 'Select a group' : 'Create a group'}</h3>
-              <p className="ghost">Groups hold databases and Go apps on this Pi.</p>
-              {!(groupsQ.data || []).length ? (
-                <Button variant="primary" onClick={() => setWizard('group')}>
-                  New group
-                </Button>
-              ) : null}
-            </div>
-          ) : (
-            <>
-              <header className={styles.gdHead}>
-                <Button variant="quiet" onClick={() => navigate('/projects')} aria-label="Back">
-                  ←
-                </Button>
-                <div className={styles.gdIdentity}>
-                  <div className={styles.nameRow}>
-                    <Input
-                      className={styles.nameInput}
-                      value={draftName}
-                      onChange={(e) => setDraftName(e.target.value)}
-                      aria-label="Group name"
-                    />
-                    {nameDirty ? (
-                      <Button variant="primary" loading={renameMut.isPending} onClick={() => renameMut.mutate()}>
-                        Save
-                      </Button>
-                    ) : null}
-                  </div>
-                  <div className={styles.meta}>
-                    <span className="mono">{groupSlug}</span>
-                    {buildingN ? (
-                      <span className={styles.deployingPill} role="status">
-                        Deploying{buildingN > 1 ? ` · ${buildingN}` : ''}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-                <div className={styles.headActions}>
+        <section
+          className={`card ${surface} ${buildingN ? 'border-info/40' : ''}`}
+        >
+          <div className="card-body gap-4 p-3 sm:p-4">
+            {!groupSlug ? (
+              <div className={`grid place-items-center gap-2 min-h-[280px] text-center ${muted}`}>
+                <h3 className="text-base font-bold m-0 text-base-content">
+                  {(groupsQ.data || []).length ? 'Select a group' : 'Create a group'}
+                </h3>
+                <p className={`text-sm ${muted} m-0`}>Groups hold databases and Go apps on this Pi.</p>
+                {!(groupsQ.data || []).length ? (
                   <Button
-                    variant="dangerSoft"
-                    loading={deleteGroupMut.isPending}
-                    onClick={() => {
-                      if (confirm(`Delete group ${groupSlug}?`)) deleteGroupMut.mutate()
-                    }}
+                    variant="primary"
+                    icon={<Plus className="h-4 w-4" aria-hidden />}
+                    onClick={() => setWizard('group')}
                   >
-                    Delete
+                    New group
                   </Button>
-                  <Button variant="primary" onClick={openAddService}>
-                    Add service
-                  </Button>
-                </div>
-              </header>
-
-              {servicesQ.isLoading ? (
-                <Spinner label="Loading services…" />
-              ) : servicesQ.isError ? (
-                <Empty title="Could not load services" body={(servicesQ.error as Error).message} />
-              ) : !services.length ? (
-                <Empty
-                  title="Nothing here yet"
-                  body="Add a Go app, Postgres, or Bucket."
-                  action={
-                    <Button variant="primary" onClick={openAddService}>
-                      Add service
-                    </Button>
-                  }
-                />
-              ) : (
-                <div className={styles.board}>
-                  {services.map((svc) => {
-                    const st = statusLabel(svc)
-                    return (
-                      <button
-                        type="button"
-                        key={svc.slug}
-                        className={`${styles.card} ${isBuilding(svc) ? styles.cardBuild : ''} ${
-                          svc.slug === serviceSlug ? styles.cardSelected : ''
-                        }`}
-                        onClick={() =>
-                          navigate(`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`)
-                        }
-                      >
-                        <div className={styles.cardTop}>
-                          <strong>{svc.name || svc.slug}</strong>
-                          <span className={`${styles.badge} ${st.cls}`}>{st.text}</span>
-                        </div>
-                        <div className={styles.cardSub}>
-                          <span className="mono">{svc.type}</span>
-                          {svc.port ? ` · :${svc.port}` : ''}
-                          {svc.repo ? ` · ${svc.repo}` : ''}
-                        </div>
-                        {svc.type === 'go' ? (
-                          <div className={styles.cardActs} onClick={(e) => e.stopPropagation()}>
-                            {isBuilding(svc) ? (
-                              <span className={styles.buildingNote}>Building…</span>
-                            ) : svc.running ? (
-                              <Button
-                                variant="quiet"
-                                loading={svcAct.isPending}
-                                onClick={() => svcAct.mutate({ slug: svc.slug, action: 'stop' })}
-                              >
-                                Stop
-                              </Button>
-                            ) : (
-                              <Button
-                                variant="primary"
-                                loading={svcAct.isPending}
-                                onClick={() => svcAct.mutate({ slug: svc.slug, action: 'start' })}
-                              >
-                                Start
-                              </Button>
-                            )}
-                            <Button
-                              variant="quiet"
-                              loading={svcAct.isPending}
-                              onClick={() => svcAct.mutate({ slug: svc.slug, action: 'redeploy' })}
-                            >
-                              Redeploy
-                            </Button>
-                          </div>
-                        ) : null}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-
-              {selected ? (
-                <div className={styles.drawer}>
-                  <div className={styles.drawerHead}>
-                    <div>
-                      <h3>{selected.name || selected.slug}</h3>
-                      <p className="ghost mono">
-                        {selected.type}
-                        {selected.port ? ` · :${selected.port}` : ''}
-                      </p>
-                    </div>
-                    <Button
-                      variant="quiet"
-                      onClick={() => navigate(`/projects/${encodeURIComponent(groupSlug)}`)}
-                    >
-                      Close
-                    </Button>
-                  </div>
-                  <div className={styles.drawerBody}>
-                    {selected.url || selected.public_url ? (
-                      <p>
-                        <a href={selected.public_url || selected.url} target="_blank" rel="noreferrer">
-                          {selected.public_url || selected.url}
-                        </a>
-                      </p>
-                    ) : null}
-                    {selected.last_error ? <p className={styles.err}>{selected.last_error}</p> : null}
-                    {(selected.deployments || []).length ? (
-                      <div className={styles.deploys}>
-                        <h4>Deploys</h4>
-                        <ul>
-                          {(selected.deployments || []).slice(0, 8).map((d) => (
-                            <li key={d.id}>
-                              <span className={styles.badge}>{d.status}</span>{' '}
-                              {d.message || d.commit?.slice(0, 7) || d.id}{' '}
-                              <span className="ghost">{fmtRelative(d.created_at)}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-                    <div className={styles.drawerActs}>
-                      {selected.type === 'go' && !isBuilding(selected) ? (
-                        <Button
-                          variant="primary"
-                          loading={svcAct.isPending}
-                          onClick={() =>
-                            svcAct.mutate({
-                              slug: selected.slug,
-                              action: selected.running ? 'stop' : 'start',
-                            })
-                          }
-                        >
-                          {selected.running ? 'Stop' : 'Start'}
+                ) : null}
+              </div>
+            ) : (
+              <>
+                <header
+                  className={`flex items-start gap-2.5 pb-3 border-b border-base-300 ${
+                    buildingN ? 'relative after:absolute after:left-0 after:right-0 after:-bottom-px after:h-0.5 after:rounded after:bg-gradient-to-r after:from-info/20 after:via-info after:to-info/20 after:bg-[length:220%_100%] after:animate-pulse' : ''
+                  }`}
+                >
+                  <Button
+                    variant="quiet"
+                    icon={<ArrowLeft className="h-4 w-4" aria-hidden />}
+                    onClick={() => navigate('/projects')}
+                    aria-label="Back"
+                  />
+                  <div className="flex-1 min-w-0 grid gap-1">
+                    <div className="flex gap-2 items-center">
+                      <Input
+                        className="max-w-[360px] h-10 text-lg font-semibold tracking-tight"
+                        value={draftName}
+                        onChange={(e) => setDraftName(e.target.value)}
+                        aria-label="Group name"
+                      />
+                      {nameDirty ? (
+                        <Button variant="primary" loading={renameMut.isPending} onClick={() => renameMut.mutate()}>
+                          Save
                         </Button>
                       ) : null}
-                      <Button
-                        variant="dangerSoft"
-                        loading={svcDel.isPending}
-                        onClick={() => {
-                          if (confirm(`Delete ${selected.slug}?`)) svcDel.mutate(selected.slug)
-                        }}
-                      >
-                        Delete
-                      </Button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`font-mono text-xs ${muted}`}>{groupSlug}</span>
+                      {buildingN ? (
+                        <span className="badge badge-info badge-sm gap-1" role="status">
+                          <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                          Deploying{buildingN > 1 ? ` · ${buildingN}` : ''}
+                        </span>
+                      ) : null}
                     </div>
                   </div>
-                </div>
-              ) : null}
-            </>
-          )}
+                  <div className="join join-horizontal flex-wrap gap-1.5">
+                    <Button
+                      variant="dangerSoft"
+                      icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />}
+                      loading={deleteGroupMut.isPending}
+                      onClick={() => {
+                        if (confirm(`Delete group ${groupSlug}?`)) deleteGroupMut.mutate()
+                      }}
+                    >
+                      Delete
+                    </Button>
+                    <Button
+                      variant="primary"
+                      icon={<Plus className="h-3.5 w-3.5" aria-hidden />}
+                      onClick={openAddService}
+                    >
+                      Add service
+                    </Button>
+                  </div>
+                </header>
+
+                {servicesQ.isLoading ? (
+                  <Spinner label="Loading services…" />
+                ) : servicesQ.isError ? (
+                  <Empty title="Could not load services" body={(servicesQ.error as Error).message} />
+                ) : !services.length ? (
+                  <Empty
+                    title="Nothing here yet"
+                    body="Add a Go app, Postgres, or Bucket."
+                    action={
+                      <Button
+                        variant="primary"
+                        icon={<Plus className="h-4 w-4" aria-hidden />}
+                        onClick={openAddService}
+                      >
+                        Add service
+                      </Button>
+                    }
+                  />
+                ) : (
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-2.5">
+                    {services.map((svc) => {
+                      const st = statusLabel(svc)
+                      const building = isBuilding(svc)
+                      return (
+                        <button
+                          type="button"
+                          key={svc.slug}
+                          className={[
+                            `card ${surface} text-left cursor-pointer transition-colors hover:border-primary/40`,
+                            building ? 'border-info/40' : '',
+                            svc.slug === serviceSlug ? 'border-primary ring-2 ring-primary/20' : '',
+                          ].join(' ')}
+                          onClick={() =>
+                            navigate(`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`)
+                          }
+                        >
+                          <div className="card-body gap-2 p-3">
+                            <div className="flex justify-between gap-2 items-start">
+                              <strong className="text-sm">{svc.name || svc.slug}</strong>
+                              <span className={`badge badge-sm ${st.badge}`}>
+                                {building ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : null}
+                                {st.text}
+                              </span>
+                            </div>
+                            <div className={`text-xs ${muted}`}>
+                              <span className="font-mono">{svc.type}</span>
+                              {svc.port ? ` · :${svc.port}` : ''}
+                              {svc.repo ? ` · ${svc.repo}` : ''}
+                            </div>
+                            {svc.type === 'go' ? (
+                              <div className="flex flex-wrap gap-1" onClick={(e) => e.stopPropagation()}>
+                                {building ? (
+                                  <span className="badge badge-info badge-sm gap-1">
+                                    <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                                    Building…
+                                  </span>
+                                ) : svc.running ? (
+                                  <Button
+                                    variant="quiet"
+                                    icon={<Square className="h-3.5 w-3.5" aria-hidden />}
+                                    loading={svcAct.isPending}
+                                    onClick={() => svcAct.mutate({ slug: svc.slug, action: 'stop' })}
+                                  >
+                                    Stop
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    variant="primary"
+                                    icon={<Play className="h-3.5 w-3.5" aria-hidden />}
+                                    loading={svcAct.isPending}
+                                    onClick={() => svcAct.mutate({ slug: svc.slug, action: 'start' })}
+                                  >
+                                    Start
+                                  </Button>
+                                )}
+                                <Button
+                                  variant="quiet"
+                                  icon={<RefreshCw className="h-3.5 w-3.5" aria-hidden />}
+                                  loading={svcAct.isPending}
+                                  onClick={() => svcAct.mutate({ slug: svc.slug, action: 'redeploy' })}
+                                >
+                                  Redeploy
+                                </Button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {selected ? (
+                  <div className={`card ${surface} overflow-hidden mt-1`}>
+                    <div className="flex justify-between gap-3 items-start px-3.5 py-3 border-b border-base-300">
+                      <div>
+                        <h3 className="text-[15px] font-bold m-0">{selected.name || selected.slug}</h3>
+                        <p className={`text-sm ${muted} font-mono m-0 mt-0.5`}>
+                          {selected.type}
+                          {selected.port ? ` · :${selected.port}` : ''}
+                        </p>
+                      </div>
+                      <Button
+                        variant="quiet"
+                        onClick={() => navigate(`/projects/${encodeURIComponent(groupSlug)}`)}
+                      >
+                        Close
+                      </Button>
+                    </div>
+                    <div className="p-3.5 grid gap-3">
+                      {selected.url || selected.public_url ? (
+                        <p className="m-0">
+                          <a
+                            className="link link-primary"
+                            href={selected.public_url || selected.url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {selected.public_url || selected.url}
+                          </a>
+                        </p>
+                      ) : null}
+                      {selected.last_error ? (
+                        <p className="text-error text-sm m-0">{selected.last_error}</p>
+                      ) : null}
+                      {(selected.deployments || []).length ? (
+                        <div>
+                          <h4 className={`text-xs font-bold uppercase tracking-wide ${muted} m-0 mb-1.5`}>
+                            Deploys
+                          </h4>
+                          <ul className="list-none m-0 p-0 grid gap-1.5">
+                            {(selected.deployments || []).slice(0, 8).map((d) => (
+                              <li key={d.id} className="text-sm">
+                                <span className="badge badge-sm badge-ghost">{d.status}</span>{' '}
+                                {d.message || d.commit?.slice(0, 7) || d.id}{' '}
+                                <span className={`${muted} text-xs`}>{fmtRelative(d.created_at)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      <div className="flex flex-wrap gap-1.5">
+                        {selected.type === 'go' && !isBuilding(selected) ? (
+                          <Button
+                            variant="primary"
+                            icon={
+                              selected.running ? (
+                                <Square className="h-3.5 w-3.5" aria-hidden />
+                              ) : (
+                                <Play className="h-3.5 w-3.5" aria-hidden />
+                              )
+                            }
+                            loading={svcAct.isPending}
+                            onClick={() =>
+                              svcAct.mutate({
+                                slug: selected.slug,
+                                action: selected.running ? 'stop' : 'start',
+                              })
+                            }
+                          >
+                            {selected.running ? 'Stop' : 'Start'}
+                          </Button>
+                        ) : null}
+                        <Button
+                          variant="dangerSoft"
+                          icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />}
+                          loading={svcDel.isPending}
+                          onClick={() => {
+                            if (confirm(`Delete ${selected.slug}?`)) svcDel.mutate(selected.slug)
+                          }}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
         </section>
       </div>
 
@@ -540,7 +611,9 @@ export function ProjectsPage() {
             }}
           />
         </Field>
-        {groupName.trim() ? <p className="ghost mono">{slugify(groupName)}</p> : null}
+        {groupName.trim() ? (
+          <p className={`text-sm ${muted} font-mono m-0 mt-2`}>{slugify(groupName)}</p>
+        ) : null}
       </Modal>
 
       <Modal
@@ -553,28 +626,26 @@ export function ProjectsPage() {
         }
         onClose={() => setWizard(null)}
       >
-        <div className={styles.typePick}>
-          <button type="button" className={styles.typeOpt} onClick={pickGo}>
-            <span className={`${styles.typeIcon} ${styles.go}`}>Go</span>
-            <span>
-              <strong>Go app</strong>
-              <span className="ghost">Clone from GitHub, build, and run</span>
-            </span>
-          </button>
-          <button type="button" className={styles.typeOpt} onClick={() => setWizard('postgres')}>
-            <span className={`${styles.typeIcon} ${styles.pg}`}>DB</span>
-            <span>
-              <strong>Postgres</strong>
-              <span className="ghost">Shared database for apps</span>
-            </span>
-          </button>
-          <button type="button" className={styles.typeOpt} onClick={() => setWizard('bucket')}>
-            <span className={`${styles.typeIcon} ${styles.go}`}>S3</span>
-            <span>
-              <strong>Bucket</strong>
-              <span className="ghost">Object storage on this Pi</span>
-            </span>
-          </button>
+        <div className="grid gap-2">
+          <Choice
+            title="Go app"
+            description="Clone from GitHub, build, and run"
+            icon={<Box className="h-5 w-5" aria-hidden />}
+            onClick={pickGo}
+          />
+          <Choice
+            title="Postgres"
+            description="Shared database for apps"
+            tone="success"
+            icon={<Database className="h-5 w-5" aria-hidden />}
+            onClick={() => setWizard('postgres')}
+          />
+          <Choice
+            title="Bucket"
+            description="Object storage on this Pi"
+            icon={<Box className="h-5 w-5" aria-hidden />}
+            onClick={() => setWizard('bucket')}
+          />
         </div>
       </Modal>
 
@@ -590,6 +661,7 @@ export function ProjectsPage() {
             </Button>
             <Button
               variant="primary"
+              icon={<FolderGit2 className="h-4 w-4" aria-hidden />}
               onClick={() => {
                 setPending({ group: groupSlug })
                 setWizard(null)
@@ -601,7 +673,7 @@ export function ProjectsPage() {
           </>
         }
       >
-        <p className="ghost">
+        <p className={`text-sm ${muted} m-0`}>
           Connect GitHub in Settings with a personal access token (repo read). Then come back and add your Go app.
         </p>
       </Modal>
@@ -711,9 +783,9 @@ export function ProjectsPage() {
           </Select>
         </Field>
         <Field label="Port" meta={portsQ.data?.free != null ? `${portsQ.data.free} free` : 'auto'}>
-          <div className={styles.port}>
+          <div className={`flex items-baseline gap-2 h-[34px] px-2.5 ${tile}`}>
             <strong>{portsQ.data?.next ?? '…'}</strong>
-            <span className="ghost">assigned on deploy</span>
+            <span className={`text-sm ${muted}`}>assigned on deploy</span>
           </div>
         </Field>
         <Field label="Environment" meta="optional KEY=value">

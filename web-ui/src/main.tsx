@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ToastProvider } from '@/components/ui/Toast/Toast'
 import { PendingAddGoProvider } from '@/features/projects/pendingAddGo'
 import { App } from '@/app/App'
-import '@/styles/tokens.css'
+import '@/styles/app.css'
 
 const queryClient = new QueryClient({
   defaultOptions: {

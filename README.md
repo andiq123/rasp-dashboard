@@ -15,7 +15,7 @@ FireWifi dashboard for Raspberry Pi — Go server with an embedded React web UI 
 ./start.sh
 ```
 
-Uses [Air](https://github.com/air-verse/air): on Go / `web-ui` source changes it runs `go generate` (Vite build), rebuilds, and restarts.
+Uses [Air](https://github.com/air-verse/air): watches `internal/` + `web-ui/src` (never `node_modules`), rebuilds the Vite UI when UI sources change, then rebuilds/restarts the Go binary.
 
 - App: `http://localhost:8484` (`PORT` overrides)
 - Browser auto-refresh: `http://localhost:8490` (Air proxy)

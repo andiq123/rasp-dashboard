@@ -1,44 +1,41 @@
 import type { InputHTMLAttributes, ReactNode, TextareaHTMLAttributes, SelectHTMLAttributes } from 'react'
-import styles from './Field.module.css'
+import { muted } from '@/lib/ui'
 
-type Props = {
+type FieldProps = {
   label: string
   meta?: string
   tip?: string
   children?: ReactNode
   htmlFor?: string
+  className?: string
 }
 
-export function Field({ label, meta, tip, children, htmlFor }: Props) {
+export function Field({ label, meta, tip, children, htmlFor, className = '' }: FieldProps) {
   return (
-    <label className={styles.field} htmlFor={htmlFor}>
-      <span className={styles.head}>
-        <span className={styles.label}>{label}</span>
-        {meta ? <span className={styles.meta}>{meta}</span> : null}
-      </span>
+    <fieldset className={`fieldset p-0 ${className}`}>
+      <div className="flex items-baseline justify-between gap-2 mb-1">
+        <label htmlFor={htmlFor} className="label p-0 text-sm font-semibold">
+          {label}
+        </label>
+        {meta ? <span className={`text-xs ${muted}`}>{meta}</span> : null}
+      </div>
       {children}
-      {tip ? <span className={styles.tip}>{tip}</span> : null}
-    </label>
+      {tip ? <p className={`text-xs ${muted} m-0 mt-1`}>{tip}</p> : null}
+    </fieldset>
   )
 }
 
-type InputProps = InputHTMLAttributes<HTMLInputElement>
-
-export function Input({ className, ...rest }: InputProps) {
-  return <input className={[styles.input, className].filter(Boolean).join(' ')} {...rest} />
+export function Input({ className = '', ...rest }: InputHTMLAttributes<HTMLInputElement>) {
+  return <input className={`input w-full ${className}`} {...rest} />
 }
 
-type TextAreaProps = TextareaHTMLAttributes<HTMLTextAreaElement>
-
-export function TextArea({ className, ...rest }: TextAreaProps) {
-  return <textarea className={[styles.textarea, className].filter(Boolean).join(' ')} {...rest} />
+export function TextArea({ className = '', ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return <textarea className={`textarea w-full font-mono text-xs min-h-28 ${className}`} {...rest} />
 }
 
-type SelectProps = SelectHTMLAttributes<HTMLSelectElement>
-
-export function Select({ className, children, ...rest }: SelectProps) {
+export function Select({ className = '', children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select className={[styles.input, className].filter(Boolean).join(' ')} {...rest}>
+    <select className={`select w-full ${className}`} {...rest}>
       {children}
     </select>
   )

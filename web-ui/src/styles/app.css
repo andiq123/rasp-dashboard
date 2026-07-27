@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+@plugin "daisyui" {
+  themes: emerald --default;
+}
+
+/* Calm light emerald: white surfaces, soft mint canvas, readable primary. */
+@plugin "daisyui/theme" {
+  name: "emerald";
+  default: true;
+  color-scheme: light;
+  --color-base-100: oklch(100% 0 0);
+  --color-base-200: oklch(97.5% 0.01 155);
+  --color-base-300: oklch(91% 0.02 155);
+  --color-base-content: oklch(28% 0.03 155);
+  --color-primary: oklch(52% 0.12 160);
+  --color-primary-content: oklch(98% 0.01 155);
+  --color-secondary: oklch(55% 0.08 200);
+  --color-secondary-content: oklch(98% 0 0);
+  --color-accent: oklch(62% 0.1 145);
+  --color-accent-content: oklch(98% 0 0);
+  --color-neutral: oklch(35% 0.03 155);
+  --color-neutral-content: oklch(98% 0 0);
+  --color-info: oklch(62% 0.12 230);
+  --color-info-content: oklch(98% 0 0);
+  --color-success: oklch(55% 0.12 155);
+  --color-success-content: oklch(98% 0 0);
+  --color-warning: oklch(78% 0.12 85);
+  --color-warning-content: oklch(30% 0.05 85);
+  --color-error: oklch(58% 0.18 25);
+  --color-error-content: oklch(98% 0 0);
+  --radius-selector: 1rem;
+  --radius-field: 0.75rem;
+  --radius-box: 1rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-base-200);
+  color: var(--color-base-content);
+}
+
+html {
+  scrollbar-gutter: stable;
+  color-scheme: light;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

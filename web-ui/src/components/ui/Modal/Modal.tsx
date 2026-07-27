@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react'
-import styles from './Modal.module.css'
+import { muted } from '@/lib/ui'
 
 type Props = {
   open: boolean
@@ -13,43 +13,33 @@ type Props = {
 
 export function Modal({ open, title, sub, onClose, children, footer, size = 'sm' }: Props) {
   const titleId = useId()
-  const panelRef = useRef<HTMLDivElement>(null)
+  const dialogRef = useRef<HTMLDialogElement>(null)
 
   useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKey)
-    document.documentElement.classList.add('modal-open')
-    panelRef.current?.querySelector<HTMLElement>('input,button,select,textarea')?.focus()
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      document.documentElement.classList.remove('modal-open')
-    }
-  }, [open, onClose])
-
-  if (!open) return null
+    const el = dialogRef.current
+    if (!el) return
+    if (open && !el.open) el.showModal()
+    if (!open && el.open) el.close()
+  }, [open])
 
   return (
-    <div className={styles.backdrop} onClick={onClose} role="presentation">
-      <div
-        ref={panelRef}
-        className={`${styles.modal} ${size === 'md' ? styles.md : ''}`}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className={styles.head}>
-          <div>
-            <h3 id={titleId}>{title}</h3>
-            {sub ? <p>{sub}</p> : null}
-          </div>
-        </header>
-        <div className={styles.body}>{children}</div>
-        {footer ? <div className={styles.footer}>{footer}</div> : null}
+    <dialog
+      ref={dialogRef}
+      className={`modal ${open ? 'modal-open' : ''}`}
+      onClose={onClose}
+      aria-labelledby={titleId}
+    >
+      <div className={`modal-box ${size === 'md' ? 'max-w-3xl' : 'max-w-md'}`}>
+        <h3 id={titleId} className="font-bold text-lg tracking-tight">
+          {title}
+        </h3>
+        {sub ? <p className={`text-sm mt-1 ${muted}`}>{sub}</p> : null}
+        <div className="mt-4 grid gap-3">{children}</div>
+        {footer ? <div className="modal-action flex-wrap">{footer}</div> : null}
       </div>
-    </div>
+      <form method="dialog" className="modal-backdrop bg-base-content/20">
+        <button type="submit">close</button>
+      </form>
+    </dialog>
   )
 }
