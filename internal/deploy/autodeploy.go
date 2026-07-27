@@ -29,7 +29,6 @@ var ErrUnauthorized = errors.New("unauthorized")
 
 var (
 	autoDeployOnce sync.Once
-	redeployGate   sync.Mutex
 )
 
 func (m *Manager) deployTokenPath() string {
@@ -213,19 +212,14 @@ func (m *Manager) shouldPollService(svc Service) bool {
 	if strings.TrimSpace(svc.Repo) == "" || strings.TrimSpace(svc.Branch) == "" {
 		return false
 	}
+	// Allow queueing while another service builds; skip mid-build (queued still polls to coalesce new SHAs).
 	return svc.Status != "building"
 }
 
 func (m *Manager) triggerAutoRedeploy(group, slug, sha string) {
-	redeployGate.Lock()
-	defer redeployGate.Unlock()
-
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
 	defer cancel()
-	if _, err := m.Redeploy(ctx, group, slug); err != nil {
-		if strings.Contains(err.Error(), "already running") {
-			return
-		}
+	if _, err := m.redeployReason(ctx, group, slug, "auto"); err != nil {
 		m.logf("warn", "Auto-deploy %s/%s failed · %s", group, slug, err.Error())
 		return
 	}
@@ -322,13 +316,22 @@ func (m *Manager) RedeployFromHook(ctx context.Context, in HookRedeployRequest) 
 	}
 	out := make([]Service, 0, len(matches))
 	for _, svc := range matches {
-		s, err := m.Redeploy(ctx, svc.Group, svc.Slug)
+		s, err := m.runGoDeployReason(ctx, mustPlanRedeploy(m, svc), "webhook")
 		if err != nil {
 			return out, err
 		}
 		out = append(out, s)
 	}
 	return out, nil
+}
+
+func mustPlanRedeploy(m *Manager, svc Service) goDeployPlan {
+	plan, err := m.planGoDeploy(svc.Group, redeployGoRequest(svc), svc.Slug)
+	if err != nil {
+		return goDeployPlan{Group: svc.Group, Slug: svc.Slug, Name: svc.Name, Request: redeployGoRequest(svc), Reuse: true}
+	}
+	plan.Reuse = true
+	return plan
 }
 
 func (m *Manager) servicesForRepo(repo, branch string) []Service {

@@ -84,7 +84,7 @@ func (m *Manager) cancelJobForScope(ctx context.Context, group, slug string) boo
 		return false
 	}
 	want := serviceKey(group, slug)
-	if scope != want && scope != group {
+	if scope != want && scope != strings.TrimSpace(group) {
 		return false
 	}
 	if cancel != nil {
@@ -111,28 +111,42 @@ func (m *Manager) waitJobIdle(timeout time.Duration) error {
 	return fmt.Errorf("timed out waiting for active build to stop")
 }
 
+// waitJobIdleForScope returns when this service (or group-level job) no longer holds the slot.
+// Sibling jobs do not block — avoids stealing another deploy after queue handoff.
+func (m *Manager) waitJobIdleForScope(group, slug string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !m.jobBusyScoped(group, slug) {
+			return nil
+		}
+		time.Sleep(80 * time.Millisecond)
+	}
+	return fmt.Errorf("timed out waiting for %s to stop", serviceKey(group, slug))
+}
+
 // forceClearJob releases a stuck job slot after cancel (idempotent with releaseJob).
 func (m *Manager) forceClearJob(msg string) {
 	if m == nil {
 		return
 	}
 	m.jobMu.Lock()
-	busy := m.jobBusy
-	cancel := m.jobCancel
-	m.jobBusy = false
-	m.jobScope = ""
-	m.jobStartedAt = time.Time{}
-	m.jobCancel = nil
+	if !m.jobBusy {
+		m.jobMu.Unlock()
+		return
+	}
+	cancel := m.clearJobSlotLocked()
+	next, hasNext := m.popNextDeployLocked()
 	m.jobMu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
-	if busy {
-		m.endJob(false, msg)
+	m.endJob(false, msg)
+	if hasNext {
+		m.startQueuedDeploy(next)
 	}
 }
 
-// stopBuildForDelete cancels an in-flight deploy for this service and waits for the job slot.
+// stopBuildForDelete cancels an in-flight deploy for this service and waits for its slot only.
 func (m *Manager) stopBuildForDelete(ctx context.Context, group, slug string) {
 	if !m.jobBusyScoped(group, slug) {
 		// Still sweep containers in case a prior build left orphans.
@@ -142,7 +156,10 @@ func (m *Manager) stopBuildForDelete(ctx context.Context, group, slug string) {
 		return
 	}
 	_ = m.cancelJobForScope(ctx, group, slug)
-	if err := m.waitJobIdle(90 * time.Second); err != nil {
-		m.forceClearJob("Build force-stopped for delete")
+	if err := m.waitJobIdleForScope(group, slug, 90*time.Second); err != nil {
+		// Only steal the slot if it is still ours — never force-clear a sibling deploy.
+		if m.jobBusyScoped(group, slug) {
+			m.forceClearJob("Build force-stopped for delete")
+		}
 	}
 }

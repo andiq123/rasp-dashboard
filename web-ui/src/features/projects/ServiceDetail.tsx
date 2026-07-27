@@ -31,13 +31,18 @@ import { Button } from '@/components/ui/Button/Button'
 import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { Empty } from '@/components/ui/Empty/Empty'
 import { Field, Input, Select, TextArea } from '@/components/ui/Field/Field'
+import { RepoRootPicker } from '@/components/RepoRootPicker/RepoRootPicker'
+import { ResourceBudget } from '@/components/ui/ResourceBudget/ResourceBudget'
+import { clampCpu, clampMem, ResourceSlider } from '@/components/ui/ResourceSlider/ResourceSlider'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { activityMatchesService, useActivity } from '@/hooks/useActivity'
+import { useLiveState } from '@/hooks/useLiveState'
 import { actionDoneLabel } from '@/lib/actions'
 import { fmtRelative } from '@/lib/format'
+import { hostCapacity, reservedFromServices, RESOURCE } from '@/lib/resources'
 import { codeSurface, iconWell, muted, surface, tile } from '@/lib/ui'
-import { isBuilding, serviceTypeIcon, statusLabel } from './serviceStatus'
+import { isBuilding, isQueued, phaseLabel, serviceTypeIcon, statusLabel } from './serviceStatus'
 
 type Tab = 'config' | 'variables' | 'console' | 'deploys'
 
@@ -95,8 +100,8 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
 
   const act = useMutation({
     mutationFn: (action: string) => serviceAction(group, slug, action),
-    onSuccess: async (_, action) => {
-      showToast(actionDoneLabel(action), action === 'redeploy' ? 'info' : 'success')
+    onSuccess: async (svcRes, action) => {
+      showToast(actionDoneLabel(action, svcRes?.status), action === 'redeploy' ? 'info' : 'success')
       await invalidate()
       if (action === 'redeploy') setTab('console')
     },
@@ -154,13 +159,15 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
   const st = statusLabel(svc)
   const TypeIcon = serviceTypeIcon(svc.type)
   const publicUrl = svc.public_url || svc.url || ''
+  const queued = isQueued(svc)
   const busy = building || deployingHere
+  const queuePos = (activity.queue || []).find((q) => q.group === group && q.slug === slug)?.position
 
   return (
     <div className={`card ${surface} overflow-hidden section-enter`}>
       <header className="flex flex-wrap items-start justify-between gap-3 px-3 sm:px-4 py-3 border-b border-base-300">
         <div className="min-w-0 flex gap-3">
-          <div className={iconWell(svc.running || busy ? 'success' : 'primary')}>
+          <div className={iconWell(busy ? 'success' : queued ? 'warning' : svc.running ? 'success' : 'primary')}>
             {busy ? (
               <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
             ) : (
@@ -170,9 +177,15 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
           <div className="min-w-0 grid gap-0.5">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-base font-bold m-0 tracking-tight truncate">{svc.name || svc.slug}</h3>
-              <span className={`badge badge-sm ${busy ? 'badge-info' : st.badge}`}>
+              <span
+                className={`badge badge-sm ${busy ? 'badge-info' : queued ? 'badge-warning' : st.badge}`}
+              >
                 {busy ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : null}
-                {deployingHere && activity.progress?.label ? activity.progress.label : st.text}
+                {deployingHere && activity.progress?.label
+                  ? activity.progress.label
+                  : queued && queuePos
+                    ? `Queued #${queuePos}`
+                    : st.text}
               </span>
             </div>
             <p className={`text-[11px] font-mono m-0 truncate ${muted}`}>
@@ -197,7 +210,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
         </div>
 
         <div className="flex flex-wrap items-center gap-1">
-          {svc.type === 'go' && !building ? (
+          {svc.type === 'go' && !building && !queued ? (
             <>
               <Button
                 variant="primary"
@@ -236,7 +249,13 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
       {deployingHere && activity.progress ? (
         <DeployProgress progress={activity.progress} title={activity.title} />
       ) : null}
-      {svc.last_error && !deployingHere ? (
+      {queued && !deployingHere ? (
+        <p className="text-warning text-xs m-0 px-4 py-2 border-b border-base-300 bg-warning/5 queue-enter" role="status">
+          Queued{queuePos ? ` #${queuePos}` : ''} — waiting for the active deploy to finish. One build runs at a
+          time.
+        </p>
+      ) : null}
+      {svc.last_error && !deployingHere && !queued ? (
         <p className="text-error text-xs m-0 px-4 py-2 border-b border-base-300 bg-error/5">{svc.last_error}</p>
       ) : null}
 
@@ -292,10 +311,14 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
 
 function DeployProgress({ progress, title }: { progress: Progress; title?: string }) {
   const steps = progress.steps || []
+  const phase = phaseLabel(progress.phase)
   return (
-    <div className="px-3 sm:px-4 py-2.5 border-b border-base-300 bg-info/5 grid gap-1.5">
+    <div className="px-3 sm:px-4 py-2.5 border-b border-base-300 bg-info/5 grid gap-1.5 queue-enter">
       <div className="flex items-center justify-between gap-2">
-        <strong className="text-xs">{title || progress.label || 'Deploying'}</strong>
+        <div className="flex items-center gap-2 min-w-0">
+          <strong className="text-xs truncate">{title || progress.label || 'Deploying'}</strong>
+          {phase ? <span className="badge badge-info badge-sm">{phase}</span> : null}
+        </div>
         <span className={`text-[11px] font-mono ${muted}`}>{progress.percent}%</span>
       </div>
       <progress className="progress progress-primary w-full h-1.5" value={progress.percent} max={100} />
@@ -305,7 +328,7 @@ function DeployProgress({ progress, title }: { progress: Progress; title?: strin
           {steps.map((s) => (
             <li
               key={s.id}
-              className={`badge badge-sm gap-1 ${
+              className={`badge badge-sm gap-1 transition-colors duration-300 ${
                 s.status === 'done'
                   ? 'badge-success'
                   : s.status === 'active'
@@ -337,14 +360,15 @@ function ConfigTab({
   onSaved: () => Promise<void>
 }) {
   const { showToast } = useToast()
+  const { state } = useLiveState()
   const dbs = siblings.filter((s) => s.type === 'postgres')
   const buckets = siblings.filter((s) => s.type === 'bucket')
   const [name, setName] = useState(svc.name || '')
   const [branch, setBranch] = useState(svc.branch || '')
   const [root, setRoot] = useState(svc.root_dir || '')
   const [buildCmd, setBuildCmd] = useState(svc.build_cmd || '')
-  const [memory, setMemory] = useState(String(svc.memory_mb || 512))
-  const [cpus, setCpus] = useState(String(svc.cpus || 1))
+  const [memory, setMemory] = useState(svc.memory_mb || 512)
+  const [cpus, setCpus] = useState(svc.cpus || 1)
   const [db, setDb] = useState(svc.linked_database || '')
   const [bucket, setBucket] = useState(svc.linked_bucket || '')
   const [autoDeploy, setAutoDeploy] = useState(!!svc.auto_deploy)
@@ -354,12 +378,20 @@ function ConfigTab({
     setBranch(svc.branch || '')
     setRoot(svc.root_dir || '')
     setBuildCmd(svc.build_cmd || '')
-    setMemory(String(svc.memory_mb || 512))
-    setCpus(String(svc.cpus || 1))
+    setMemory(svc.memory_mb || 512)
+    setCpus(svc.cpus || 1)
     setDb(svc.linked_database || '')
     setBucket(svc.linked_bucket || '')
     setAutoDeploy(!!svc.auto_deploy)
   }, [svc])
+
+  const mem = clampMem(memory)
+  const cpu = clampCpu(cpus)
+  const host = hostCapacity(state.device_metrics)
+  const reserved = reservedFromServices(siblings, {
+    excludeSlug: svc.slug,
+    draft: svc.type === 'go' ? { memory_mb: mem, cpus: cpu } : undefined,
+  })
 
   const save = useMutation({
     mutationFn: () =>
@@ -375,8 +407,8 @@ function ConfigTab({
               auto_deploy: autoDeploy,
             }
           : {}),
-        memory_mb: Number(memory) || 512,
-        cpus: Number(cpus) || 1,
+        memory_mb: mem,
+        cpus: cpu,
       }),
     onSuccess: async () => {
       showToast('Config saved')
@@ -394,11 +426,15 @@ function ConfigTab({
       }}
     >
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Name" htmlFor="svc-name">
+        <Field label="Name" tip="Display name in the board (slug stays the same)." htmlFor="svc-name">
           <Input id="svc-name" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         {svc.type === 'go' ? (
-          <Field label="Branch" htmlFor="svc-branch">
+          <Field
+            label="Branch"
+            tip="Git branch to clone on the next redeploy."
+            htmlFor="svc-branch"
+          >
             <Input id="svc-branch" value={branch} onChange={(e) => setBranch(e.target.value)} />
           </Field>
         ) : null}
@@ -406,10 +442,31 @@ function ConfigTab({
 
       {svc.type === 'go' ? (
         <>
-          <Field label="Root" tip="Monorepo folder with go.mod" htmlFor="svc-root">
-            <Input id="svc-root" value={root} onChange={(e) => setRoot(e.target.value)} placeholder="(repo root)" />
+          <Field
+            label="Root"
+            tip="Folder that contains go.mod. Browse the repo or pick a detected module."
+          >
+            {svc.repo && branch ? (
+              <RepoRootPicker
+                repo={svc.repo}
+                branch={branch.trim() || 'main'}
+                value={root}
+                onChange={setRoot}
+              />
+            ) : (
+              <Input
+                id="svc-root"
+                value={root}
+                onChange={(e) => setRoot(e.target.value)}
+                placeholder="(repo root)"
+              />
+            )}
           </Field>
-          <Field label="Build command" tip="Optional override" htmlFor="svc-build">
+          <Field
+            label="Build command"
+            tip="Leave blank to use the default Go build. Override for custom scripts."
+            htmlFor="svc-build"
+          >
             <Input id="svc-build" value={buildCmd} onChange={(e) => setBuildCmd(e.target.value)} />
           </Field>
           <label className="label cursor-pointer justify-start gap-2 px-0 py-0">
@@ -428,7 +485,10 @@ function ConfigTab({
               Linking injects env values into this service (saved on apply).
             </p>
             <div className="grid gap-2 sm:grid-cols-2">
-              <Field label="Database">
+              <Field
+                label="Database"
+                tip={db ? `Injects ${LINKED_DB_KEYS.slice(0, 5).join(', ')}…` : 'Optional Postgres in this group.'}
+              >
                 <Select value={db} onChange={(e) => setDb(e.target.value)}>
                   <option value="">No database</option>
                   {dbs.map((d) => (
@@ -438,7 +498,10 @@ function ConfigTab({
                   ))}
                 </Select>
               </Field>
-              <Field label="Bucket">
+              <Field
+                label="Bucket"
+                tip={bucket ? `Injects ${LINKED_BUCKET_KEYS.join(', ')}` : 'Optional object storage in this group.'}
+              >
                 <Select value={bucket} onChange={(e) => setBucket(e.target.value)}>
                   <option value="">No bucket</option>
                   {buckets.map((d) => (
@@ -449,27 +512,69 @@ function ConfigTab({
                 </Select>
               </Field>
             </div>
-            {db ? (
-              <p className={`text-[11px] m-0 ${muted}`}>DB injects: {LINKED_DB_KEYS.slice(0, 5).join(', ')}…</p>
-            ) : null}
-            {bucket ? (
-              <p className={`text-[11px] m-0 ${muted}`}>Bucket injects: {LINKED_BUCKET_KEYS.join(', ')}</p>
-            ) : null}
           </div>
         </>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Memory (MB)" htmlFor="svc-mem">
-          <Input id="svc-mem" type="number" min={64} value={memory} onChange={(e) => setMemory(e.target.value)} />
-        </Field>
-        <Field label="CPUs" htmlFor="svc-cpu">
-          <Input id="svc-cpu" type="number" min={0.1} step={0.1} value={cpus} onChange={(e) => setCpus(e.target.value)} />
-        </Field>
-      </div>
+      {svc.type === 'go' ? (
+        <div className="grid gap-3">
+          <ResourceBudget
+            host={host}
+            reserved={reserved}
+            draftLabel="including this service"
+          />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ResourceSlider
+              id="svc-mem"
+              label="Memory"
+              unit="MB"
+              min={RESOURCE.memMin}
+              max={RESOURCE.memMax}
+              step={64}
+              value={mem}
+              onChange={setMemory}
+              meta={`${mem}MB`}
+              tip="Docker memory limit for this container (64–3072MB)."
+            />
+            <ResourceSlider
+              id="svc-cpu"
+              label="CPUs"
+              min={RESOURCE.cpuMin}
+              max={RESOURCE.cpuMax}
+              step={RESOURCE.cpuStep}
+              value={cpu}
+              onChange={setCpus}
+              meta={`${cpu} cores`}
+              tip="Docker CPU share for this container (0.1–4)."
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Memory (MB)" tip="Not applied to shared Postgres/bucket engines." htmlFor="svc-mem">
+            <Input
+              id="svc-mem"
+              type="number"
+              min={64}
+              value={mem}
+              onChange={(e) => setMemory(Number(e.target.value))}
+            />
+          </Field>
+          <Field label="CPUs" tip="Not applied to shared Postgres/bucket engines." htmlFor="svc-cpu">
+            <Input
+              id="svc-cpu"
+              type="number"
+              min={0.1}
+              step={0.1}
+              value={cpu}
+              onChange={(e) => setCpus(Number(e.target.value))}
+            />
+          </Field>
+        </div>
+      )}
 
       {svc.connection_url ? (
-        <Field label="Connection">
+        <Field label="Connection" tip="Ready-to-use URL for apps in this group.">
           <pre className={`${codeSurface} select-all`}>{svc.connection_url}</pre>
         </Field>
       ) : null}
@@ -517,16 +622,21 @@ function VariablesTab({ group, slug, svc }: { group: string; slug: string; svc: 
 
   return (
     <div className="grid gap-2.5 max-w-2xl">
-      <p className={`text-xs m-0 ${muted}`}>
-        One <code className="font-mono">KEY=value</code> per line.
-        {linkedHint ? ` Linked values are managed automatically (${linkedHint}).` : ''}
-      </p>
-      <TextArea
-        className="min-h-56 font-mono text-xs"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        spellCheck={false}
-      />
+      <Field
+        label="Environment"
+        tip={
+          linkedHint
+            ? `One KEY=value per line. Linked values are managed automatically (${linkedHint}).`
+            : 'One KEY=value per line. Secrets stay on this Pi.'
+        }
+      >
+        <TextArea
+          className="min-h-56 font-mono text-xs"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          spellCheck={false}
+        />
+      </Field>
       <Button variant="primary" loading={save.isPending} onClick={() => save.mutate()}>
         Save variables
       </Button>
@@ -594,7 +704,11 @@ function ConsoleTab({
     <div className="grid gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className={`text-xs m-0 ${muted}`}>
-          {deploying ? 'Live deploy + runtime logs' : running ? 'Live container logs' : 'Latest container logs'}
+          {deploying
+            ? 'Live deploy output + container logs for this service'
+            : running
+              ? 'Tailing container logs for this service'
+              : 'Latest container logs (start the service for a live tail)'}
           {logsQ.isFetching ? ' · updating' : ''}
         </p>
         <Button
@@ -628,7 +742,7 @@ function ConsoleTab({
       ) : (
         <pre
           ref={preRef}
-          className={`${codeSurface} min-h-[280px] max-h-[min(60vh,520px)]`}
+          className={`${codeSurface} min-h-[280px] max-h-[min(60vh,520px)] ${deploying ? 'console-live' : ''}`}
           onScroll={(e) => {
             const el = e.currentTarget
             stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48

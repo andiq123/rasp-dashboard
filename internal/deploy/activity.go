@@ -22,16 +22,17 @@ type ActivityLine struct {
 
 // ActivitySnapshot is the public activity state for API/SSE.
 type ActivitySnapshot struct {
-	Seq       int            `json:"seq"`
-	Active    bool           `json:"active"`
-	Title     string         `json:"title,omitempty"`
+	Seq          int            `json:"seq"`
+	Active       bool           `json:"active"`
+	Title        string         `json:"title,omitempty"`
 	Scope        string         `json:"scope,omitempty"`
 	DeploymentID string         `json:"deployment_id,omitempty"`
 	StartedAt    string         `json:"started_at,omitempty"`
-	EndedAt   string         `json:"ended_at,omitempty"`
-	OK        *bool          `json:"ok,omitempty"`
-	Progress  *Progress      `json:"progress,omitempty"`
-	Lines     []ActivityLine `json:"lines"`
+	EndedAt      string         `json:"ended_at,omitempty"`
+	OK           *bool          `json:"ok,omitempty"`
+	Progress     *Progress      `json:"progress,omitempty"`
+	Queue        []QueueItem    `json:"queue,omitempty"`
+	Lines        []ActivityLine `json:"lines"`
 }
 
 // ActivityHub keeps a ring buffer of deploy/ops logs and fans out to SSE subscribers.
@@ -46,6 +47,7 @@ type ActivityHub struct {
 	ended        string
 	ok           *bool
 	progress     *Progress
+	queue        []QueueItem
 	lines        []ActivityLine
 	subs         map[chan ActivitySnapshot]struct{}
 	// persist writes a line to durable deploy logs (set by Manager).
@@ -363,8 +365,10 @@ func (h *ActivityHub) recomputeProgressLocked() {
 		p.Index = activeIdx + 1
 		p.Current = p.Steps[activeIdx].ID
 		p.Label = p.Steps[activeIdx].Label
+		p.Phase = PhaseForStep(p.Steps[activeIdx].ID)
 		p.Remaining = formatRemaining(pending)
 	} else {
+		p.Phase = ""
 		// All done or not started.
 		doneCount := 0
 		for _, s := range p.Steps {
@@ -377,6 +381,7 @@ func (h *ActivityHub) recomputeProgressLocked() {
 			p.Percent = 100
 			p.Current = ""
 			p.Label = "Complete"
+			p.Phase = ""
 			p.Remaining = ""
 		} else if doneCount == 0 {
 			p.Index = 0
@@ -400,15 +405,18 @@ func (h *ActivityHub) snapshotLocked() ActivitySnapshot {
 	lines := make([]ActivityLine, 0, len(h.lines))
 	lines = append(lines, h.lines...)
 	out := ActivitySnapshot{
-		Seq:       h.seq,
-		Active:    h.active,
+		Seq:          h.seq,
+		Active:       h.active,
 		Title:        h.title,
 		Scope:        h.scope,
 		DeploymentID: h.deploymentID,
 		StartedAt:    h.started,
-		EndedAt:   h.ended,
-		OK:        h.ok,
-		Lines:     lines,
+		EndedAt:      h.ended,
+		OK:           h.ok,
+		Lines:        lines,
+	}
+	if len(h.queue) > 0 {
+		out.Queue = append([]QueueItem(nil), h.queue...)
 	}
 	if h.progress != nil {
 		cp := *h.progress
@@ -416,6 +424,18 @@ func (h *ActivityHub) snapshotLocked() ActivitySnapshot {
 		out.Progress = &cp
 	}
 	return out
+}
+
+// SetQueue replaces the waiting-deploy list and notifies subscribers.
+func (h *ActivityHub) SetQueue(items []QueueItem) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.queue = append([]QueueItem(nil), items...)
+	h.seq++
+	h.broadcastLocked()
+	h.mu.Unlock()
 }
 
 // Subscribe receives snapshots whenever activity changes. Call cancel to unsubscribe.

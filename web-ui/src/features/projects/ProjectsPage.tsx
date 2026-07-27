@@ -9,9 +9,6 @@ import {
   FolderGit2,
   Loader2,
   Plus,
-  Play,
-  CircleStop,
-  RotateCw,
   Trash2,
 } from 'lucide-react'
 import {
@@ -21,7 +18,6 @@ import {
   deleteGroup,
   deployGo,
   fetchBranches,
-  fetchDirs,
   fetchGitHubStatus,
   fetchGroups,
   fetchPorts,
@@ -34,19 +30,26 @@ import { queryKeys } from '@/api/queryKeys'
 import { LINKED_BUCKET_KEYS, LINKED_DB_KEYS } from '@/api/types'
 import { Button } from '@/components/ui/Button/Button'
 import { Choice } from '@/components/ui/Choice/Choice'
+import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { Empty } from '@/components/ui/Empty/Empty'
 import { Field, Input, Select, TextArea } from '@/components/ui/Field/Field'
 import { Modal } from '@/components/ui/Modal/Modal'
+import { RepoRootPicker } from '@/components/RepoRootPicker/RepoRootPicker'
+import { ResourceBudget } from '@/components/ui/ResourceBudget/ResourceBudget'
+import { clampCpu, clampMem, ResourceSlider } from '@/components/ui/ResourceSlider/ResourceSlider'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { useToast } from '@/components/ui/Toast/Toast'
-import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { actionDoneLabel } from '@/lib/actions'
 import { fmtBytes, slugify } from '@/lib/format'
-import { muted, surface, tile, iconWell } from '@/lib/ui'
+import { hostCapacity, reservedFromServices, RESOURCE } from '@/lib/resources'
+import { muted, surface, tile } from '@/lib/ui'
 import { usePendingAddGo } from './pendingAddGo'
+import { ServiceCard } from './ServiceCard'
 import { ServiceDetail } from './ServiceDetail'
-import { isBuilding, serviceTypeIcon, statusLabel } from './serviceStatus'
-import { activityMatchesGroup, activityMatchesService, useActivity } from '@/hooks/useActivity'
+import { DeployQueue } from './DeployQueue'
+import { isBuilding, isQueued, phaseLabel } from './serviceStatus'
+import { activityMatchesGroup, useActivity } from '@/hooks/useActivity'
+import { useLiveState } from '@/hooks/useLiveState'
 
 type WizardStep = 'type' | 'github' | 'group' | 'go' | 'postgres' | 'bucket' | null
 
@@ -62,6 +65,7 @@ export function ProjectsPage() {
   const qc = useQueryClient()
   const { setPending } = usePendingAddGo()
   const { activity, live } = useActivity()
+  const { state } = useLiveState()
 
   const [wizard, setWizard] = useState<WizardStep>(null)
   const [groupName, setGroupName] = useState('')
@@ -97,8 +101,9 @@ export function ProjectsPage() {
   const services = servicesQ.data || []
   const selected = services.find((s) => s.slug === serviceSlug)
   const buildingN = services.filter(isBuilding).length
+  const queuedN = services.filter(isQueued).length
   const liveDeploying = activity.active && activityMatchesGroup(activity, groupSlug)
-  const deployingN = Math.max(buildingN, liveDeploying ? 1 : 0)
+  const deployingN = Math.max(buildingN + queuedN, liveDeploying ? 1 : 0, (activity.queue || []).length)
 
   useEffect(() => {
     if (group) setDraftName(group.name || group.slug)
@@ -123,11 +128,6 @@ export function ProjectsPage() {
     queryFn: () => fetchBranches(goForm.repo),
     enabled: wizard === 'go' && !!goForm.repo,
   })
-  const dirsQ = useQuery({
-    queryKey: queryKeys.githubDirs(goForm.repo, goForm.branch),
-    queryFn: () => fetchDirs(goForm.repo, goForm.branch),
-    enabled: wizard === 'go' && !!goForm.repo && !!goForm.branch,
-  })
   const portsQ = useQuery({
     queryKey: queryKeys.ports,
     queryFn: fetchPorts,
@@ -139,12 +139,6 @@ export function ProjectsPage() {
     const def = branchesQ.data.find((b) => b.default) || branchesQ.data[0]
     if (def && !goForm.branch) setGoForm((f) => ({ ...f, branch: def.name }))
   }, [goForm.repo, goForm.branch, branchesQ.data])
-
-  useEffect(() => {
-    if (dirsQ.data?.suggested_root && !goForm.root_dir) {
-      setGoForm((f) => ({ ...f, root_dir: dirsQ.data!.suggested_root || '' }))
-    }
-  }, [dirsQ.data, goForm.root_dir])
 
   const createGroupMut = useMutation({
     mutationFn: () => createGroup(groupName.trim()),
@@ -195,8 +189,8 @@ export function ProjectsPage() {
         env: goForm.env,
       })
     },
-    onSuccess: async () => {
-      showToast('Deploy started', 'info')
+    onSuccess: async (svc) => {
+      showToast(svc.status === 'queued' ? 'Queued — waiting for build slot' : 'Deploy started', 'info')
       setWizard(null)
       await qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) })
     },
@@ -228,8 +222,11 @@ export function ProjectsPage() {
   const svcAct = useMutation({
     mutationFn: ({ slug, action }: { slug: string; action: string }) =>
       serviceAction(groupSlug, slug, action),
-    onSuccess: async (_, v) => {
-      showToast(actionDoneLabel(v.action), v.action === 'redeploy' ? 'info' : 'success')
+    onSuccess: async (svc, v) => {
+      showToast(
+        actionDoneLabel(v.action, svc?.status),
+        v.action === 'redeploy' ? 'info' : 'success',
+      )
       await qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) })
     },
     onError: (e: Error) => showToast(e.message, 'error'),
@@ -394,8 +391,10 @@ export function ProjectsPage() {
                       {deployingN ? (
                         <span className="badge badge-info badge-sm gap-1" role="status">
                           <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-                          {activity.progress?.label || 'Deploying'}
-                          {buildingN > 1 ? ` · ${buildingN}` : ''}
+                          {phaseLabel(activity.progress?.phase) ||
+                            activity.progress?.label ||
+                            'Deploying'}
+                          {queuedN ? ` · ${queuedN} queued` : buildingN > 1 ? ` · ${buildingN}` : ''}
                         </span>
                       ) : null}
                     </div>
@@ -419,6 +418,9 @@ export function ProjectsPage() {
                   </div>
                 </header>
 
+                <div className="grid gap-3">
+                  <DeployQueue activity={activity} group={groupSlug} />
+
                 {servicesQ.isLoading ? (
                   <Spinner compact label="Loading services…" />
                 ) : servicesQ.isError ? (
@@ -439,89 +441,17 @@ export function ProjectsPage() {
                   />
                 ) : (
                   <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2">
-                    {services.map((svc) => {
-                      const st = statusLabel(svc)
-                      const building = isBuilding(svc)
-                      const liveHere =
-                        activityMatchesService(activity, groupSlug, svc.slug) && activity.active
-                      const busy = building || liveHere
-                      const TypeIcon = serviceTypeIcon(svc.type)
-                      const actPending =
-                        svcAct.isPending && svcAct.variables?.slug === svc.slug
-                      const open = () =>
-                        navigate(`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`)
-                      return (
-                        <article
-                          key={svc.slug}
-                          className={[
-                            `card ${surface} transition-[border-color,box-shadow,transform] duration-300 hover:border-primary/40 motion-safe:hover:-translate-y-0.5`,
-                            busy ? 'border-info/40' : '',
-                            svc.slug === serviceSlug ? 'border-primary ring-2 ring-primary/15' : '',
-                          ].join(' ')}
-                        >
-                          <div className="card-body gap-2 p-2.5">
-                            <button
-                              type="button"
-                              className="flex gap-2 items-start text-left w-full min-w-0 rounded-box focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                              onClick={open}
-                            >
-                              <div className={iconWell(svc.running || busy ? 'success' : 'primary', 'sm')}>
-                                {busy ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                                ) : (
-                                  <TypeIcon className="h-4 w-4" aria-hidden />
-                                )}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex justify-between gap-2 items-start">
-                                  <strong className="text-sm truncate">{svc.name || svc.slug}</strong>
-                                  <span className={`badge badge-sm shrink-0 ${busy ? 'badge-info' : st.badge}`}>
-                                    {busy ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : null}
-                                    {liveHere && activity.progress?.label ? activity.progress.label : st.text}
-                                  </span>
-                                </div>
-                                <div className={`text-xs mt-0.5 truncate ${muted}`}>
-                                  <span className="font-mono">{svc.type}</span>
-                                  {svc.port ? ` · :${svc.port}` : ''}
-                                  {svc.repo ? ` · ${svc.repo.split('/').pop()}` : ''}
-                                </div>
-                              </div>
-                            </button>
-                            {svc.type === 'go' && !busy ? (
-                              <div className="flex flex-wrap gap-1">
-                                {svc.running ? (
-                                  <Button
-                                    variant="quiet"
-                                    icon={<CircleStop className="h-3.5 w-3.5" aria-hidden />}
-                                    loading={actPending}
-                                    aria-label={`Stop ${svc.slug}`}
-                                    title="Stop"
-                                    onClick={() => void onServiceAction(svc.slug, 'stop')}
-                                  />
-                                ) : (
-                                  <Button
-                                    variant="primary"
-                                    icon={<Play className="h-3.5 w-3.5" aria-hidden />}
-                                    loading={actPending}
-                                    aria-label={`Start ${svc.slug}`}
-                                    title="Start"
-                                    onClick={() => void onServiceAction(svc.slug, 'start')}
-                                  />
-                                )}
-                                <Button
-                                  variant="quiet"
-                                  icon={<RotateCw className="h-3.5 w-3.5" aria-hidden />}
-                                  loading={actPending}
-                                  aria-label={`Redeploy ${svc.slug}`}
-                                  title="Redeploy"
-                                  onClick={() => void onServiceAction(svc.slug, 'redeploy')}
-                                />
-                              </div>
-                            ) : null}
-                          </div>
-                        </article>
-                      )
-                    })}
+                    {services.map((svc) => (
+                      <ServiceCard
+                        key={svc.slug}
+                        group={groupSlug}
+                        svc={svc}
+                        selected={svc.slug === serviceSlug}
+                        activity={activity}
+                        actPending={svcAct.isPending && svcAct.variables?.slug === svc.slug}
+                        onAction={(slug, action) => void onServiceAction(slug, action)}
+                      />
+                    ))}
                   </div>
                 )}
 
@@ -534,6 +464,7 @@ export function ProjectsPage() {
                     onDeleted={() => navigate(`/projects/${encodeURIComponent(groupSlug)}`)}
                   />
                 ) : null}
+                </div>
               </>
             )}
           </div>
@@ -669,7 +600,11 @@ export function ProjectsPage() {
           </>
         }
       >
-        <Field label="Repository" meta={reposQ.data ? `${reposQ.data.length} available` : 'Loading…'}>
+        <Field
+          label="Repository"
+          meta={reposQ.data ? `${reposQ.data.length} available` : 'Loading…'}
+          tip="Private repos need the GitHub token from Settings."
+        >
           <Select
             value={goForm.repo}
             onChange={(e) => setGoForm((f) => ({ ...f, repo: e.target.value, branch: '', root_dir: '' }))}
@@ -682,7 +617,7 @@ export function ProjectsPage() {
             ))}
           </Select>
         </Field>
-        <Field label="Branch">
+        <Field label="Branch" tip="Deploy clones this branch on every build.">
           <Select
             value={goForm.branch}
             disabled={!goForm.repo || branchesQ.isLoading}
@@ -697,28 +632,27 @@ export function ProjectsPage() {
             ))}
           </Select>
         </Field>
-        <Field label="Root" tip="Monorepo folder with go.mod">
-          <Select
+        <Field
+          label="Root"
+          tip="Browse folders or pick a detected go.mod. Leave at repo root when go.mod is at the top."
+        >
+          <RepoRootPicker
+            repo={goForm.repo}
+            branch={goForm.branch}
             value={goForm.root_dir}
-            disabled={!goForm.repo || dirsQ.isLoading}
-            onChange={(e) => setGoForm((f) => ({ ...f, root_dir: e.target.value }))}
-          >
-            <option value="">Repository root</option>
-            {(dirsQ.data?.go_modules || []).map((m) => (
-              <option key={m.path} value={m.path}>
-                {m.path}
-              </option>
-            ))}
-            {(dirsQ.data?.dirs || [])
-              .filter((d) => !(dirsQ.data?.go_modules || []).some((m) => m.path === d.path))
-              .map((d) => (
-                <option key={d.path} value={d.path}>
-                  {d.path}
-                </option>
-              ))}
-          </Select>
+            onChange={(root_dir) => setGoForm((f) => ({ ...f, root_dir }))}
+            disabled={!goForm.repo || !goForm.branch}
+          />
         </Field>
-        <Field label="Database" meta="link" tip={goForm.linked_database ? `Injects ${LINKED_DB_KEYS.slice(0, 5).join(', ')}…` : undefined}>
+        <Field
+          label="Database"
+          meta="link"
+          tip={
+            goForm.linked_database
+              ? `Injects ${LINKED_DB_KEYS.slice(0, 5).join(', ')}…`
+              : 'Optional Postgres already in this group.'
+          }
+        >
           <Select
             value={goForm.linked_database}
             onChange={(e) => setGoForm((f) => ({ ...f, linked_database: e.target.value }))}
@@ -731,7 +665,15 @@ export function ProjectsPage() {
             ))}
           </Select>
         </Field>
-        <Field label="Bucket" meta="link" tip={goForm.linked_bucket ? `Injects ${LINKED_BUCKET_KEYS.join(', ')}` : undefined}>
+        <Field
+          label="Bucket"
+          meta="link"
+          tip={
+            goForm.linked_bucket
+              ? `Injects ${LINKED_BUCKET_KEYS.join(', ')}`
+              : 'Optional object storage already in this group.'
+          }
+        >
           <Select
             value={goForm.linked_bucket}
             onChange={(e) => setGoForm((f) => ({ ...f, linked_bucket: e.target.value }))}
@@ -744,13 +686,54 @@ export function ProjectsPage() {
             ))}
           </Select>
         </Field>
-        <Field label="Port" meta={portsQ.data?.free != null ? `${portsQ.data.free} free` : 'auto'}>
+        <Field
+          label="Port"
+          meta={portsQ.data?.free != null ? `${portsQ.data.free} free` : 'auto'}
+          tip="Assigned automatically from the free pool on this Pi."
+        >
           <div className={`flex items-baseline gap-2 h-[34px] px-2.5 ${tile}`}>
             <strong>{portsQ.data?.next ?? '…'}</strong>
             <span className={`text-sm ${muted}`}>assigned on deploy</span>
           </div>
         </Field>
-        <Field label="Environment" meta="optional KEY=value">
+
+        <ResourceBudget
+          host={hostCapacity(state.device_metrics)}
+          reserved={reservedFromServices(services, {
+            draft: {
+              memory_mb: clampMem(goForm.memory_mb),
+              cpus: clampCpu(goForm.cpus),
+            },
+          })}
+          draftLabel="including new app"
+        />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ResourceSlider
+            id="go-mem"
+            label="Memory"
+            unit="MB"
+            min={RESOURCE.memMin}
+            max={RESOURCE.memMax}
+            step={64}
+            value={clampMem(goForm.memory_mb)}
+            onChange={(memory_mb) => setGoForm((f) => ({ ...f, memory_mb }))}
+            meta={`${clampMem(goForm.memory_mb)}MB`}
+            tip="Docker memory limit for this app."
+          />
+          <ResourceSlider
+            id="go-cpu"
+            label="CPUs"
+            min={RESOURCE.cpuMin}
+            max={RESOURCE.cpuMax}
+            step={RESOURCE.cpuStep}
+            value={clampCpu(goForm.cpus)}
+            onChange={(cpus) => setGoForm((f) => ({ ...f, cpus }))}
+            meta={`${clampCpu(goForm.cpus)} cores`}
+            tip="Docker CPU share for this app."
+          />
+        </div>
+
+        <Field label="Environment" meta="optional" tip="One KEY=value per line. Linked DB/bucket keys are added later.">
           <TextArea
             value={goForm.env}
             onChange={(e) => setGoForm((f) => ({ ...f, env: e.target.value }))}

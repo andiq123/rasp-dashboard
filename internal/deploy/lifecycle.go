@@ -21,7 +21,8 @@ import (
 //   - Deploy with an existing slug is Redeploy (never "already exists").
 //   - markBuilding never blocks prepare (always replace-allowed).
 //   - Empty stubs are removed on abort; reusable clones are kept.
-//   - Status "building" only while jobBusyScoped matches the service.
+//   - Status "building" only while jobBusyScoped matches the service (exact scope).
+//   - Status "queued" is preserved while the service sits in the deploy queue.
 
 // goDeployPlan is the resolved intent before any disk or Docker work.
 type goDeployPlan struct {
@@ -59,6 +60,10 @@ func (m *Manager) CreateGo(ctx context.Context, group string, in CreateGoRequest
 
 // Redeploy rebuilds an existing Go service, reusing clone + module cache.
 func (m *Manager) Redeploy(ctx context.Context, group, slug string) (Service, error) {
+	return m.redeployReason(ctx, group, slug, "redeploy")
+}
+
+func (m *Manager) redeployReason(ctx context.Context, group, slug, reason string) (Service, error) {
 	if err := requireSlug(group, "group"); err != nil {
 		return Service{}, err
 	}
@@ -84,7 +89,7 @@ func (m *Manager) Redeploy(ctx context.Context, group, slug string) (Service, er
 		return Service{}, err
 	}
 	plan.Reuse = true
-	return m.runGoDeploy(ctx, plan)
+	return m.runGoDeployReason(ctx, plan, reason)
 }
 
 func redeployGoRequest(svc Service) CreateGoRequest {
@@ -140,12 +145,25 @@ func (m *Manager) planGoDeploy(group string, in CreateGoRequest, forceSlug strin
 	}, nil
 }
 
-// runGoDeploy is the single Deploy/Redeploy pipeline.
+// runGoDeploy is the single Deploy/Redeploy entry — runs now or queues behind the active job.
 func (m *Manager) runGoDeploy(ctx context.Context, plan goDeployPlan) (Service, error) {
-	if err := m.acquireJob(plan.title(), plan.scope()); err != nil {
+	return m.runGoDeployReason(ctx, plan, "deploy")
+}
+
+func (m *Manager) runGoDeployReason(ctx context.Context, plan goDeployPlan, reason string) (Service, error) {
+	started, queued, err := m.reserveOrEnqueue(plan, reason)
+	if err != nil {
 		return Service{}, err
 	}
+	if !started {
+		m.attachDeployments(&queued)
+		return queued, nil
+	}
+	return m.executeGoDeploy(ctx, plan)
+}
 
+// executeGoDeploy runs prepare + async build. Caller must already hold the job slot.
+func (m *Manager) executeGoDeploy(ctx context.Context, plan goDeployPlan) (Service, error) {
 	if plan.Reuse {
 		m.logf("info", "Reusing %s — clone & module cache kept when present", plan.scope())
 	} else {

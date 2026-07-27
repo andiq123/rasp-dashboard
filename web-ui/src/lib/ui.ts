@@ -13,11 +13,15 @@ export const choice =
 
 /** Icon chip inside a choice row / service card. */
 export function iconWell(
-  tone: 'primary' | 'success' = 'primary',
+  tone: 'primary' | 'success' | 'warning' = 'primary',
   size: 'sm' | 'md' = 'md',
 ): string {
   const colors =
-    tone === 'success' ? 'bg-success/15 text-success' : 'bg-primary/15 text-primary'
+    tone === 'success'
+      ? 'bg-success/15 text-success'
+      : tone === 'warning'
+        ? 'bg-warning/15 text-warning'
+        : 'bg-primary/15 text-primary'
   const box = size === 'sm' ? 'h-8 w-8' : 'h-10 w-10'
   return `grid ${box} shrink-0 place-items-center rounded-box ${colors}`
 }

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { LucideIcon } from 'lucide-react'
 import {
   Activity,
@@ -15,22 +15,27 @@ import {
 } from 'lucide-react'
 import {
   fetchConfig,
+  fetchGroups,
+  fetchServices,
   hotspotAction,
   saveConfig,
   setMode,
   syncroxAction,
 } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
+import type { Service } from '@/api/types'
 import { Button } from '@/components/ui/Button/Button'
 import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { Empty } from '@/components/ui/Empty/Empty'
 import { Field, Input } from '@/components/ui/Field/Field'
 import { Panel } from '@/components/ui/Panel/Panel'
+import { ResourceBudget } from '@/components/ui/ResourceBudget/ResourceBudget'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { useLiveState } from '@/hooks/useLiveState'
 import { actionDoneLabel } from '@/lib/actions'
 import { fmtBytes, fmtPct, fmtRate } from '@/lib/format'
+import { hostCapacity, reservedFromServices } from '@/lib/resources'
 import { muted, tile } from '@/lib/ui'
 
 function Metric({
@@ -66,6 +71,18 @@ export function OverviewPage() {
   const { confirm } = useConfirm()
   const qc = useQueryClient()
   const configQ = useQuery({ queryKey: queryKeys.config, queryFn: fetchConfig })
+  const groupsQ = useQuery({ queryKey: queryKeys.groups, queryFn: fetchGroups })
+  const groupList = groupsQ.data || []
+  const svcQueries = useQueries({
+    queries: groupList.map((g) => ({
+      queryKey: queryKeys.services(g.slug),
+      queryFn: () => fetchServices(g.slug),
+      staleTime: 10_000,
+    })),
+  })
+  const allServices: Service[] = svcQueries.flatMap((q) => q.data || [])
+  const host = hostCapacity(state.device_metrics)
+  const reserved = reservedFromServices(allServices)
 
   const mode = state.mode || 'mullvad'
   const d = state.device_metrics || {}
@@ -277,19 +294,19 @@ export function OverviewPage() {
                   save.mutate(new FormData(e.currentTarget))
                 }}
               >
-                <Field label="SSID">
+                <Field label="SSID" tip="Wi‑Fi network name broadcast by this Pi.">
                   <Input name="ssid" defaultValue={c.ssid || state.ssid || ''} />
                 </Field>
-                <Field label="Password" tip={c.password_set ? 'Unchanged if left blank' : undefined}>
+                <Field label="Password" tip={c.password_set ? 'Unchanged if left blank' : 'At least 8 characters for WPA2.'}>
                   <Input name="password" type="password" autoComplete="new-password" />
                 </Field>
-                <Field label="Gateway IP">
+                <Field label="Gateway IP" tip="Hotspot interface address (clients use this as gateway).">
                   <Input name="hotspot_ip" defaultValue={c.hotspot_ip || state.hotspot_ip || ''} />
                 </Field>
-                <Field label="DHCP start">
+                <Field label="DHCP start" tip="First address handed out to clients.">
                   <Input name="dhcp_start" defaultValue={c.dhcp_start || state.dhcp_start || ''} />
                 </Field>
-                <Field label="DHCP end">
+                <Field label="DHCP end" tip="Last address in the DHCP pool.">
                   <Input name="dhcp_end" defaultValue={c.dhcp_end || state.dhcp_end || ''} />
                 </Field>
                 <Button type="submit" variant="primary" loading={save.isPending}>
@@ -369,6 +386,7 @@ export function OverviewPage() {
             <strong className="block text-sm mt-0.5">{fmtRate(net.up_bytes_per_sec)}</strong>
           </div>
         </div>
+        <ResourceBudget host={host} reserved={reserved} compact />
       </Panel>
     </div>
   )

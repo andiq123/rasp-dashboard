@@ -4,7 +4,8 @@ export const queryKeys = {
   githubStatus: ['github', 'status'] as const,
   githubRepos: ['github', 'repos'] as const,
   githubBranches: (repo: string) => ['github', 'branches', repo] as const,
-  githubDirs: (repo: string, branch: string) => ['github', 'dirs', repo, branch] as const,
+  githubDirs: (repo: string, branch: string, path = '') =>
+    ['github', 'dirs', repo, branch, path] as const,
   githubSSHKey: ['github', 'ssh-key'] as const,
   groups: ['groups'] as const,
   services: (group: string) => ['services', group] as const,

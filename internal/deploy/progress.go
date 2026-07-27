@@ -13,6 +13,7 @@ type ProgressStep struct {
 // Progress is live 0–100% job progress with a step timeline.
 type Progress struct {
 	Percent   int            `json:"percent"`
+	Phase     string         `json:"phase,omitempty"` // provisioning | building | deploying
 	Current   string         `json:"current,omitempty"`
 	Label     string         `json:"label,omitempty"`
 	Detail    string         `json:"detail,omitempty"`
@@ -22,18 +23,32 @@ type Progress struct {
 	Steps     []ProgressStep `json:"steps"`
 }
 
-// DeployGoSteps is the standard Go deploy / redeploy pipeline.
+// DeployGoSteps is the standard Go deploy / redeploy pipeline (Railway-style phases).
 func DeployGoSteps() []ProgressStep {
 	return []ProgressStep{
-		{ID: "prepare", Label: "Prepare workspace", Weight: 4, Status: "pending"},
+		{ID: "prepare", Label: "Provision workspace", Weight: 4, Status: "pending"},
 		{ID: "clone", Label: "Fetch source", Weight: 14, Status: "pending"},
 		{ID: "detect", Label: "Detect project", Weight: 5, Status: "pending"},
-		{ID: "modules", Label: "Modules", Weight: 18, Status: "pending"},
+		{ID: "modules", Label: "Resolve modules", Weight: 18, Status: "pending"},
 		{ID: "build", Label: "Compile", Weight: 30, Status: "pending"},
-		{ID: "promote", Label: "Promote binary", Weight: 6, Status: "pending"},
+		{ID: "promote", Label: "Stage binary", Weight: 6, Status: "pending"},
 		{ID: "purge", Label: "Keep source", Weight: 5, Status: "pending"},
-		{ID: "start", Label: "Start container", Weight: 10, Status: "pending"},
+		{ID: "start", Label: "Deploy container", Weight: 10, Status: "pending"},
 		{ID: "health", Label: "Health check", Weight: 8, Status: "pending"},
+	}
+}
+
+// PhaseForStep maps a DeployGoSteps id to a high-level Railway-like phase.
+func PhaseForStep(id string) string {
+	switch id {
+	case "prepare", "clone", "detect":
+		return "provisioning"
+	case "modules", "build", "promote", "purge":
+		return "building"
+	case "start", "health":
+		return "deploying"
+	default:
+		return ""
 	}
 }
 

@@ -192,7 +192,12 @@ export function SettingsPage() {
               Paste a personal access token with repo read. Stored on this Pi only. After connect,
               copy the SSH public key into GitHub.
             </p>
-            <Field label="Personal access token" meta="github_pat_…" htmlFor="settings-gh-token">
+            <Field
+              label="Personal access token"
+              meta="github_pat_…"
+              tip="Needs repo read. Stored only on this Pi. After connect, add the SSH public key on GitHub."
+              htmlFor="settings-gh-token"
+            >
               <Input
                 id="settings-gh-token"
                 type="password"

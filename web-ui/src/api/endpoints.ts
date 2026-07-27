@@ -49,15 +49,17 @@ export const fetchBranches = (repo: string) =>
   api<{ branches: GitHubBranch[] }>(`/api/github/branches?repo=${encodeURIComponent(repo)}`).then(
     (r) => r.branches || [],
   )
-export const fetchDirs = (repo: string, branch: string) =>
-  api<{
+export const fetchDirs = (repo: string, branch: string, path = '') => {
+  const q = new URLSearchParams({ repo, branch })
+  if (path) q.set('path', path)
+  return api<{
     dirs: Array<{ name: string; path: string }>
     go_modules?: Array<{ path: string; has_go_mod?: boolean }>
     root_has_go_mod?: boolean
     suggested_root?: string
-  }>(
-    `/api/github/dirs?repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}`,
-  )
+    suggest_reason?: string
+  }>(`/api/github/dirs?${q}`)
+}
 
 export const fetchGitHubSSHKey = () => api<GitHubSSHKey>('/api/github/ssh-key')
 
@@ -103,10 +105,10 @@ export const fetchDeployLogs = (group: string, slug: string, deployId: string) =
   ).then((r) => r.lines || [])
 
 export const deployGo = (group: string, body: Record<string, unknown>) =>
-  api(`/api/groups/${encodeURIComponent(group)}/services`, { method: 'POST', body })
+  api<Service>(`/api/groups/${encodeURIComponent(group)}/services`, { method: 'POST', body })
 
 export const createPostgres = (group: string, body: Record<string, unknown>) =>
-  api(`/api/groups/${encodeURIComponent(group)}/services`, {
+  api<Service>(`/api/groups/${encodeURIComponent(group)}/services`, {
     method: 'POST',
     body: { ...body, type: 'postgres' },
   })
@@ -118,7 +120,7 @@ export const createBucket = (group: string, body: Record<string, unknown>) =>
   })
 
 export const serviceAction = (group: string, slug: string, action: string) =>
-  api(`/api/groups/${encodeURIComponent(group)}/services/${encodeURIComponent(slug)}/${action}`, {
+  api<Service>(`/api/groups/${encodeURIComponent(group)}/services/${encodeURIComponent(slug)}/${action}`, {
     method: 'POST',
   })
 

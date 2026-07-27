@@ -163,6 +163,7 @@ export type ProgressStep = {
 
 export type Progress = {
   percent: number
+  phase?: string
   current?: string
   label?: string
   detail?: string
@@ -170,6 +171,17 @@ export type Progress = {
   index?: number
   total?: number
   steps?: ProgressStep[]
+}
+
+export type QueueItem = {
+  id: string
+  group: string
+  slug: string
+  name?: string
+  title: string
+  reason?: string
+  enqueued_at: string
+  position: number
 }
 
 export type ActivitySnapshot = {
@@ -182,6 +194,7 @@ export type ActivitySnapshot = {
   ended_at?: string
   ok?: boolean | null
   progress?: Progress | null
+  queue?: QueueItem[]
   lines: ActivityLine[]
 }
 

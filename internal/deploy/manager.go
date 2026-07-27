@@ -33,6 +33,7 @@ type Manager struct {
 	jobScope     string // group/slug or group while a job runs
 	jobStartedAt time.Time
 	jobCancel    context.CancelFunc
+	deployQueue  []queuedDeploy
 	deletedMu    sync.Mutex
 	deleting     map[string]struct{} // group/slug being removed — ignore late build completion
 	stats        *statsHub
@@ -135,9 +136,10 @@ func (m *Manager) jobBusyScoped(group, slug string) bool {
 	if !m.jobBusy {
 		return false
 	}
-	want := strings.TrimSpace(group + "/" + slug)
+	want := serviceKey(group, slug)
 	scope := strings.TrimSpace(m.jobScope)
-	return scope == want || scope == group || strings.HasPrefix(scope, group+"/")
+	// Exact service match, or a group-level job (scope == group only — not siblings).
+	return scope == want || scope == strings.TrimSpace(group)
 }
 
 func (m *Manager) releaseJob(ok bool, msg string) {
@@ -146,16 +148,43 @@ func (m *Manager) releaseJob(ok bool, msg string) {
 		m.jobMu.Unlock()
 		return
 	}
-	m.jobBusy = false
-	m.jobScope = ""
-	m.jobStartedAt = time.Time{}
-	cancel := m.jobCancel
-	m.jobCancel = nil
+	cancel := m.clearJobSlotLocked()
+	// Hand off under the same lock so a new acquire cannot jump the FIFO queue.
+	next, hasNext := m.popNextDeployLocked()
 	m.jobMu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
 	m.endJob(ok, msg)
+	if hasNext {
+		m.startQueuedDeploy(next)
+	}
+}
+
+// clearJobSlotLocked clears the active job flags. Caller must hold jobMu.
+func (m *Manager) clearJobSlotLocked() context.CancelFunc {
+	cancel := m.jobCancel
+	m.jobBusy = false
+	m.jobScope = ""
+	m.jobStartedAt = time.Time{}
+	m.jobCancel = nil
+	return cancel
+}
+
+// acquireJobWait retries acquireJob until the slot is free or timeout.
+func (m *Manager) acquireJobWait(title, scope string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var last error
+	for {
+		last = m.acquireJob(title, scope)
+		if last == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return last
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func (m *Manager) ensureDirs() error {
@@ -1483,6 +1512,7 @@ func (m *Manager) QueryDatabase(ctx context.Context, group, slug, sql string) (i
 }
 
 func (m *Manager) Delete(ctx context.Context, group, slug string) error {
+	m.dropQueuedDeploy(group, slug)
 	if err := requireSlug(group, "group"); err != nil {
 		return err
 	}
@@ -1514,8 +1544,8 @@ func (m *Manager) Delete(ctx context.Context, group, slug string) error {
 		cancel()
 	}
 
-	if err := m.acquireJob("Delete · "+slug, group+"/"+slug); err != nil {
-		return err
+	if err := m.acquireJobWait("Delete · "+slug, group+"/"+slug, 2*time.Minute); err != nil {
+		return fmt.Errorf("cannot delete while another job is running — try again: %w", err)
 	}
 
 	m.mu.Lock()
@@ -1665,8 +1695,20 @@ func (m *Manager) refreshStatus(ctx context.Context, svc Service) Service {
 			svc.URL = fmt.Sprintf("http://rasp.local:%d", svc.Port)
 		}
 		m.syncTunnel(&svc)
-		// Never clobber an in-flight deploy — UI must not flash Failed/Stopped mid-build.
-		if svc.Status == "building" {
+		// Never clobber in-flight or queued deploys — UI must not flash Failed/Stopped mid-pipeline.
+		switch svc.Status {
+		case "queued":
+			if m.isDeployQueued(svc.Group, svc.Slug) {
+				svc.LastError = ""
+				break
+			}
+			// Orphaned queued flag (restart / drop) — free the UI.
+			svc.Status = "failed"
+			if svc.LastError == "" {
+				svc.LastError = "Deploy queue cleared — Redeploy to retry"
+			}
+			m.persistInterruptedAsync(svc)
+		case "building":
 			if m.jobBusyScoped(svc.Group, svc.Slug) {
 				svc.LastError = ""
 			} else {
@@ -1677,24 +1719,26 @@ func (m *Manager) refreshStatus(ctx context.Context, svc Service) Service {
 				}
 				m.persistInterruptedAsync(svc)
 			}
-		} else if st.Restarting || st.Status == "exited" || st.Status == "dead" {
-			svc.Running = false
-			svc.Status = "failed"
-			logs, _ := m.TailContainerLogs(ctx, svc.Group, svc.Slug, 60)
-			summary := summarizeCrash(logs)
-			if summary != "" {
-				svc.LastError = summary
-			} else if svc.LastError == "" {
-				svc.LastError = "App crashed — open Logs"
+		default:
+			if st.Restarting || st.Status == "exited" || st.Status == "dead" {
+				svc.Running = false
+				svc.Status = "failed"
+				logs, _ := m.TailContainerLogs(ctx, svc.Group, svc.Slug, 60)
+				summary := summarizeCrash(logs)
+				if summary != "" {
+					svc.LastError = summary
+				} else if svc.LastError == "" {
+					svc.LastError = "App crashed — open Logs"
+				}
+				m.persistCrashAsync(svc)
+			} else if svc.Running {
+				svc.Status = "running"
+				svc.LastError = ""
+			} else if svc.LastError != "" || svc.Status == "failed" {
+				svc.Status = "failed"
+			} else {
+				svc.Status = "stopped"
 			}
-			m.persistCrashAsync(svc)
-		} else if svc.Running {
-			svc.Status = "running"
-			svc.LastError = ""
-		} else if svc.LastError != "" || svc.Status == "failed" {
-			svc.Status = "failed"
-		} else {
-			svc.Status = "stopped"
 		}
 	case TypePostgres:
 		if m.Postgres != nil {

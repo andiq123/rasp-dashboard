@@ -28,13 +28,25 @@ func (m *Manager) RecoverInterruptedDeploys(ctx context.Context) {
 	var interrupted []Service
 	for i := range reg.Services {
 		svc := reg.Services[i]
-		if svc.Type != TypeGo || svc.Status != "building" {
+		if svc.Type != TypeGo {
 			continue
 		}
-		svc.Status = "failed"
-		svc.Running = false
-		if strings.TrimSpace(svc.LastError) == "" {
-			svc.LastError = "Deploy interrupted — Redeploy to retry"
+		switch svc.Status {
+		case "building":
+			svc.Status = "failed"
+			svc.Running = false
+			if strings.TrimSpace(svc.LastError) == "" {
+				svc.LastError = "Deploy interrupted — Redeploy to retry"
+			}
+		case "queued":
+			// In-memory queue does not survive restart.
+			svc.Status = "failed"
+			svc.Running = false
+			if strings.TrimSpace(svc.LastError) == "" {
+				svc.LastError = "Deploy queue cleared on restart — Redeploy to retry"
+			}
+		default:
+			continue
 		}
 		svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 		reg.Services[i] = svc
