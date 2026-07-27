@@ -29,7 +29,7 @@ cd web-ui && npm run dev
 
 ## Production (Pi) — get latest + rebuild
 
-One command on the Pi pulls `main`, packs the **latest** frontend into the binary, and restarts the service:
+One command on the Pi syncs to remote, clean-rebuilds frontend + backend, and restarts:
 
 ```bash
 cd ~/sources/dashboard
@@ -38,14 +38,13 @@ cd ~/sources/dashboard
 
 That always:
 
-1. `git pull --ff-only` (fails if tracked files are dirty)
-2. `npm ci` when lockfile changed
-3. Builds Vite → `internal/server/web/dist` (`go generate`)
-4. Builds a trimmed Go binary with that UI **embedded**
-5. Restarts `firewifi-dashboard.service` (user unit) if present
+1. `git fetch` + `reset --hard` to upstream (overrides local/stale tracked files; refuses if you have unpushed commits)
+2. Wipes embed `dist` + Vite caches, then `npm ci` + Vite pack
+3. Atomic `go build -a` into `FIREWIFI_BIN` (fresh `//go:embed`)
+4. Restarts `firewifi-dashboard.service` (user unit) if present
 
 ```bash
-# rebuild current checkout only (no pull)
+# rebuild current checkout only (no git sync)
 FIREWIFI_SKIP_PULL=1 ./scripts/update.sh
 
 # build only (no systemd)
@@ -55,10 +54,10 @@ FIREWIFI_SKIP_RESTART=1 ./scripts/update.sh
 FIREWIFI_BIN=/usr/local/bin/firewifi-dashboard ./scripts/update.sh
 ```
 
-`./scripts/prod.sh` is the build+restart step only (no git pull).  
+`./scripts/prod.sh` is clean build+restart only (no git sync).  
 `./scripts/rebuild-dashboard.sh` aliases `prod.sh`.
 
-**Important:** the UI is compile-time embedded. `git pull` alone does not update a running binary — run `./scripts/update.sh` (or `prod.sh` after pull).
+**Important:** the UI is compile-time embedded. `git pull` alone does not update a running binary — run `./scripts/update.sh`.
 
 ## Optional hardening
 
@@ -71,7 +70,8 @@ FIREWIFI_BIN=/usr/local/bin/firewifi-dashboard ./scripts/update.sh
 | `PORT` | Listen port (default `8484`) |
 | `FIREWIFI_BIN` | Production binary path for `prod.sh` / `update.sh` |
 | `FIREWIFI_SKIP_RESTART=1` | `prod.sh` / `update.sh` builds only |
-| `FIREWIFI_SKIP_PULL=1` | `update.sh` skips `git pull` |
+| `FIREWIFI_SKIP_PULL=1` | `update.sh` skips git sync |
+| `FIREWIFI_CLEAN=1` | Force `npm ci` + wipe embed dist (default in `prod.sh`) |
 
 ## Layout
 
