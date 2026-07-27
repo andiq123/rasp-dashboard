@@ -105,6 +105,8 @@ export type Service = {
   deployments?: Deployment[]
   auto_deploy?: boolean
   deploy_sha?: string
+  deploy_id?: string
+  active_deploy_id?: string
   updated_at?: string
 }
 

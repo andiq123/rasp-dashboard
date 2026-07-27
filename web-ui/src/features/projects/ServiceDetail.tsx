@@ -25,7 +25,7 @@ import {
   updateServiceSettings,
 } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
-import type { ActivityLine, Progress, Service } from '@/api/types'
+import type { ActivityLine, ActivitySnapshot, Deployment, Progress, Service } from '@/api/types'
 import { LINKED_BUCKET_KEYS, LINKED_DB_KEYS } from '@/api/types'
 import { Button } from '@/components/ui/Button/Button'
 import { useConfirm } from '@/components/ui/Confirm/Confirm'
@@ -85,9 +85,18 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
 
   const wasDeploying = useRef(false)
   useEffect(() => {
-    if (deployingHere && !wasDeploying.current) setTab('console')
+    if (deployingHere && !wasDeploying.current) {
+      setTab('deploys')
+      if (activity.deployment_id) setDeployId(activity.deployment_id)
+    }
     wasDeploying.current = deployingHere
-  }, [deployingHere])
+  }, [deployingHere, activity.deployment_id])
+
+  // Keep the live deployment selected while this service is building.
+  useEffect(() => {
+    if (!deployingHere || !activity.deployment_id) return
+    setDeployId(activity.deployment_id)
+  }, [deployingHere, activity.deployment_id])
 
   const invalidate = async () => {
     await Promise.all([
@@ -95,6 +104,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
       qc.invalidateQueries({ queryKey: queryKeys.services(group) }),
       qc.invalidateQueries({ queryKey: queryKeys.serviceEnv(group, slug) }),
       qc.invalidateQueries({ queryKey: queryKeys.serviceLogs(group, slug) }),
+      qc.invalidateQueries({ queryKey: queryKeys.deployments(group, slug) }),
     ])
   }
 
@@ -103,7 +113,10 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
     onSuccess: async (svcRes, action) => {
       showToast(actionDoneLabel(action, svcRes?.status), action === 'redeploy' ? 'info' : 'success')
       await invalidate()
-      if (action === 'redeploy') setTab('console')
+      if (action === 'redeploy') {
+        setTab('deploys')
+        if (svcRes?.deploy_id) setDeployId(svcRes.deploy_id)
+      }
     },
     onError: (e: Error) => showToast(e.message, 'error'),
   })
@@ -290,6 +303,9 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
             >
               <Icon className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
               {t.label}
+              {t.id === 'deploys' && deployingHere ? (
+                <span className="status status-info" title="Deploy in progress" />
+              ) : null}
             </button>
           )
         })}
@@ -312,7 +328,14 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
             />
           ) : null}
           {tab === 'deploys' ? (
-            <DeploysTab group={group} slug={slug} deployId={deployId} onSelect={setDeployId} />
+            <DeploysTab
+              group={group}
+              slug={slug}
+              deployId={deployId}
+              onSelect={setDeployId}
+              deploying={deployingHere}
+              activity={activity}
+            />
           ) : null}
         </div>
       </div>
@@ -796,70 +819,231 @@ function ConsoleTab({
   )
 }
 
+function deployBadge(status: string, live: boolean): { label: string; className: string } {
+  if (live || status === 'building') {
+    return { label: 'In progress', className: 'badge-info' }
+  }
+  switch (status) {
+    case 'queued':
+      return { label: 'Queued', className: 'badge-warning' }
+    case 'active':
+      return { label: 'Live', className: 'badge-success' }
+    case 'failed':
+      return { label: 'Failed', className: 'badge-error' }
+    case 'archived':
+      return { label: 'Archived', className: 'badge-ghost' }
+    default:
+      return { label: status || 'Deploy', className: 'badge-ghost' }
+  }
+}
+
+function deployTitle(d: Deployment): string {
+  if (d.commit) return d.commit.slice(0, 7)
+  if (d.id) return d.id.replace(/^dpl_/, '').slice(0, 8)
+  return 'Deploy'
+}
+
 function DeploysTab({
   group,
   slug,
   deployId,
   onSelect,
+  deploying,
+  activity,
 }: {
   group: string
   slug: string
   deployId: string | null
   onSelect: (id: string | null) => void
+  deploying: boolean
+  activity: ActivitySnapshot
 }) {
+  const preRef = useRef<HTMLPreElement>(null)
+  const stickRef = useRef(true)
+  const liveId = deploying ? activity.deployment_id || null : null
+
   const listQ = useQuery({
     queryKey: queryKeys.deployments(group, slug),
     queryFn: () => fetchDeployments(group, slug),
-    refetchInterval: 8000,
+    refetchInterval: deploying ? 2000 : 8000,
   })
+
+  const items = listQ.data || []
+  const selected = items.find((d) => d.id === deployId) || null
+  const selectedLive =
+    !!selected &&
+    deploying &&
+    (selected.id === liveId || selected.status === 'building' || selected.status === 'queued')
+
   const logsQ = useQuery({
     queryKey: queryKeys.deployLogs(group, slug, deployId || ''),
     queryFn: () => fetchDeployLogs(group, slug, deployId!),
-    enabled: !!deployId,
-    refetchInterval: deployId ? 4000 : false,
+    enabled: !!deployId && !selectedLive,
+    refetchInterval: deployId && !selectedLive ? 6000 : false,
   })
+
+  // Default selection: live → building → active → newest.
+  useEffect(() => {
+    if (!items.length) return
+    if (liveId) {
+      if (deployId !== liveId) onSelect(liveId)
+      return
+    }
+    if (deployId && items.some((d) => d.id === deployId)) return
+    const building = items.find((d) => d.status === 'building' || d.status === 'queued')
+    const active = items.find((d) => d.active || d.status === 'active')
+    onSelect((building || active || items[0]).id)
+  }, [items, deployId, liveId, onSelect])
+
+  useEffect(() => {
+    stickRef.current = true
+  }, [deployId])
+
+  const liveText = useMemo(() => {
+    if (!selectedLive) return ''
+    return (activity.lines || []).map((l) => `[${l.level}] ${l.text}`).join('\n')
+  }, [selectedLive, activity.lines])
+
+  const storedText = useMemo(
+    () => (logsQ.data || []).map((l) => `[${l.level}] ${l.text}`).join('\n'),
+    [logsQ.data],
+  )
+
+  const text = selectedLive ? liveText : storedText
+
+  useEffect(() => {
+    const el = preRef.current
+    if (!el || !stickRef.current) return
+    el.scrollTop = el.scrollHeight
+  }, [text, activity.seq])
 
   if (listQ.isLoading) return <Spinner compact label="Loading deploys…" />
   if (listQ.isError) {
     return <Empty compact title="Could not load deploys" body={(listQ.error as Error).message} />
   }
-  const items = listQ.data || []
   if (!items.length) {
-    return <Empty compact title="No deployments yet" body="Redeploy to create the first build." />
+    return (
+      <Empty
+        compact
+        title="No deployments yet"
+        body="Redeploy to start a build — live logs appear here."
+      />
+    )
   }
 
+  const progress = selectedLive ? activity.progress : null
+
   return (
-    <div className="grid gap-3 lg:grid-cols-[minmax(180px,240px)_minmax(0,1fr)]">
-      <ul className="list-none m-0 p-0 grid gap-1 content-start">
-        {items.map((d) => (
-          <li key={d.id}>
-            <button
-              type="button"
-              className={`w-full text-left px-2.5 py-2 rounded-box border transition-colors duration-300 ${
-                deployId === d.id
-                  ? 'border-primary bg-primary/10'
-                  : 'border-base-300 hover:border-primary/40'
-              }`}
-              onClick={() => onSelect(d.id)}
-            >
-              <span className="badge badge-sm badge-ghost mr-1">{d.status}</span>
-              <span className="text-xs">{d.message || d.commit?.slice(0, 7) || d.id}</span>
-              <span className={`block text-[11px] ${muted} mt-0.5`}>{fmtRelative(d.created_at)}</span>
-            </button>
-          </li>
-        ))}
+    <div className="grid gap-3 lg:grid-cols-[minmax(200px,260px)_minmax(0,1fr)] items-start">
+      <ul className="list-none m-0 p-0 grid gap-1 content-start max-h-[min(70vh,560px)] overflow-y-auto">
+        {items.map((d) => {
+          const live = d.id === liveId || d.status === 'building' || d.status === 'queued'
+          const badge = deployBadge(d.status, live && deploying)
+          const activeSel = deployId === d.id
+          return (
+            <li key={d.id}>
+              <button
+                type="button"
+                className={`w-full text-left px-2.5 py-2 rounded-box border transition-colors duration-200 ${
+                  activeSel
+                    ? live
+                      ? 'border-info bg-info/10'
+                      : 'border-primary bg-primary/10'
+                    : 'border-base-300 hover:border-primary/40'
+                }`}
+                onClick={() => onSelect(d.id)}
+              >
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className={`badge badge-sm gap-1 ${badge.className}`}>
+                    {live && deploying ? (
+                      <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                    ) : null}
+                    {badge.label}
+                  </span>
+                  <span className="text-xs font-mono font-semibold">{deployTitle(d)}</span>
+                </div>
+                {d.message ? (
+                  <span className={`block text-[11px] ${muted} mt-0.5 truncate`} title={d.message}>
+                    {d.message}
+                  </span>
+                ) : null}
+                <span className={`block text-[11px] ${muted} mt-0.5`}>
+                  {fmtRelative(d.created_at)}
+                  {d.branch ? ` · ${d.branch}` : ''}
+                </span>
+                {live && deploying && progress && activeSel ? (
+                  <progress
+                    className="progress progress-info w-full h-1 mt-1.5"
+                    value={progress.percent || 0}
+                    max={100}
+                  />
+                ) : null}
+              </button>
+            </li>
+          )
+        })}
       </ul>
-      <div>
-        {!deployId ? (
-          <Empty compact title="Select a deploy" body="View build logs for a past deployment." />
-        ) : logsQ.isLoading ? (
-          <Spinner compact label="Loading deploy logs…" />
-        ) : logsQ.isError ? (
-          <Empty compact title="Could not load deploy logs" body={(logsQ.error as Error).message} />
+
+      <div className="grid gap-2 min-w-0">
+        {!deployId || !selected ? (
+          <Empty compact title="Select a deploy" body="View build logs for a deployment." />
         ) : (
-          <pre className={`${codeSurface} min-h-[240px] max-h-[min(60vh,520px)]`}>
-            {(logsQ.data || []).map((l) => `[${l.level}] ${l.text}`).join('\n') || 'No log lines.'}
-          </pre>
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <strong className="text-sm font-mono">{deployTitle(selected)}</strong>
+                <p className={`text-[11px] m-0 ${muted}`}>
+                  {selectedLive
+                    ? progress?.label || activity.title || 'Live deploy output'
+                    : selected.error
+                      ? selected.error
+                      : 'Stored build log'}
+                  {selectedLive && activity.seq ? ' · live' : ''}
+                </p>
+              </div>
+              {selectedLive && progress ? (
+                <span className={`text-[11px] font-mono tabular-nums ${muted}`}>
+                  {progress.percent}%
+                </span>
+              ) : null}
+            </div>
+            {selectedLive && progress ? (
+              <progress
+                className="progress progress-primary w-full h-1.5"
+                value={progress.percent || 0}
+                max={100}
+              />
+            ) : null}
+            {!selectedLive && logsQ.isLoading ? (
+              <Spinner compact label="Loading deploy logs…" />
+            ) : !selectedLive && logsQ.isError ? (
+              <Empty
+                compact
+                title="Could not load deploy logs"
+                body={(logsQ.error as Error).message}
+              />
+            ) : !text.trim() ? (
+              <Empty
+                compact
+                icon={<Terminal className="h-5 w-5" aria-hidden />}
+                title={selectedLive ? 'Waiting for build output…' : 'No log lines'}
+                body={selectedLive ? 'Logs stream here as the build runs.' : undefined}
+              />
+            ) : (
+              <pre
+                ref={preRef}
+                className={`${codeSurface} min-h-[280px] max-h-[min(65vh,560px)] ${
+                  selectedLive ? 'console-live' : ''
+                }`}
+                onScroll={(e) => {
+                  const el = e.currentTarget
+                  stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+                }}
+              >
+                {text}
+              </pre>
+            )}
+          </>
         )}
       </div>
     </div>
