@@ -42,6 +42,8 @@ import { actionDoneLabel } from '@/lib/actions'
 import { fmtRelative } from '@/lib/format'
 import { hostCapacity, reservedFromServices, RESOURCE } from '@/lib/resources'
 import { codeSurface, iconWell, muted, surface, tile } from '@/lib/ui'
+import { LogConsole } from '@/components/ui/LogConsole/LogConsole'
+import { activityToLogLines, textToLogLines, type LogLineView } from '@/lib/logLines'
 import { isBuilding, isQueued, phaseLabel, serviceTypeIcon, statusLabel } from './serviceStatus'
 
 type Tab = 'config' | 'variables' | 'console' | 'deploys'
@@ -723,13 +725,6 @@ function ConsoleTab({
   activityLines: ActivityLine[]
   activitySeq: number
 }) {
-  const preRef = useRef<HTMLPreElement>(null)
-  const stickRef = useRef(true)
-
-  useEffect(() => {
-    stickRef.current = true
-  }, [group, slug])
-
   const logsQ = useQuery({
     queryKey: queryKeys.serviceLogs(group, slug),
     queryFn: () => fetchServiceLogs(group, slug, 400),
@@ -742,27 +737,20 @@ function ConsoleTab({
     void logsQ.refetch()
   }, [activitySeq, deploying]) // eslint-disable-line react-hooks/exhaustive-deps -- only pull runtime logs while this service is deploying
 
-  const deployText = useMemo(
-    () => activityLines.map((l) => `[${l.level}] ${l.text}`).join('\n'),
-    [activityLines],
-  )
   const runtimeText = logsQ.data || ''
 
-  const text = useMemo(() => {
-    if (deploying) {
-      const parts: string[] = []
-      if (deployText.trim()) parts.push(`── deploy ──\n${deployText}`)
-      if (runtimeText.trim()) parts.push(`── runtime ──\n${runtimeText}`)
-      return parts.join('\n\n')
+  const lines = useMemo((): LogLineView[] => {
+    const out: LogLineView[] = []
+    if (deploying && activityLines.length) {
+      out.push({ key: 'sec-deploy', level: 'step', text: '── deploy ──' })
+      out.push(...activityToLogLines(activityLines, 'dep'))
     }
-    return runtimeText
-  }, [deploying, deployText, runtimeText])
-
-  useEffect(() => {
-    const el = preRef.current
-    if (!el || !stickRef.current) return
-    el.scrollTop = el.scrollHeight
-  }, [text])
+    if (runtimeText.trim()) {
+      if (deploying) out.push({ key: 'sec-runtime', level: 'step', text: '── runtime ──' })
+      out.push(...textToLogLines(runtimeText, 'rt'))
+    }
+    return out
+  }, [deploying, activityLines, runtimeText])
 
   return (
     <div className="grid gap-2">
@@ -796,24 +784,21 @@ function ConsoleTab({
             </Button>
           }
         />
-      ) : !text.trim() ? (
-        <Empty
-          compact
-          icon={<Terminal className="h-5 w-5" aria-hidden />}
-          title="No output yet"
-          body={deploying ? 'Waiting for deploy logs…' : 'Start the service to see logs.'}
-        />
       ) : (
-        <pre
-          ref={preRef}
-          className={`${codeSurface} min-h-[280px] max-h-[min(60vh,520px)] ${deploying ? 'console-live' : ''}`}
-          onScroll={(e) => {
-            const el = e.currentTarget
-            stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
-          }}
-        >
-          {text}
-        </pre>
+        <LogConsole
+          lines={lines}
+          live={deploying}
+          stickKey={`${group}/${slug}`}
+          className="min-h-[280px] max-h-[min(60vh,520px)]"
+          empty={
+            <Empty
+              compact
+              icon={<Terminal className="h-5 w-5" aria-hidden />}
+              title="No output yet"
+              body={deploying ? 'Waiting for deploy logs…' : 'Start the service to see logs.'}
+            />
+          }
+        />
       )}
     </div>
   )
@@ -858,8 +843,6 @@ function DeploysTab({
   deploying: boolean
   activity: ActivitySnapshot
 }) {
-  const preRef = useRef<HTMLPreElement>(null)
-  const stickRef = useRef(true)
   const liveId = deploying ? activity.deployment_id || null : null
 
   const listQ = useQuery({
@@ -895,27 +878,10 @@ function DeploysTab({
     onSelect((building || active || items[0]).id)
   }, [items, deployId, liveId, onSelect])
 
-  useEffect(() => {
-    stickRef.current = true
-  }, [deployId])
-
-  const liveText = useMemo(() => {
-    if (!selectedLive) return ''
-    return (activity.lines || []).map((l) => `[${l.level}] ${l.text}`).join('\n')
-  }, [selectedLive, activity.lines])
-
-  const storedText = useMemo(
-    () => (logsQ.data || []).map((l) => `[${l.level}] ${l.text}`).join('\n'),
-    [logsQ.data],
-  )
-
-  const text = selectedLive ? liveText : storedText
-
-  useEffect(() => {
-    const el = preRef.current
-    if (!el || !stickRef.current) return
-    el.scrollTop = el.scrollHeight
-  }, [text, activity.seq])
+  const lines = useMemo((): LogLineView[] => {
+    if (selectedLive) return activityToLogLines(activity.lines || [], 'live')
+    return activityToLogLines(logsQ.data || [], 'store')
+  }, [selectedLive, activity.lines, logsQ.data])
 
   if (listQ.isLoading) return <Spinner compact label="Loading deploys…" />
   if (listQ.isError) {
@@ -1022,26 +988,21 @@ function DeploysTab({
                 title="Could not load deploy logs"
                 body={(logsQ.error as Error).message}
               />
-            ) : !text.trim() ? (
-              <Empty
-                compact
-                icon={<Terminal className="h-5 w-5" aria-hidden />}
-                title={selectedLive ? 'Waiting for build output…' : 'No log lines'}
-                body={selectedLive ? 'Logs stream here as the build runs.' : undefined}
-              />
             ) : (
-              <pre
-                ref={preRef}
-                className={`${codeSurface} min-h-[280px] max-h-[min(65vh,560px)] ${
-                  selectedLive ? 'console-live' : ''
-                }`}
-                onScroll={(e) => {
-                  const el = e.currentTarget
-                  stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
-                }}
-              >
-                {text}
-              </pre>
+              <LogConsole
+                lines={lines}
+                live={selectedLive}
+                stickKey={deployId || ''}
+                className="min-h-[280px] max-h-[min(65vh,560px)]"
+                empty={
+                  <Empty
+                    compact
+                    icon={<Terminal className="h-5 w-5" aria-hidden />}
+                    title={selectedLive ? 'Waiting for build output…' : 'No log lines'}
+                    body={selectedLive ? 'Logs stream here as the build runs.' : undefined}
+                  />
+                }
+              />
             )}
           </>
         )}
