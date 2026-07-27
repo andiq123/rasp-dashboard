@@ -78,30 +78,13 @@ func (s *Server) handleGitHub(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		jsonReply(w, out)
-	case r.URL.Path == "/api/github/contents" && r.Method == http.MethodGet:
-		entries, err := s.Deploy.ListContents(
-			r.Context(),
-			r.URL.Query().Get("repo"),
-			r.URL.Query().Get("branch"),
-			r.URL.Query().Get("path"),
-		)
+	case r.URL.Path == "/api/github/ssh-key" && r.Method == http.MethodGet:
+		key, err := s.Deploy.GitHubSSHPublicKey()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		jsonReply(w, map[string]interface{}{"entries": entries})
-	case r.URL.Path == "/api/github/file" && r.Method == http.MethodGet:
-		prev, err := s.Deploy.GetFilePreview(
-			r.Context(),
-			r.URL.Query().Get("repo"),
-			r.URL.Query().Get("branch"),
-			r.URL.Query().Get("path"),
-		)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		jsonReply(w, prev)
+		jsonReply(w, key)
 	case r.URL.Path == "/api/github/token" && r.Method == http.MethodPost:
 		var body struct {
 			Token string `json:"token"`

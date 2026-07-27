@@ -25,6 +25,7 @@ type Manager struct {
 	Postgres     *infra.Postgres
 	MinIO        *infra.MinIO
 	Activity     *ActivityHub
+	Registry     *registryHub
 	Cache        *cache.Store
 	mu           sync.Mutex
 	jobMu        sync.Mutex
@@ -49,6 +50,7 @@ func NewManager(baseDir, homeDir string, pg *infra.Postgres, mn *infra.MinIO) *M
 		Postgres:  pg,
 		MinIO:     mn,
 		Activity:  newActivityHub(),
+		Registry:  newRegistryHub(),
 		Cache:     cache.New(deployDir),
 		bgCtx:     bgCtx,
 		bgCancel:  bgCancel,
@@ -94,6 +96,16 @@ func (m *Manager) SubscribeActivity() (<-chan ActivitySnapshot, func()) {
 		return ch, func() {}
 	}
 	return m.Activity.Subscribe()
+}
+
+// SubscribeRegistry fans out lightweight signals when services/groups change.
+func (m *Manager) SubscribeRegistry() (<-chan RegistryEvent, func()) {
+	if m == nil || m.Registry == nil {
+		ch := make(chan RegistryEvent)
+		close(ch)
+		return ch, func() {}
+	}
+	return m.Registry.Subscribe()
 }
 
 func (m *Manager) acquireJob(title, scope string) error {

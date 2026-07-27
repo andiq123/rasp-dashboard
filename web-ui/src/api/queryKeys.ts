@@ -5,12 +5,15 @@ export const queryKeys = {
   githubRepos: ['github', 'repos'] as const,
   githubBranches: (repo: string) => ['github', 'branches', repo] as const,
   githubDirs: (repo: string, branch: string) => ['github', 'dirs', repo, branch] as const,
-  githubContents: (repo: string, branch: string, path: string) =>
-    ['github', 'contents', repo, branch, path] as const,
-  githubFile: (repo: string, branch: string, path: string) =>
-    ['github', 'file', repo, branch, path] as const,
+  githubSSHKey: ['github', 'ssh-key'] as const,
   groups: ['groups'] as const,
   services: (group: string) => ['services', group] as const,
+  service: (group: string, slug: string) => ['service', group, slug] as const,
+  serviceEnv: (group: string, slug: string) => ['service', group, slug, 'env'] as const,
+  serviceLogs: (group: string, slug: string) => ['service', group, slug, 'logs'] as const,
+  deployments: (group: string, slug: string) => ['deployments', group, slug] as const,
+  deployLogs: (group: string, slug: string, id: string) =>
+    ['deployments', group, slug, id, 'logs'] as const,
   ports: ['ports'] as const,
   manage: ['manage'] as const,
   engine: ['engine'] as const,

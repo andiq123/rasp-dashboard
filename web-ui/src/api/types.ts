@@ -51,21 +51,10 @@ export type GitHubBranch = {
   default?: boolean
 }
 
-export type GitHubEntry = {
-  name: string
+export type GitHubSSHKey = {
+  public_key: string
   path: string
-  type: 'dir' | 'file' | string
-  size?: number
-}
-
-export type GitHubFilePreview = {
-  path: string
-  name: string
-  size: number
-  text?: string
-  binary?: boolean
-  truncated?: boolean
-  error?: string
+  exists: boolean
 }
 
 export type Group = {
@@ -157,3 +146,85 @@ export type EngineView = {
   postgres_options?: Array<{ value: string; label?: string }>
   go_options?: Array<{ value: string; label?: string }>
 }
+
+export type ActivityLine = {
+  seq: number
+  at: string
+  level: string
+  text: string
+}
+
+export type ProgressStep = {
+  id: string
+  label: string
+  status: string
+  weight?: number
+}
+
+export type Progress = {
+  percent: number
+  current?: string
+  label?: string
+  detail?: string
+  remaining?: string
+  index?: number
+  total?: number
+  steps?: ProgressStep[]
+}
+
+export type ActivitySnapshot = {
+  seq: number
+  active: boolean
+  title?: string
+  scope?: string
+  deployment_id?: string
+  started_at?: string
+  ended_at?: string
+  ok?: boolean | null
+  progress?: Progress | null
+  lines: ActivityLine[]
+}
+
+export type ServiceEnv = {
+  env: string
+  env_json?: string
+}
+
+export type ServiceSettings = {
+  name?: string
+  branch?: string
+  root_dir?: string
+  build_cmd?: string
+  memory_mb?: number
+  cpus?: number
+  linked_database?: string
+  linked_bucket?: string
+  env?: string
+  auto_deploy?: boolean
+}
+
+/** Env keys injected when a Postgres service is linked. */
+export const LINKED_DB_KEYS = [
+  'DATABASE_URL',
+  'DB_HOST',
+  'DB_PORT',
+  'DB_NAME',
+  'DB_USER',
+  'DB_PASSWORD',
+  'DB_SSLMODE',
+  'POSTGRES_HOST',
+  'POSTGRES_PORT',
+  'POSTGRES_DB',
+  'POSTGRES_USER',
+  'POSTGRES_PASSWORD',
+] as const
+
+/** Env keys injected when a Bucket service is linked. */
+export const LINKED_BUCKET_KEYS = [
+  'BUCKET',
+  'ENDPOINT',
+  'ACCESS_KEY_ID',
+  'SECRET_ACCESS_KEY',
+  'FORCE_PATH_STYLE',
+] as const
+

@@ -19,7 +19,6 @@ import {
   createGroup,
   createPostgres,
   deleteGroup,
-  deleteService,
   deployGo,
   fetchBranches,
   fetchDirs,
@@ -32,6 +31,7 @@ import {
   serviceAction,
 } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
+import { LINKED_BUCKET_KEYS, LINKED_DB_KEYS } from '@/api/types'
 import { Button } from '@/components/ui/Button/Button'
 import { Choice } from '@/components/ui/Choice/Choice'
 import { Empty } from '@/components/ui/Empty/Empty'
@@ -39,10 +39,12 @@ import { Field, Input, Select, TextArea } from '@/components/ui/Field/Field'
 import { Modal } from '@/components/ui/Modal/Modal'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { useToast } from '@/components/ui/Toast/Toast'
-import { fmtBytes, fmtRelative, slugify } from '@/lib/format'
+import { fmtBytes, slugify } from '@/lib/format'
 import { muted, surface, tile } from '@/lib/ui'
 import { usePendingAddGo } from './pendingAddGo'
+import { ServiceDetail } from './ServiceDetail'
 import { isBuilding, statusLabel } from './serviceStatus'
+import { activityMatchesGroup, activityMatchesService, useActivity } from '@/hooks/useActivity'
 
 type WizardStep = 'type' | 'github' | 'group' | 'go' | 'postgres' | 'bucket' | null
 
@@ -56,6 +58,7 @@ export function ProjectsPage() {
   const { showToast } = useToast()
   const qc = useQueryClient()
   const { setPending } = usePendingAddGo()
+  const { activity, live } = useActivity()
 
   const [wizard, setWizard] = useState<WizardStep>(null)
   const [groupName, setGroupName] = useState('')
@@ -74,12 +77,16 @@ export function ProjectsPage() {
   const [pgName, setPgName] = useState('')
   const [bucketName, setBucketName] = useState('')
 
-  const groupsQ = useQuery({ queryKey: queryKeys.groups, queryFn: fetchGroups, refetchInterval: 12_000 })
+  const groupsQ = useQuery({
+    queryKey: queryKeys.groups,
+    queryFn: fetchGroups,
+    refetchInterval: live ? 30_000 : 12_000,
+  })
   const servicesQ = useQuery({
     queryKey: queryKeys.services(groupSlug),
     queryFn: () => fetchServices(groupSlug),
     enabled: !!groupSlug,
-    refetchInterval: 5_000,
+    refetchInterval: live ? 15_000 : 5_000,
   })
   const ghQ = useQuery({ queryKey: queryKeys.githubStatus, queryFn: fetchGitHubStatus })
 
@@ -87,6 +94,8 @@ export function ProjectsPage() {
   const services = servicesQ.data || []
   const selected = services.find((s) => s.slug === serviceSlug)
   const buildingN = services.filter(isBuilding).length
+  const liveDeploying = activity.active && activityMatchesGroup(activity, groupSlug)
+  const deployingN = Math.max(buildingN, liveDeploying ? 1 : 0)
 
   useEffect(() => {
     if (group) setDraftName(group.name || group.slug)
@@ -223,16 +232,6 @@ export function ProjectsPage() {
     onError: (e: Error) => showToast(e.message),
   })
 
-  const svcDel = useMutation({
-    mutationFn: (slug: string) => deleteService(groupSlug, slug),
-    onSuccess: async () => {
-      showToast('Deleted')
-      navigate(`/projects/${encodeURIComponent(groupSlug)}`)
-      await qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) })
-    },
-    onError: (e: Error) => showToast(e.message),
-  })
-
   const dbs = services.filter((s) => s.type === 'postgres')
   const buckets = services.filter((s) => s.type === 'bucket')
 
@@ -318,7 +317,7 @@ export function ProjectsPage() {
         </aside>
 
         <section
-          className={`card ${surface} ${buildingN ? 'border-info/40' : ''}`}
+          className={`card ${surface} ${deployingN ? 'border-info/40' : ''}`}
         >
           <div className="card-body gap-4 p-3 sm:p-4">
             {!groupSlug ? (
@@ -341,7 +340,7 @@ export function ProjectsPage() {
               <>
                 <header
                   className={`flex items-start gap-2.5 pb-3 border-b border-base-300 ${
-                    buildingN ? 'relative after:absolute after:left-0 after:right-0 after:-bottom-px after:h-0.5 after:rounded after:bg-gradient-to-r after:from-info/20 after:via-info after:to-info/20 after:bg-[length:220%_100%] after:animate-pulse' : ''
+                    deployingN ? 'relative after:absolute after:left-0 after:right-0 after:-bottom-px after:h-0.5 after:rounded after:bg-gradient-to-r after:from-info/20 after:via-info after:to-info/20 after:bg-[length:220%_100%] after:animate-pulse' : ''
                   }`}
                 >
                   <Button
@@ -366,10 +365,11 @@ export function ProjectsPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <span className={`font-mono text-xs ${muted}`}>{groupSlug}</span>
-                      {buildingN ? (
+                      {deployingN ? (
                         <span className="badge badge-info badge-sm gap-1" role="status">
                           <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-                          Deploying{buildingN > 1 ? ` · ${buildingN}` : ''}
+                          {activity.progress?.label || 'Deploying'}
+                          {buildingN > 1 ? ` · ${buildingN}` : ''}
                         </span>
                       ) : null}
                     </div>
@@ -418,13 +418,16 @@ export function ProjectsPage() {
                     {services.map((svc) => {
                       const st = statusLabel(svc)
                       const building = isBuilding(svc)
+                      const liveHere =
+                        activityMatchesService(activity, groupSlug, svc.slug) && activity.active
+                      const busy = building || liveHere
                       return (
                         <button
                           type="button"
                           key={svc.slug}
                           className={[
                             `card ${surface} text-left cursor-pointer transition-colors hover:border-primary/40`,
-                            building ? 'border-info/40' : '',
+                            busy ? 'border-info/40' : '',
                             svc.slug === serviceSlug ? 'border-primary ring-2 ring-primary/20' : '',
                           ].join(' ')}
                           onClick={() =>
@@ -434,9 +437,9 @@ export function ProjectsPage() {
                           <div className="card-body gap-2 p-3">
                             <div className="flex justify-between gap-2 items-start">
                               <strong className="text-sm">{svc.name || svc.slug}</strong>
-                              <span className={`badge badge-sm ${st.badge}`}>
-                                {building ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : null}
-                                {st.text}
+                              <span className={`badge badge-sm ${busy ? 'badge-info' : st.badge}`}>
+                                {busy ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : null}
+                                {liveHere && activity.progress?.label ? activity.progress.label : st.text}
                               </span>
                             </div>
                             <div className={`text-xs ${muted}`}>
@@ -446,10 +449,10 @@ export function ProjectsPage() {
                             </div>
                             {svc.type === 'go' ? (
                               <div className="flex flex-wrap gap-1" onClick={(e) => e.stopPropagation()}>
-                                {building ? (
+                                {busy ? (
                                   <span className="badge badge-info badge-sm gap-1">
                                     <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-                                    Building…
+                                    {activity.progress?.label || 'Building…'}
                                   </span>
                                 ) : svc.running ? (
                                   <Button
@@ -488,89 +491,13 @@ export function ProjectsPage() {
                 )}
 
                 {selected ? (
-                  <div className={`card ${surface} overflow-hidden mt-1`}>
-                    <div className="flex justify-between gap-3 items-start px-3.5 py-3 border-b border-base-300">
-                      <div>
-                        <h3 className="text-[15px] font-bold m-0">{selected.name || selected.slug}</h3>
-                        <p className={`text-sm ${muted} font-mono m-0 mt-0.5`}>
-                          {selected.type}
-                          {selected.port ? ` · :${selected.port}` : ''}
-                        </p>
-                      </div>
-                      <Button
-                        variant="quiet"
-                        onClick={() => navigate(`/projects/${encodeURIComponent(groupSlug)}`)}
-                      >
-                        Close
-                      </Button>
-                    </div>
-                    <div className="p-3.5 grid gap-3">
-                      {selected.url || selected.public_url ? (
-                        <p className="m-0">
-                          <a
-                            className="link link-primary"
-                            href={selected.public_url || selected.url}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {selected.public_url || selected.url}
-                          </a>
-                        </p>
-                      ) : null}
-                      {selected.last_error ? (
-                        <p className="text-error text-sm m-0">{selected.last_error}</p>
-                      ) : null}
-                      {(selected.deployments || []).length ? (
-                        <div>
-                          <h4 className={`text-xs font-bold uppercase tracking-wide ${muted} m-0 mb-1.5`}>
-                            Deploys
-                          </h4>
-                          <ul className="list-none m-0 p-0 grid gap-1.5">
-                            {(selected.deployments || []).slice(0, 8).map((d) => (
-                              <li key={d.id} className="text-sm">
-                                <span className="badge badge-sm badge-ghost">{d.status}</span>{' '}
-                                {d.message || d.commit?.slice(0, 7) || d.id}{' '}
-                                <span className={`${muted} text-xs`}>{fmtRelative(d.created_at)}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : null}
-                      <div className="flex flex-wrap gap-1.5">
-                        {selected.type === 'go' && !isBuilding(selected) ? (
-                          <Button
-                            variant="primary"
-                            icon={
-                              selected.running ? (
-                                <Square className="h-3.5 w-3.5" aria-hidden />
-                              ) : (
-                                <Play className="h-3.5 w-3.5" aria-hidden />
-                              )
-                            }
-                            loading={svcAct.isPending}
-                            onClick={() =>
-                              svcAct.mutate({
-                                slug: selected.slug,
-                                action: selected.running ? 'stop' : 'start',
-                              })
-                            }
-                          >
-                            {selected.running ? 'Stop' : 'Start'}
-                          </Button>
-                        ) : null}
-                        <Button
-                          variant="dangerSoft"
-                          icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />}
-                          loading={svcDel.isPending}
-                          onClick={() => {
-                            if (confirm(`Delete ${selected.slug}?`)) svcDel.mutate(selected.slug)
-                          }}
-                        >
-                          Delete
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
+                  <ServiceDetail
+                    group={groupSlug}
+                    slug={selected.slug}
+                    siblings={services}
+                    onClose={() => navigate(`/projects/${encodeURIComponent(groupSlug)}`)}
+                    onDeleted={() => navigate(`/projects/${encodeURIComponent(groupSlug)}`)}
+                  />
                 ) : null}
               </>
             )}
@@ -756,7 +683,7 @@ export function ProjectsPage() {
               ))}
           </Select>
         </Field>
-        <Field label="Database" meta="link">
+        <Field label="Database" meta="link" tip={goForm.linked_database ? `Injects ${LINKED_DB_KEYS.slice(0, 5).join(', ')}…` : undefined}>
           <Select
             value={goForm.linked_database}
             onChange={(e) => setGoForm((f) => ({ ...f, linked_database: e.target.value }))}
@@ -769,7 +696,7 @@ export function ProjectsPage() {
             ))}
           </Select>
         </Field>
-        <Field label="Bucket" meta="link">
+        <Field label="Bucket" meta="link" tip={goForm.linked_bucket ? `Injects ${LINKED_BUCKET_KEYS.join(', ')}` : undefined}>
           <Select
             value={goForm.linked_bucket}
             onChange={(e) => setGoForm((f) => ({ ...f, linked_bucket: e.target.value }))}

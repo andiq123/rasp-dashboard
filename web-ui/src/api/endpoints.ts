@@ -1,17 +1,21 @@
 import { api } from './client'
 import type {
+  ActivitySnapshot,
+  ActivityLine,
   AppState,
   Config,
+  Deployment,
   EngineView,
   FilesListing,
   GitHubBranch,
-  GitHubEntry,
-  GitHubFilePreview,
   GitHubRepo,
+  GitHubSSHKey,
   GitHubStatus,
   Group,
   ManageOverview,
   Service,
+  ServiceEnv,
+  ServiceSettings,
 } from './types'
 
 export function readInitialState(): AppState {
@@ -55,15 +59,7 @@ export const fetchDirs = (repo: string, branch: string) =>
     `/api/github/dirs?repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}`,
   )
 
-export const fetchGitHubContents = (repo: string, branch: string, path = '') =>
-  api<{ entries: GitHubEntry[] }>(
-    `/api/github/contents?repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}`,
-  ).then((r) => r.entries || [])
-
-export const fetchGitHubFile = (repo: string, branch: string, path: string) =>
-  api<GitHubFilePreview>(
-    `/api/github/file?repo=${encodeURIComponent(repo)}&branch=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}`,
-  )
+export const fetchGitHubSSHKey = () => api<GitHubSSHKey>('/api/github/ssh-key')
 
 export const fetchGroups = () =>
   api<{ groups: Group[] }>('/api/groups').then((r) => r.groups || [])
@@ -78,6 +74,33 @@ export const fetchServices = (group: string) =>
   api<{ services: Service[] }>(`/api/groups/${encodeURIComponent(group)}/services`).then(
     (r) => r.services || [],
   )
+
+export const fetchService = (group: string, slug: string) =>
+  api<Service>(`/api/groups/${encodeURIComponent(group)}/services/${encodeURIComponent(slug)}`)
+
+export const fetchServiceEnv = (group: string, slug: string) =>
+  api<ServiceEnv>(`/api/groups/${encodeURIComponent(group)}/services/${encodeURIComponent(slug)}/env`)
+
+export const updateServiceSettings = (group: string, slug: string, body: ServiceSettings) =>
+  api<Service>(`/api/groups/${encodeURIComponent(group)}/services/${encodeURIComponent(slug)}/settings`, {
+    method: 'PUT',
+    body,
+  })
+
+export const fetchServiceLogs = (group: string, slug: string, lines = 200) =>
+  api<{ logs?: string }>(
+    `/api/groups/${encodeURIComponent(group)}/services/${encodeURIComponent(slug)}/logs?lines=${lines}`,
+  ).then((r) => r.logs || '')
+
+export const fetchDeployments = (group: string, slug: string) =>
+  api<{ deployments: Deployment[] }>(
+    `/api/groups/${encodeURIComponent(group)}/services/${encodeURIComponent(slug)}/deployments`,
+  ).then((r) => r.deployments || [])
+
+export const fetchDeployLogs = (group: string, slug: string, deployId: string) =>
+  api<{ lines: ActivityLine[] }>(
+    `/api/groups/${encodeURIComponent(group)}/services/${encodeURIComponent(slug)}/deployments/${encodeURIComponent(deployId)}/logs`,
+  ).then((r) => r.lines || [])
 
 export const deployGo = (group: string, body: Record<string, unknown>) =>
   api(`/api/groups/${encodeURIComponent(group)}/services`, { method: 'POST', body })
@@ -127,5 +150,4 @@ export const fetchFilePreview = (path: string) =>
 export const filesOp = (body: { op: string; path: string; to?: string; name?: string }) =>
   api('/api/files', { method: 'POST', body })
 
-export const fetchActivity = () =>
-  api<{ lines?: string[]; active?: boolean; title?: string; scope?: string }>('/api/activity')
+export const fetchActivity = () => api<ActivitySnapshot>('/api/activity')

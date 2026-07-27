@@ -1,11 +1,11 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Database, FolderGit2, RefreshCw } from 'lucide-react'
+import { Copy, Database, FolderGit2, KeyRound, RefreshCw } from 'lucide-react'
 import {
   clearGitHubToken,
   engineAction,
   fetchEngine,
+  fetchGitHubSSHKey,
   fetchGitHubStatus,
   fetchManage,
   saveGitHubToken,
@@ -15,20 +15,24 @@ import { Button } from '@/components/ui/Button/Button'
 import { Empty } from '@/components/ui/Empty/Empty'
 import { Field, Input } from '@/components/ui/Field/Field'
 import { Panel } from '@/components/ui/Panel/Panel'
+import { PageHeader, PageSub } from '@/components/ui/PageHeader/PageHeader'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { usePendingAddGo } from '@/features/projects/pendingAddGo'
-import { PageHeader, PageSub } from '@/components/ui/PageHeader/PageHeader'
-import { muted } from '@/lib/ui'
+import { codeSurface, muted } from '@/lib/ui'
 
 export function SettingsPage() {
-  const navigate = useNavigate()
   const { showToast } = useToast()
   const qc = useQueryClient()
   const { pending, consumePending } = usePendingAddGo()
   const [token, setToken] = useState('')
 
   const gh = useQuery({ queryKey: queryKeys.githubStatus, queryFn: fetchGitHubStatus })
+  const sshKey = useQuery({
+    queryKey: queryKeys.githubSSHKey,
+    queryFn: fetchGitHubSSHKey,
+    enabled: !!gh.data?.connected,
+  })
   const manage = useQuery({ queryKey: queryKeys.manage, queryFn: fetchManage })
   const engine = useQuery({ queryKey: queryKeys.engine, queryFn: fetchEngine })
 
@@ -37,9 +41,11 @@ export function SettingsPage() {
     onSuccess: async () => {
       setToken('')
       showToast('GitHub connected')
-      await qc.invalidateQueries({ queryKey: queryKeys.githubStatus })
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: queryKeys.githubStatus }),
+        qc.invalidateQueries({ queryKey: queryKeys.githubSSHKey }),
+      ])
       if (pending) consumePending()
-      else navigate('/code')
     },
     onError: (e: Error) => showToast(e.message || 'GitHub failed'),
   })
@@ -71,9 +77,20 @@ export function SettingsPage() {
     onError: (e: Error) => showToast(e.message || 'Stop failed'),
   })
 
+  async function copySSHKey() {
+    const key = sshKey.data?.public_key?.trim()
+    if (!key) return
+    try {
+      await navigator.clipboard.writeText(key)
+      showToast('SSH key copied')
+    } catch {
+      showToast('Could not copy — select the key manually')
+    }
+  }
+
   return (
     <div className="mx-auto grid max-w-2xl gap-4">
-      <PageHeader title="Settings">
+      <PageHeader>
         <PageSub>Account and host storage</PageSub>
       </PageHeader>
 
@@ -88,29 +105,58 @@ export function SettingsPage() {
         {gh.isLoading ? (
           <Spinner label="Checking GitHub…" />
         ) : gh.data?.connected ? (
-          <div className="grid justify-items-start gap-3">
+          <div className="grid w-full gap-3 justify-items-start">
             <div className="badge badge-success badge-lg gap-2">
               <span className="status status-success" />
               {(gh.data.user && gh.data.user.login) || 'GitHub'}
             </div>
-            <p className={`text-sm ${muted} m-0`}>Connected. Disconnect to switch accounts.</p>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="primary"
-                icon={<FolderGit2 className="h-4 w-4" aria-hidden />}
-                onClick={() => navigate('/code')}
-              >
-                Browse code
-              </Button>
-              <Button variant="dangerSoft" loading={disconnect.isPending} onClick={() => disconnect.mutate()}>
-                Disconnect
-              </Button>
+            <p className={`text-sm ${muted} m-0`}>
+              Connected. Add this Pi’s SSH public key on GitHub (Settings → SSH and GPG keys), then
+              disconnect only to switch accounts.
+            </p>
+
+            <div className="w-full grid gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <strong className="text-sm inline-flex items-center gap-1.5">
+                  <KeyRound className="h-4 w-4" aria-hidden /> SSH public key
+                </strong>
+                <Button
+                  variant="primary"
+                  icon={<Copy className="h-3.5 w-3.5" aria-hidden />}
+                  disabled={!sshKey.data?.exists || !sshKey.data.public_key}
+                  onClick={() => void copySSHKey()}
+                >
+                  Copy
+                </Button>
+              </div>
+              {sshKey.isLoading ? (
+                <Spinner label="Loading SSH key…" />
+              ) : sshKey.isError ? (
+                <Empty title="Could not load SSH key" body={(sshKey.error as Error).message} />
+              ) : !sshKey.data?.exists ? (
+                <Empty
+                  title="No GitHub SSH key on this Pi"
+                  body={`Expected ${sshKey.data?.path || '~/.ssh/id_ed25519_github.pub'}. Create one with ssh-keygen, then refresh.`}
+                />
+              ) : (
+                <pre className={`${codeSurface} select-all`} tabIndex={0}>
+                  {sshKey.data.public_key}
+                </pre>
+              )}
+              {sshKey.data?.path ? (
+                <p className={`text-xs ${muted} m-0 font-mono`}>{sshKey.data.path}</p>
+              ) : null}
             </div>
+
+            <Button variant="dangerSoft" loading={disconnect.isPending} onClick={() => disconnect.mutate()}>
+              Disconnect
+            </Button>
           </div>
         ) : (
           <div className="grid w-full max-w-md gap-3 justify-items-start">
             <p className={`text-sm ${muted} m-0`}>
-              Paste a personal access token with repo read. Stored on this Pi only.
+              Paste a personal access token with repo read. Stored on this Pi only. After connect,
+              copy the SSH public key into GitHub.
             </p>
             <Field label="Personal access token" meta="github_pat_…" htmlFor="settings-gh-token">
               <Input

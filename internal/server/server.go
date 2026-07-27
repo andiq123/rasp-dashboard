@@ -96,8 +96,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/github/repos", s.handleGitHub)
 	mux.HandleFunc("/api/github/branches", s.handleGitHub)
 	mux.HandleFunc("/api/github/dirs", s.handleGitHub)
-	mux.HandleFunc("/api/github/contents", s.handleGitHub)
-	mux.HandleFunc("/api/github/file", s.handleGitHub)
+	mux.HandleFunc("/api/github/ssh-key", s.handleGitHub)
 	mux.HandleFunc("/api/infra/postgres/", s.handleInfraPostgres)
 	mux.HandleFunc("/api/infra/postgres/status", s.handleInfraPostgres)
 	mux.HandleFunc("/api/infra/postgres/start", s.handleInfraPostgres)
@@ -166,21 +165,37 @@ func (s *Server) handleAPIEvents(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "event: activity\ndata: %s\n\n", b)
 		fl.Flush()
 	}
+	sendServices := func(ev deploy.RegistryEvent) {
+		b, err := json.Marshal(ev)
+		if err != nil {
+			return
+		}
+		fmt.Fprintf(w, "event: services\ndata: %s\n\n", b)
+		fl.Flush()
+	}
 
 	var actCh <-chan deploy.ActivitySnapshot
-	var unsub func()
+	var unsubAct func()
+	var regCh <-chan deploy.RegistryEvent
+	var unsubReg func()
 	if s.Deploy != nil {
-		actCh, unsub = s.Deploy.SubscribeActivity()
-		defer unsub()
+		actCh, unsubAct = s.Deploy.SubscribeActivity()
+		defer unsubAct()
+		regCh, unsubReg = s.Deploy.SubscribeRegistry()
+		defer unsubReg()
 	} else {
-		ch := make(chan deploy.ActivitySnapshot)
-		close(ch)
-		actCh = ch
+		ach := make(chan deploy.ActivitySnapshot)
+		close(ach)
+		actCh = ach
+		rch := make(chan deploy.RegistryEvent)
+		close(rch)
+		regCh = rch
 	}
 
 	sendState()
 	if s.Deploy != nil {
 		sendActivity(s.Deploy.ActivitySnapshot())
+		// Registry subscribe already pushes current seq; no extra bootstrap needed.
 	}
 
 	tick := time.NewTicker(5 * time.Second)
@@ -198,6 +213,12 @@ func (s *Server) handleAPIEvents(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			sendActivity(snap)
+		case ev, ok := <-regCh:
+			if !ok {
+				regCh = nil
+				continue
+			}
+			sendServices(ev)
 		case <-tick.C:
 			sendState()
 		case <-keepAlive.C:

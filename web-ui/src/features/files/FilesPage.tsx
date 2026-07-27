@@ -78,7 +78,6 @@ export function FilesPage() {
   return (
     <div className="grid gap-3">
       <PageHeader
-        title="Files"
         actions={
           <div className="join join-horizontal flex-wrap items-center gap-1.5">
             <Button

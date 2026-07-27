@@ -6,7 +6,7 @@ Source lives in [`web-ui/`](../../../web-ui/) (Vite + React 19 + TypeScript + Ta
 web-ui/src/
   api/            # typed client + query keys
   components/ui/  # shared primitives (Button, Field, Modal, …)
-  features/       # overview | projects | code | settings | files
+  features/       # overview | projects | settings | files
   shell/          # rail + topbar
 ```
 
