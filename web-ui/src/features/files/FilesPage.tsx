@@ -5,6 +5,7 @@ import { ArrowUp, Eye, File, Folder, Home, Trash2 } from 'lucide-react'
 import { fetchFilePreview, fetchFiles, filesOp, readInitialState } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import { Button } from '@/components/ui/Button/Button'
+import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { Empty } from '@/components/ui/Empty/Empty'
 import { Input } from '@/components/ui/Field/Field'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
@@ -24,6 +25,7 @@ export function FilesPage() {
   const { '*': splat } = useParams()
   const navigate = useNavigate()
   const { showToast } = useToast()
+  const { confirm } = useConfirm()
   const qc = useQueryClient()
   const home = readInitialState().files_root || '/home'
   const pathFromRoute = splat ? `/${splat}` : ''
@@ -46,12 +48,24 @@ export function FilesPage() {
   const delMut = useMutation({
     mutationFn: (p: string) => filesOp({ op: 'delete', path: p }),
     onSuccess: async () => {
-      showToast('Deleted')
+      showToast('File deleted')
       setSelected(null)
       await qc.invalidateQueries({ queryKey: queryKeys.files(path) })
     },
-    onError: (e: Error) => showToast(e.message),
+    onError: (e: Error) => showToast(e.message, 'error'),
   })
+
+  async function onDeleteSelected() {
+    if (!selected) return
+    const name = selected.split('/').pop() || selected
+    const ok = await confirm({
+      title: `Delete ${name}?`,
+      body: selected,
+      confirmLabel: 'Delete',
+      danger: true,
+    })
+    if (ok) delMut.mutate(selected)
+  }
 
   const entries = useMemo(() => {
     const list = listingQ.data?.entries || []
@@ -199,13 +213,20 @@ export function FilesPage() {
         <aside className={`card ${surface} min-h-[360px]`}>
           <div className="card-body gap-2.5 p-3 grid grid-rows-[auto_1fr]">
             {!selected ? (
-              <Empty title="Select a file" body="Preview text files here." />
+              <Empty
+                compact
+                icon={<Eye className="h-5 w-5" aria-hidden />}
+                title="Select a file"
+                body="Preview text files here."
+              />
             ) : previewQ.isLoading ? (
-              <Spinner label="Loading preview…" />
+              <Spinner compact label="Loading preview…" />
+            ) : previewQ.isError ? (
+              <Empty compact title="Preview failed" body={(previewQ.error as Error).message} />
             ) : previewQ.data?.binary ? (
-              <Empty title="Binary file" body="No text preview." />
+              <Empty compact title="Binary file" body="No text preview." />
             ) : previewQ.data?.error ? (
-              <Empty title="Preview failed" body={previewQ.data.error} />
+              <Empty compact title="Preview failed" body={previewQ.data.error} />
             ) : (
               <>
                 <div className="flex justify-between gap-2 items-center">
@@ -217,9 +238,7 @@ export function FilesPage() {
                     variant="dangerSoft"
                     icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />}
                     loading={delMut.isPending}
-                    onClick={() => {
-                      if (selected && confirm(`Delete ${selected}?`)) delMut.mutate(selected)
-                    }}
+                    onClick={() => void onDeleteSelected()}
                   >
                     Delete
                   </Button>

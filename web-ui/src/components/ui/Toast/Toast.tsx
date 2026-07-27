@@ -9,12 +9,22 @@ import {
   type ReactNode,
 } from 'react'
 
-type ToastCtx = { showToast: (message: string) => void }
+export type ToastTone = 'success' | 'error' | 'info'
+
+type ToastCtx = {
+  showToast: (message: string, tone?: ToastTone) => void
+}
 
 const Ctx = createContext<ToastCtx | null>(null)
 
+const alertClass: Record<ToastTone, string> = {
+  success: 'alert-success',
+  error: 'alert-error',
+  info: 'alert-info',
+}
+
 export function ToastProvider({ children }: { children: ReactNode }) {
-  const [message, setMessage] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -23,10 +33,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const showToast = useCallback((msg: string) => {
+  const showToast = useCallback((message: string, tone: ToastTone = 'success') => {
     if (timerRef.current) clearTimeout(timerRef.current)
-    setMessage(msg)
-    timerRef.current = setTimeout(() => setMessage(null), 2800)
+    setToast({ message, tone })
+    timerRef.current = setTimeout(() => setToast(null), tone === 'error' ? 4200 : 2800)
   }, [])
 
   const value = useMemo(() => ({ showToast }), [showToast])
@@ -35,9 +45,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <Ctx.Provider value={value}>
       {children}
       <div className="toast toast-bottom toast-center z-[60]">
-        {message ? (
-          <div className="alert alert-success shadow-md" role="status" aria-live="polite">
-            <span>{message}</span>
+        {toast ? (
+          <div
+            className={`alert ${alertClass[toast.tone]} shadow-md text-sm`}
+            role={toast.tone === 'error' ? 'alert' : 'status'}
+            aria-live={toast.tone === 'error' ? 'assertive' : 'polite'}
+          >
+            <span>{toast.message}</span>
           </div>
         ) : null}
       </div>

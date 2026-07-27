@@ -6,7 +6,7 @@ type Props = {
   title: string
   sub?: ReactNode
   onClose: () => void
-  children: ReactNode
+  children?: ReactNode
   footer?: ReactNode
   size?: 'sm' | 'md'
 }
@@ -34,7 +34,9 @@ export function Modal({ open, title, sub, onClose, children, footer, size = 'sm'
           {title}
         </h3>
         {sub ? <p className={`text-sm mt-1 ${muted}`}>{sub}</p> : null}
-        <div className="mt-4 grid gap-3">{children}</div>
+        {children != null && children !== false ? (
+          <div className="mt-4 grid gap-3">{children}</div>
+        ) : null}
         {footer ? <div className="modal-action flex-wrap">{footer}</div> : null}
       </div>
       <form method="dialog" className="modal-backdrop bg-base-content/20">

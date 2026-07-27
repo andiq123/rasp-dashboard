@@ -39,6 +39,8 @@ import { Field, Input, Select, TextArea } from '@/components/ui/Field/Field'
 import { Modal } from '@/components/ui/Modal/Modal'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { useToast } from '@/components/ui/Toast/Toast'
+import { useConfirm } from '@/components/ui/Confirm/Confirm'
+import { actionDoneLabel } from '@/lib/actions'
 import { fmtBytes, slugify } from '@/lib/format'
 import { muted, surface, tile } from '@/lib/ui'
 import { usePendingAddGo } from './pendingAddGo'
@@ -56,6 +58,7 @@ export function ProjectsPage() {
   const navigate = useNavigate()
   const [search, setSearch] = useSearchParams()
   const { showToast } = useToast()
+  const { confirm } = useConfirm()
   const qc = useQueryClient()
   const { setPending } = usePendingAddGo()
   const { activity, live } = useActivity()
@@ -152,16 +155,16 @@ export function ProjectsPage() {
       await qc.invalidateQueries({ queryKey: queryKeys.groups })
       navigate(`/projects/${encodeURIComponent(g.slug)}`)
     },
-    onError: (e: Error) => showToast(e.message),
+    onError: (e: Error) => showToast(e.message, 'error'),
   })
 
   const renameMut = useMutation({
     mutationFn: () => renameGroup(groupSlug, draftName.trim()),
     onSuccess: async () => {
-      showToast('Saved')
+      showToast('Group renamed')
       await qc.invalidateQueries({ queryKey: queryKeys.groups })
     },
-    onError: (e: Error) => showToast(e.message),
+    onError: (e: Error) => showToast(e.message, 'error'),
   })
 
   const deleteGroupMut = useMutation({
@@ -171,7 +174,7 @@ export function ProjectsPage() {
       await qc.invalidateQueries({ queryKey: queryKeys.groups })
       navigate('/projects')
     },
-    onError: (e: Error) => showToast(e.message),
+    onError: (e: Error) => showToast(e.message, 'error'),
   })
 
   const deployMut = useMutation({
@@ -193,44 +196,67 @@ export function ProjectsPage() {
       })
     },
     onSuccess: async () => {
-      showToast('Deploying…')
+      showToast('Deploy started', 'info')
       setWizard(null)
       await qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) })
     },
-    onError: (e: Error) => showToast(e.message || 'Deploy failed'),
+    onError: (e: Error) => showToast(e.message || 'Deploy failed', 'error'),
   })
 
   const pgMut = useMutation({
     mutationFn: () => createPostgres(groupSlug, { type: 'postgres', name: pgName.trim(), version: 'latest' }),
     onSuccess: async () => {
-      showToast('Postgres creating…')
+      showToast('Postgres creating…', 'info')
       setWizard(null)
       setPgName('')
       await qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) })
     },
-    onError: (e: Error) => showToast(e.message),
+    onError: (e: Error) => showToast(e.message, 'error'),
   })
 
   const bucketMut = useMutation({
     mutationFn: () => createBucket(groupSlug, { type: 'bucket', name: bucketName.trim() }),
     onSuccess: async () => {
-      showToast('Bucket creating…')
+      showToast('Bucket creating…', 'info')
       setWizard(null)
       setBucketName('')
       await qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) })
     },
-    onError: (e: Error) => showToast(e.message),
+    onError: (e: Error) => showToast(e.message, 'error'),
   })
 
   const svcAct = useMutation({
     mutationFn: ({ slug, action }: { slug: string; action: string }) =>
       serviceAction(groupSlug, slug, action),
     onSuccess: async (_, v) => {
-      showToast(v.action)
+      showToast(actionDoneLabel(v.action))
       await qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) })
     },
-    onError: (e: Error) => showToast(e.message),
+    onError: (e: Error) => showToast(e.message, 'error'),
   })
+
+  async function onDeleteGroup() {
+    const ok = await confirm({
+      title: `Delete group ${groupSlug}?`,
+      body: 'All services in this group will be removed.',
+      confirmLabel: 'Delete group',
+      danger: true,
+    })
+    if (ok) deleteGroupMut.mutate()
+  }
+
+  async function onServiceAction(slug: string, action: string) {
+    if (action === 'stop' || action === 'redeploy') {
+      const ok = await confirm({
+        title: action === 'stop' ? `Stop ${slug}?` : `Redeploy ${slug}?`,
+        body: action === 'stop' ? 'The service will stop accepting traffic.' : 'A new build and deploy will start.',
+        confirmLabel: action === 'stop' ? 'Stop' : 'Redeploy',
+        danger: action === 'stop',
+      })
+      if (!ok) return
+    }
+    svcAct.mutate({ slug, action })
+  }
 
   const dbs = services.filter((s) => s.type === 'postgres')
   const buckets = services.filter((s) => s.type === 'bucket')
@@ -282,11 +308,11 @@ export function ProjectsPage() {
               </Button>
             </div>
             {groupsQ.isLoading ? (
-              <Spinner label="Loading groups…" />
+              <Spinner compact label="Loading groups…" />
             ) : groupsQ.isError ? (
-              <Empty title="Could not load groups" body={(groupsQ.error as Error).message} />
+              <Empty compact title="Could not load groups" body={(groupsQ.error as Error).message} />
             ) : !(groupsQ.data || []).length ? (
-              <Empty title="No groups yet" body="Create a group to deploy apps and databases." />
+              <Empty compact title="No groups yet" body="Create a group to deploy apps and databases." />
             ) : (
               <nav className="menu menu-sm gap-1 p-0" aria-label="Groups">
                 {(groupsQ.data || []).map((g) => (
@@ -379,9 +405,7 @@ export function ProjectsPage() {
                       variant="dangerSoft"
                       icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />}
                       loading={deleteGroupMut.isPending}
-                      onClick={() => {
-                        if (confirm(`Delete group ${groupSlug}?`)) deleteGroupMut.mutate()
-                      }}
+                      onClick={() => void onDeleteGroup()}
                     >
                       Delete
                     </Button>
@@ -396,9 +420,9 @@ export function ProjectsPage() {
                 </header>
 
                 {servicesQ.isLoading ? (
-                  <Spinner label="Loading services…" />
+                  <Spinner compact label="Loading services…" />
                 ) : servicesQ.isError ? (
-                  <Empty title="Could not load services" body={(servicesQ.error as Error).message} />
+                  <Empty compact title="Could not load services" body={(servicesQ.error as Error).message} />
                 ) : !services.length ? (
                   <Empty
                     title="Nothing here yet"
@@ -414,7 +438,7 @@ export function ProjectsPage() {
                     }
                   />
                 ) : (
-                  <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-2.5">
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2">
                     {services.map((svc) => {
                       const st = statusLabel(svc)
                       const building = isBuilding(svc)
@@ -426,7 +450,7 @@ export function ProjectsPage() {
                           type="button"
                           key={svc.slug}
                           className={[
-                            `card ${surface} text-left cursor-pointer transition-colors hover:border-primary/40`,
+                            `card ${surface} text-left cursor-pointer transition-colors duration-300 hover:border-primary/40 section-enter`,
                             busy ? 'border-info/40' : '',
                             svc.slug === serviceSlug ? 'border-primary ring-2 ring-primary/20' : '',
                           ].join(' ')}
@@ -434,7 +458,7 @@ export function ProjectsPage() {
                             navigate(`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`)
                           }
                         >
-                          <div className="card-body gap-2 p-3">
+                          <div className="card-body gap-1.5 p-2.5">
                             <div className="flex justify-between gap-2 items-start">
                               <strong className="text-sm">{svc.name || svc.slug}</strong>
                               <span className={`badge badge-sm ${busy ? 'badge-info' : st.badge}`}>
@@ -447,19 +471,14 @@ export function ProjectsPage() {
                               {svc.port ? ` · :${svc.port}` : ''}
                               {svc.repo ? ` · ${svc.repo}` : ''}
                             </div>
-                            {svc.type === 'go' ? (
+                            {svc.type === 'go' && !busy ? (
                               <div className="flex flex-wrap gap-1" onClick={(e) => e.stopPropagation()}>
-                                {busy ? (
-                                  <span className="badge badge-info badge-sm gap-1">
-                                    <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-                                    {activity.progress?.label || 'Building…'}
-                                  </span>
-                                ) : svc.running ? (
+                                {svc.running ? (
                                   <Button
                                     variant="quiet"
                                     icon={<Square className="h-3.5 w-3.5" aria-hidden />}
                                     loading={svcAct.isPending}
-                                    onClick={() => svcAct.mutate({ slug: svc.slug, action: 'stop' })}
+                                    onClick={() => void onServiceAction(svc.slug, 'stop')}
                                   >
                                     Stop
                                   </Button>
@@ -468,7 +487,7 @@ export function ProjectsPage() {
                                     variant="primary"
                                     icon={<Play className="h-3.5 w-3.5" aria-hidden />}
                                     loading={svcAct.isPending}
-                                    onClick={() => svcAct.mutate({ slug: svc.slug, action: 'start' })}
+                                    onClick={() => void onServiceAction(svc.slug, 'start')}
                                   >
                                     Start
                                   </Button>
@@ -477,7 +496,7 @@ export function ProjectsPage() {
                                   variant="quiet"
                                   icon={<RefreshCw className="h-3.5 w-3.5" aria-hidden />}
                                   loading={svcAct.isPending}
-                                  onClick={() => svcAct.mutate({ slug: svc.slug, action: 'redeploy' })}
+                                  onClick={() => void onServiceAction(svc.slug, 'redeploy')}
                                 >
                                   Redeploy
                                 </Button>

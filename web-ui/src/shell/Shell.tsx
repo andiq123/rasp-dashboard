@@ -39,14 +39,14 @@ export function Rail() {
               className={({ isActive }) =>
                 [
                   'flex w-full flex-col items-center gap-1 rounded-box px-1 py-2 text-[10px] font-semibold',
-                  'transition-[color,background-color,transform] duration-200 ease-out',
+                  'transition-[color,background-color,transform] duration-300 ease-out',
                   isActive
                     ? 'bg-primary/10 text-primary scale-[1.02]'
                     : `${muted} hover:bg-base-200 hover:text-base-content active:scale-[0.98]`,
                 ].join(' ')
               }
             >
-              <Icon className="h-5 w-5 transition-transform duration-200" strokeWidth={1.75} aria-hidden />
+              <Icon className="h-5 w-5 transition-transform duration-300" strokeWidth={1.75} aria-hidden />
               <span>{item.label}</span>
             </NavLink>
           )
@@ -80,7 +80,7 @@ export function Topbar({ live }: { live: boolean }) {
       </div>
       <div className="flex-none">
         <div
-          className={`badge badge-sm gap-1.5 transition-colors duration-200 ${live ? 'badge-success' : 'badge-ghost'}`}
+          className={`badge badge-sm gap-1.5 transition-colors duration-300 ${live ? 'badge-success' : 'badge-ghost'}`}
           title={live ? 'Live updates connected' : 'Connecting to live updates'}
         >
           <Radio className="h-3 w-3" aria-hidden />

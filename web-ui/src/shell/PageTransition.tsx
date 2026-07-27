@@ -26,22 +26,16 @@ function usePrefersReducedMotion(): boolean {
   }, [])
   return reduced
 }
-
-const supportsViewTransition =
-  typeof document !== 'undefined' && 'startViewTransition' in document
-
 /**
- * Smooth enter when switching Overview / Projects / Files / Settings.
- * Skips when the View Transitions API already animates the nav, and when
- * the user prefers reduced motion.
+ * Soft enter when switching Overview / Projects / Files / Settings.
+ * Skips motion when the user prefers reduced motion.
  */
 export function PageTransition({ children }: { children: ReactNode }) {
   const section = useAppSection()
   const reduced = usePrefersReducedMotion()
-  const animate = !reduced && !supportsViewTransition
 
   return (
-    <div key={section} className={animate ? 'page-enter' : undefined} data-page={section}>
+    <div key={section} className={reduced ? undefined : 'page-enter'} data-page={section}>
       {children}
     </div>
   )

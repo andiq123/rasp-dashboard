@@ -26,7 +26,9 @@ import { Empty } from '@/components/ui/Empty/Empty'
 import { Field, Input, Select, TextArea } from '@/components/ui/Field/Field'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { useToast } from '@/components/ui/Toast/Toast'
+import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { activityMatchesService, useActivity } from '@/hooks/useActivity'
+import { actionDoneLabel } from '@/lib/actions'
 import { fmtRelative } from '@/lib/format'
 import { codeSurface, muted, surface, tile } from '@/lib/ui'
 import { isBuilding, statusLabel } from './serviceStatus'
@@ -43,6 +45,7 @@ type Props = {
 
 export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Props) {
   const { showToast } = useToast()
+  const { confirm } = useConfirm()
   const qc = useQueryClient()
   const { activity, live } = useActivity()
   const [tab, setTab] = useState<Tab>('config')
@@ -72,26 +75,59 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
   const act = useMutation({
     mutationFn: (action: string) => serviceAction(group, slug, action),
     onSuccess: async (_, action) => {
-      showToast(action === 'redeploy' ? 'Redeploy started' : `${action} ok`)
+      showToast(actionDoneLabel(action))
       await invalidate()
       if (action === 'redeploy') setTab('console')
     },
-    onError: (e: Error) => showToast(e.message),
+    onError: (e: Error) => showToast(e.message, 'error'),
   })
 
   const del = useMutation({
     mutationFn: () => deleteService(group, slug),
     onSuccess: async () => {
-      showToast('Deleted')
+      showToast('Service deleted')
       await qc.invalidateQueries({ queryKey: queryKeys.services(group) })
       onDeleted()
     },
-    onError: (e: Error) => showToast(e.message),
+    onError: (e: Error) => showToast(e.message, 'error'),
   })
 
-  if (svcQ.isLoading) return <Spinner label="Loading service…" />
+  async function onAct(action: string) {
+    if (action === 'stop' || action === 'redeploy') {
+      const ok = await confirm({
+        title: action === 'stop' ? `Stop ${slug}?` : `Redeploy ${slug}?`,
+        body:
+          action === 'stop'
+            ? 'The service will stop accepting traffic.'
+            : 'A new build and deploy will start.',
+        confirmLabel: action === 'stop' ? 'Stop' : 'Redeploy',
+        danger: action === 'stop',
+      })
+      if (!ok) return
+    }
+    act.mutate(action)
+  }
+
+  async function onDelete() {
+    const ok = await confirm({
+      title: `Delete ${slug}?`,
+      body: 'Containers, deployments, and env for this service will be removed.',
+      confirmLabel: 'Delete',
+      danger: true,
+    })
+    if (ok) del.mutate()
+  }
+
+  if (svcQ.isLoading) return <Spinner compact label="Loading service…" />
   if (svcQ.isError || !svc) {
-    return <Empty title="Service not found" body={(svcQ.error as Error)?.message} action={<Button onClick={onClose}>Back</Button>} />
+    return (
+      <Empty
+        compact
+        title="Service not found"
+        body={(svcQ.error as Error)?.message}
+        action={<Button onClick={onClose}>Back</Button>}
+      />
+    )
   }
 
   const st = statusLabel(svc)
@@ -138,7 +174,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
                 variant="primary"
                 icon={svc.running ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
                 loading={act.isPending}
-                onClick={() => act.mutate(svc.running ? 'stop' : 'start')}
+                onClick={() => void onAct(svc.running ? 'stop' : 'start')}
               >
                 {svc.running ? 'Stop' : 'Start'}
               </Button>
@@ -146,7 +182,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
                 variant="quiet"
                 icon={<RefreshCw className="h-3.5 w-3.5" />}
                 loading={act.isPending}
-                onClick={() => act.mutate('redeploy')}
+                onClick={() => void onAct('redeploy')}
               >
                 Redeploy
               </Button>
@@ -156,9 +192,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
             variant="dangerSoft"
             icon={<Trash2 className="h-3.5 w-3.5" />}
             loading={del.isPending}
-            onClick={() => {
-              if (confirm(`Delete ${svc.slug}?`)) del.mutate()
-            }}
+            onClick={() => void onDelete()}
           >
             Delete
           </Button>
@@ -310,10 +344,10 @@ function ConfigTab({
         cpus: Number(cpus) || 1,
       }),
     onSuccess: async () => {
-      showToast('Saved')
+      showToast('Config saved')
       await onSaved()
     },
-    onError: (e: Error) => showToast(e.message),
+    onError: (e: Error) => showToast(e.message, 'error'),
   })
 
   return (
@@ -427,7 +461,7 @@ function VariablesTab({ group, slug, svc }: { group: string; slug: string; svc: 
       showToast('Variables saved')
       await qc.invalidateQueries({ queryKey: queryKeys.serviceEnv(group, slug) })
     },
-    onError: (e: Error) => showToast(e.message),
+    onError: (e: Error) => showToast(e.message, 'error'),
   })
 
   const linkedHint = useMemo(() => {
@@ -437,8 +471,10 @@ function VariablesTab({ group, slug, svc }: { group: string; slug: string; svc: 
     return bits.join(' · ')
   }, [svc.linked_database, svc.linked_bucket])
 
-  if (envQ.isLoading) return <Spinner label="Loading variables…" />
-  if (envQ.isError) return <Empty title="Could not load env" body={(envQ.error as Error).message} />
+  if (envQ.isLoading) return <Spinner compact label="Loading variables…" />
+  if (envQ.isError) {
+    return <Empty compact title="Could not load env" body={(envQ.error as Error).message} />
+  }
 
   return (
     <div className="grid gap-3">
@@ -496,11 +532,26 @@ function ConsoleTab({
         ) : null}
       </div>
       {logsQ.isLoading && !deploying ? (
-        <Spinner label="Loading logs…" />
+        <Spinner compact label="Loading logs…" />
+      ) : logsQ.isError && !deploying ? (
+        <Empty
+          compact
+          title="Could not load logs"
+          body={(logsQ.error as Error).message}
+          action={
+            <Button variant="quiet" onClick={() => void logsQ.refetch()}>
+              Retry
+            </Button>
+          }
+        />
       ) : !text.trim() ? (
-        <Empty title="No output yet" body={deploying ? 'Waiting for deploy logs…' : 'Start the service to see logs.'} />
+        <Empty
+          compact
+          title="No output yet"
+          body={deploying ? 'Waiting for deploy logs…' : 'Start the service to see logs.'}
+        />
       ) : (
-        <pre className={`${codeSurface} min-h-[280px] max-h-[480px]`}>{text}</pre>
+        <pre className={`${codeSurface} min-h-[240px] max-h-[420px]`}>{text}</pre>
       )}
     </div>
   )
@@ -528,10 +579,12 @@ function DeploysTab({
     enabled: !!deployId,
   })
 
-  if (listQ.isLoading) return <Spinner label="Loading deploys…" />
-  if (listQ.isError) return <Empty title="Could not load deploys" body={(listQ.error as Error).message} />
+  if (listQ.isLoading) return <Spinner compact label="Loading deploys…" />
+  if (listQ.isError) {
+    return <Empty compact title="Could not load deploys" body={(listQ.error as Error).message} />
+  }
   const items = listQ.data || []
-  if (!items.length) return <Empty title="No deployments yet" />
+  if (!items.length) return <Empty compact title="No deployments yet" body="Redeploy to create the first build." />
 
   return (
     <div className="grid gap-3 lg:grid-cols-[minmax(200px,280px)_minmax(0,1fr)]">
@@ -540,7 +593,7 @@ function DeploysTab({
           <li key={d.id}>
             <button
               type="button"
-              className={`w-full text-left px-3 py-2 rounded-box border transition-colors ${
+              className={`w-full text-left px-3 py-2 rounded-box border transition-colors duration-300 ${
                 deployId === d.id
                   ? 'border-primary bg-primary/10'
                   : 'border-base-300 hover:border-primary/40'
@@ -556,11 +609,13 @@ function DeploysTab({
       </ul>
       <div>
         {!deployId ? (
-          <Empty title="Select a deploy" body="View build logs for a past deployment." />
+          <Empty compact title="Select a deploy" body="View build logs for a past deployment." />
         ) : logsQ.isLoading ? (
-          <Spinner label="Loading deploy logs…" />
+          <Spinner compact label="Loading deploy logs…" />
+        ) : logsQ.isError ? (
+          <Empty compact title="Could not load deploy logs" body={(logsQ.error as Error).message} />
         ) : (
-          <pre className={`${codeSurface} min-h-[280px] max-h-[480px]`}>
+          <pre className={`${codeSurface} min-h-[240px] max-h-[420px]`}>
             {(logsQ.data || []).map((l) => `[${l.level}] ${l.text}`).join('\n') || 'No log lines.'}
           </pre>
         )}

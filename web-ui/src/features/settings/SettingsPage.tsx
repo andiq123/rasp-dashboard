@@ -12,6 +12,7 @@ import {
 } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import { Button } from '@/components/ui/Button/Button'
+import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { Empty } from '@/components/ui/Empty/Empty'
 import { Field, Input } from '@/components/ui/Field/Field'
 import { Panel } from '@/components/ui/Panel/Panel'
@@ -23,6 +24,7 @@ import { codeSurface, muted } from '@/lib/ui'
 
 export function SettingsPage() {
   const { showToast } = useToast()
+  const { confirm } = useConfirm()
   const qc = useQueryClient()
   const { pending, consumePending } = usePendingAddGo()
   const [token, setToken] = useState('')
@@ -47,16 +49,16 @@ export function SettingsPage() {
       ])
       if (pending) consumePending()
     },
-    onError: (e: Error) => showToast(e.message || 'GitHub failed'),
+    onError: (e: Error) => showToast(e.message || 'GitHub failed', 'error'),
   })
 
   const disconnect = useMutation({
     mutationFn: clearGitHubToken,
     onSuccess: async () => {
-      showToast('Disconnected')
+      showToast('GitHub disconnected')
       await qc.invalidateQueries({ queryKey: queryKeys.githubStatus })
     },
-    onError: (e: Error) => showToast(e.message || 'Disconnect failed'),
+    onError: (e: Error) => showToast(e.message || 'Disconnect failed', 'error'),
   })
 
   const engStart = useMutation({
@@ -65,7 +67,7 @@ export function SettingsPage() {
       showToast('Postgres started')
       await qc.invalidateQueries({ queryKey: queryKeys.engine })
     },
-    onError: (e: Error) => showToast(e.message || 'Start failed'),
+    onError: (e: Error) => showToast(e.message || 'Start failed', 'error'),
   })
 
   const engStop = useMutation({
@@ -74,7 +76,7 @@ export function SettingsPage() {
       showToast('Postgres stopped')
       await qc.invalidateQueries({ queryKey: queryKeys.engine })
     },
-    onError: (e: Error) => showToast(e.message || 'Stop failed'),
+    onError: (e: Error) => showToast(e.message || 'Stop failed', 'error'),
   })
 
   async function copySSHKey() {
@@ -84,8 +86,28 @@ export function SettingsPage() {
       await navigator.clipboard.writeText(key)
       showToast('SSH key copied')
     } catch {
-      showToast('Could not copy — select the key manually')
+      showToast('Could not copy — select the key manually', 'error')
     }
+  }
+
+  async function onDisconnect() {
+    const ok = await confirm({
+      title: 'Disconnect GitHub?',
+      body: 'Deploying new Go apps will require connecting again. Existing services keep running.',
+      confirmLabel: 'Disconnect',
+      danger: true,
+    })
+    if (ok) disconnect.mutate()
+  }
+
+  async function onStopPostgres() {
+    const ok = await confirm({
+      title: 'Stop shared Postgres?',
+      body: 'Linked app databases on this engine will become unreachable until you start it again.',
+      confirmLabel: 'Stop',
+      danger: true,
+    })
+    if (ok) engStop.mutate()
   }
 
   return (
@@ -103,7 +125,18 @@ export function SettingsPage() {
         hint="Deploy Go apps from your repositories."
       >
         {gh.isLoading ? (
-          <Spinner label="Checking GitHub…" />
+          <Spinner compact label="Checking GitHub…" />
+        ) : gh.isError ? (
+          <Empty
+            compact
+            title="Could not check GitHub"
+            body={(gh.error as Error).message}
+            action={
+              <Button variant="quiet" onClick={() => void gh.refetch()}>
+                Retry
+              </Button>
+            }
+          />
         ) : gh.data?.connected ? (
           <div className="grid w-full gap-3 justify-items-start">
             <div className="badge badge-success badge-lg gap-2">
@@ -130,11 +163,12 @@ export function SettingsPage() {
                 </Button>
               </div>
               {sshKey.isLoading ? (
-                <Spinner label="Loading SSH key…" />
+                <Spinner compact label="Loading SSH key…" />
               ) : sshKey.isError ? (
-                <Empty title="Could not load SSH key" body={(sshKey.error as Error).message} />
+                <Empty compact title="Could not load SSH key" body={(sshKey.error as Error).message} />
               ) : !sshKey.data?.exists ? (
                 <Empty
+                  compact
                   title="No GitHub SSH key on this Pi"
                   body={`Expected ${sshKey.data?.path || '~/.ssh/id_ed25519_github.pub'}. Create one with ssh-keygen, then refresh.`}
                 />
@@ -148,7 +182,7 @@ export function SettingsPage() {
               ) : null}
             </div>
 
-            <Button variant="dangerSoft" loading={disconnect.isPending} onClick={() => disconnect.mutate()}>
+            <Button variant="dangerSoft" loading={disconnect.isPending} onClick={() => void onDisconnect()}>
               Disconnect
             </Button>
           </div>
@@ -193,13 +227,25 @@ export function SettingsPage() {
         hint="Disk, Docker inventory, and the shared Postgres engine."
       >
         {manage.isLoading || engine.isLoading ? (
-          <Spinner label="Loading storage…" />
+          <Spinner compact label="Loading storage…" />
         ) : manage.isError ? (
           <Empty
+            compact
             title="Could not load storage"
             body={(manage.error as Error).message}
             action={
-              <Button variant="primary" onClick={() => manage.refetch()}>
+              <Button variant="primary" onClick={() => void manage.refetch()}>
+                Retry
+              </Button>
+            }
+          />
+        ) : engine.isError ? (
+          <Empty
+            compact
+            title="Could not load Postgres engine"
+            body={(engine.error as Error).message}
+            action={
+              <Button variant="quiet" onClick={() => void engine.refetch()}>
                 Retry
               </Button>
             }
@@ -208,14 +254,18 @@ export function SettingsPage() {
           <div className="grid gap-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <strong className="block">Shared Postgres</strong>
-                <p className={`text-sm ${muted} m-0 mt-0.5`}>
+                <strong className="block text-sm">Shared Postgres</strong>
+                <p className={`text-xs ${muted} m-0 mt-0.5`}>
                   {engine.data?.postgres_running ? 'Running' : 'Stopped'}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 {engine.data?.postgres_running ? (
-                  <Button variant="dangerSoft" loading={engStop.isPending} onClick={() => engStop.mutate()}>
+                  <Button
+                    variant="dangerSoft"
+                    loading={engStop.isPending}
+                    onClick={() => void onStopPostgres()}
+                  >
                     Stop
                   </Button>
                 ) : (
@@ -235,7 +285,7 @@ export function SettingsPage() {
                 </Button>
               </div>
             </div>
-            <p className={`text-sm ${muted} m-0`}>
+            <p className={`text-xs ${muted} m-0`}>
               Daemon{' '}
               {(manage.data?.daemon as { running?: boolean } | undefined)?.running ? 'running' : 'offline'}
               {(manage.data?.docker as { containers?: unknown[] } | undefined)?.containers
