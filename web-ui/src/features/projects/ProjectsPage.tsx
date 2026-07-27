@@ -10,8 +10,8 @@ import {
   Loader2,
   Plus,
   Play,
-  RefreshCw,
-  Square,
+  CircleStop,
+  RotateCw,
   Trash2,
 } from 'lucide-react'
 import {
@@ -42,10 +42,10 @@ import { useToast } from '@/components/ui/Toast/Toast'
 import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { actionDoneLabel } from '@/lib/actions'
 import { fmtBytes, slugify } from '@/lib/format'
-import { muted, surface, tile } from '@/lib/ui'
+import { muted, surface, tile, iconWell } from '@/lib/ui'
 import { usePendingAddGo } from './pendingAddGo'
 import { ServiceDetail } from './ServiceDetail'
-import { isBuilding, statusLabel } from './serviceStatus'
+import { isBuilding, serviceTypeIcon, statusLabel } from './serviceStatus'
 import { activityMatchesGroup, activityMatchesService, useActivity } from '@/hooks/useActivity'
 
 type WizardStep = 'type' | 'github' | 'group' | 'go' | 'postgres' | 'bucket' | null
@@ -229,7 +229,7 @@ export function ProjectsPage() {
     mutationFn: ({ slug, action }: { slug: string; action: string }) =>
       serviceAction(groupSlug, slug, action),
     onSuccess: async (_, v) => {
-      showToast(actionDoneLabel(v.action))
+      showToast(actionDoneLabel(v.action), v.action === 'redeploy' ? 'info' : 'success')
       await qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) })
     },
     onError: (e: Error) => showToast(e.message, 'error'),
@@ -366,7 +366,7 @@ export function ProjectsPage() {
               <>
                 <header
                   className={`flex items-start gap-2.5 pb-3 border-b border-base-300 ${
-                    deployingN ? 'relative after:absolute after:left-0 after:right-0 after:-bottom-px after:h-0.5 after:rounded after:bg-gradient-to-r after:from-info/20 after:via-info after:to-info/20 after:bg-[length:220%_100%] after:animate-pulse' : ''
+                    deployingN ? 'relative after:absolute after:left-0 after:right-0 after:-bottom-px after:h-0.5 after:rounded after:bg-gradient-to-r after:from-info/20 after:via-info after:to-info/20 after:bg-[length:220%_100%] motion-safe:after:animate-pulse' : ''
                   }`}
                 >
                   <Button
@@ -438,72 +438,88 @@ export function ProjectsPage() {
                     }
                   />
                 ) : (
-                  <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2">
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2">
                     {services.map((svc) => {
                       const st = statusLabel(svc)
                       const building = isBuilding(svc)
                       const liveHere =
                         activityMatchesService(activity, groupSlug, svc.slug) && activity.active
                       const busy = building || liveHere
+                      const TypeIcon = serviceTypeIcon(svc.type)
+                      const actPending =
+                        svcAct.isPending && svcAct.variables?.slug === svc.slug
+                      const open = () =>
+                        navigate(`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`)
                       return (
-                        <button
-                          type="button"
+                        <article
                           key={svc.slug}
                           className={[
-                            `card ${surface} text-left cursor-pointer transition-colors duration-300 hover:border-primary/40 section-enter`,
+                            `card ${surface} transition-[border-color,box-shadow,transform] duration-300 hover:border-primary/40 motion-safe:hover:-translate-y-0.5`,
                             busy ? 'border-info/40' : '',
-                            svc.slug === serviceSlug ? 'border-primary ring-2 ring-primary/20' : '',
+                            svc.slug === serviceSlug ? 'border-primary ring-2 ring-primary/15' : '',
                           ].join(' ')}
-                          onClick={() =>
-                            navigate(`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`)
-                          }
                         >
-                          <div className="card-body gap-1.5 p-2.5">
-                            <div className="flex justify-between gap-2 items-start">
-                              <strong className="text-sm">{svc.name || svc.slug}</strong>
-                              <span className={`badge badge-sm ${busy ? 'badge-info' : st.badge}`}>
-                                {busy ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : null}
-                                {liveHere && activity.progress?.label ? activity.progress.label : st.text}
-                              </span>
-                            </div>
-                            <div className={`text-xs ${muted}`}>
-                              <span className="font-mono">{svc.type}</span>
-                              {svc.port ? ` · :${svc.port}` : ''}
-                              {svc.repo ? ` · ${svc.repo}` : ''}
-                            </div>
+                          <div className="card-body gap-2 p-2.5">
+                            <button
+                              type="button"
+                              className="flex gap-2 items-start text-left w-full min-w-0 rounded-box focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                              onClick={open}
+                            >
+                              <div className={iconWell(svc.running || busy ? 'success' : 'primary', 'sm')}>
+                                {busy ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                                ) : (
+                                  <TypeIcon className="h-4 w-4" aria-hidden />
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex justify-between gap-2 items-start">
+                                  <strong className="text-sm truncate">{svc.name || svc.slug}</strong>
+                                  <span className={`badge badge-sm shrink-0 ${busy ? 'badge-info' : st.badge}`}>
+                                    {busy ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : null}
+                                    {liveHere && activity.progress?.label ? activity.progress.label : st.text}
+                                  </span>
+                                </div>
+                                <div className={`text-xs mt-0.5 truncate ${muted}`}>
+                                  <span className="font-mono">{svc.type}</span>
+                                  {svc.port ? ` · :${svc.port}` : ''}
+                                  {svc.repo ? ` · ${svc.repo.split('/').pop()}` : ''}
+                                </div>
+                              </div>
+                            </button>
                             {svc.type === 'go' && !busy ? (
-                              <div className="flex flex-wrap gap-1" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex flex-wrap gap-1">
                                 {svc.running ? (
                                   <Button
                                     variant="quiet"
-                                    icon={<Square className="h-3.5 w-3.5" aria-hidden />}
-                                    loading={svcAct.isPending}
+                                    icon={<CircleStop className="h-3.5 w-3.5" aria-hidden />}
+                                    loading={actPending}
+                                    aria-label={`Stop ${svc.slug}`}
+                                    title="Stop"
                                     onClick={() => void onServiceAction(svc.slug, 'stop')}
-                                  >
-                                    Stop
-                                  </Button>
+                                  />
                                 ) : (
                                   <Button
                                     variant="primary"
                                     icon={<Play className="h-3.5 w-3.5" aria-hidden />}
-                                    loading={svcAct.isPending}
+                                    loading={actPending}
+                                    aria-label={`Start ${svc.slug}`}
+                                    title="Start"
                                     onClick={() => void onServiceAction(svc.slug, 'start')}
-                                  >
-                                    Start
-                                  </Button>
+                                  />
                                 )}
                                 <Button
                                   variant="quiet"
-                                  icon={<RefreshCw className="h-3.5 w-3.5" aria-hidden />}
-                                  loading={svcAct.isPending}
+                                  icon={<RotateCw className="h-3.5 w-3.5" aria-hidden />}
+                                  loading={actPending}
+                                  aria-label={`Redeploy ${svc.slug}`}
+                                  title="Redeploy"
                                   onClick={() => void onServiceAction(svc.slug, 'redeploy')}
-                                >
-                                  Redeploy
-                                </Button>
+                                />
                               </div>
                             ) : null}
                           </div>
-                        </button>
+                        </article>
                       )
                     })}
                   </div>

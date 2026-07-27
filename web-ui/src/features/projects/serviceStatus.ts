@@ -1,3 +1,5 @@
+import type { LucideIcon } from 'lucide-react'
+import { Box, Database, HardDrive } from 'lucide-react'
 import type { Service } from '@/api/types'
 
 export function isBuilding(svc: Service): boolean {
@@ -16,4 +18,15 @@ export function statusLabel(svc: Service): { text: string; badge: string } {
   if (svc.status === 'failed') return { text: 'Failed', badge: 'badge-error' }
   if (svc.running) return { text: 'Running', badge: 'badge-success' }
   return { text: 'Stopped', badge: 'badge-ghost' }
+}
+
+export function serviceTypeIcon(type: string): LucideIcon {
+  switch (type) {
+    case 'postgres':
+      return Database
+    case 'bucket':
+      return HardDrive
+    default:
+      return Box
+  }
 }
