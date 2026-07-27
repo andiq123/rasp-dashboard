@@ -62,7 +62,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
               {pending?.cancelLabel || 'Cancel'}
             </Button>
             <Button
-              variant={pending?.danger ? 'dangerSoft' : 'primary'}
+              variant={pending?.danger ? 'danger' : 'primary'}
               onClick={() => close(true)}
             >
               {pending?.confirmLabel || 'Confirm'}

@@ -225,7 +225,7 @@ export function OverviewPage() {
 
         <div className="flex flex-wrap gap-1.5">
           <Button
-            variant="primary"
+            variant="successSoft"
             icon={<Play className="h-3.5 w-3.5" />}
             disabled={state.hotspot_running}
             loading={hs.isPending && hs.variables === 'start'}
@@ -243,7 +243,7 @@ export function OverviewPage() {
             Stop
           </Button>
           <Button
-            variant="quiet"
+            variant="warningSoft"
             icon={<RefreshCw className="h-3.5 w-3.5" />}
             loading={hs.isPending && hs.variables === 'restart'}
             onClick={() => void onHotspot('restart')}
@@ -281,7 +281,7 @@ export function OverviewPage() {
                 title="Could not load settings"
                 body={(configQ.error as Error).message}
                 action={
-                  <Button variant="quiet" onClick={() => void configQ.refetch()}>
+                  <Button variant="infoSoft" onClick={() => void configQ.refetch()}>
                     Retry
                   </Button>
                 }
@@ -325,7 +325,7 @@ export function OverviewPage() {
             </p>
           </div>
           <Button
-            variant={state.syncrox_running ? 'dangerSoft' : 'primary'}
+            variant={state.syncrox_running ? 'dangerSoft' : 'successSoft'}
             loading={sx.isPending}
             onClick={() => void onSyncrox()}
           >

@@ -59,6 +59,19 @@ func (m *Manager) TailContainerLogs(ctx context.Context, group, slug string, lin
 	if err := requireSlug(slug, "service"); err != nil {
 		return "", err
 	}
+	m.mu.Lock()
+	reg, err := m.loadRegistry()
+	svcType := TypeGo
+	if err == nil {
+		if svc, idx := findService(reg, group, slug); idx >= 0 {
+			svcType = svc.Type
+		}
+	}
+	m.mu.Unlock()
+	if svcType == TypePostgres || svcType == TypeBucket {
+		// Shared engines — no fw-<group>-<slug> container.
+		return "", nil
+	}
 	if lines <= 0 || lines > 200 {
 		lines = 80
 	}
@@ -66,7 +79,11 @@ func (m *Manager) TailContainerLogs(ctx context.Context, group, slug string, lin
 	// docker logs prints on stderr; CombinedOutput captures both.
 	out, err := runCmd(ctx, "sudo", "-n", "docker", "logs", "--tail", fmt.Sprintf("%d", lines), name)
 	out = strings.TrimSpace(out)
-	if out == "" && err != nil {
+		if out == "" && err != nil {
+		msg := err.Error() + " " + out
+		if dockerAbsent(out, err) || strings.Contains(strings.ToLower(msg), "no such container") {
+			return "", nil
+		}
 		return "", fmt.Errorf("no container logs: %w", err)
 	}
 	return out, nil

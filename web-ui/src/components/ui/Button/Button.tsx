@@ -1,20 +1,38 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 import { Loader2 } from 'lucide-react'
 
-type Variant = 'default' | 'primary' | 'quiet' | 'danger' | 'dangerSoft'
+/** Semantic action colors — map intent, not decoration. */
+export type ButtonVariant =
+  | 'default'
+  | 'primary'
+  | 'success'
+  | 'successSoft'
+  | 'warning'
+  | 'warningSoft'
+  | 'info'
+  | 'infoSoft'
+  | 'quiet'
+  | 'danger'
+  | 'dangerSoft'
 
 type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: Variant
+  variant?: ButtonVariant
   loading?: boolean
   icon?: ReactNode
   size?: 'sm' | 'md'
 }
 
-const variantClass: Record<Variant, string> = {
+const variantClass: Record<ButtonVariant, string> = {
   default: 'btn-outline border-base-300',
   primary: 'btn-primary',
+  success: 'btn-success',
+  successSoft: 'btn-success btn-soft',
+  warning: 'btn-warning',
+  warningSoft: 'btn-warning btn-soft',
+  info: 'btn-info',
+  infoSoft: 'btn-info btn-soft',
   quiet: 'btn-ghost',
-  danger: 'btn-error btn-outline',
+  danger: 'btn-error',
   dangerSoft: 'btn-error btn-soft',
 }
 

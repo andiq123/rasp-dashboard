@@ -132,7 +132,7 @@ export function SettingsPage() {
             title="Could not check GitHub"
             body={(gh.error as Error).message}
             action={
-              <Button variant="quiet" onClick={() => void gh.refetch()}>
+              <Button variant="infoSoft" onClick={() => void gh.refetch()}>
                 Retry
               </Button>
             }
@@ -154,7 +154,7 @@ export function SettingsPage() {
                   <KeyRound className="h-4 w-4" aria-hidden /> SSH public key
                 </strong>
                 <Button
-                  variant="primary"
+                  variant="infoSoft"
                   icon={<Copy className="h-3.5 w-3.5" aria-hidden />}
                   disabled={!sshKey.data?.exists || !sshKey.data.public_key}
                   onClick={() => void copySSHKey()}
@@ -250,7 +250,7 @@ export function SettingsPage() {
             title="Could not load Postgres engine"
             body={(engine.error as Error).message}
             action={
-              <Button variant="quiet" onClick={() => void engine.refetch()}>
+              <Button variant="infoSoft" onClick={() => void engine.refetch()}>
                 Retry
               </Button>
             }
@@ -274,12 +274,12 @@ export function SettingsPage() {
                     Stop
                   </Button>
                 ) : (
-                  <Button variant="primary" loading={engStart.isPending} onClick={() => engStart.mutate()}>
+                  <Button variant="successSoft" loading={engStart.isPending} onClick={() => engStart.mutate()}>
                     Start
                   </Button>
                 )}
                 <Button
-                  variant="quiet"
+                  variant="infoSoft"
                   icon={<RefreshCw className="h-4 w-4" />}
                   onClick={() => {
                     void manage.refetch()

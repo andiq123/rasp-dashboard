@@ -460,12 +460,12 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 		}
 		jsonReply(w, svc)
 	case action == "env" && r.Method == http.MethodGet:
-		text, js, err := s.Deploy.GetEnv(group, slug)
+		view, err := s.Deploy.GetServiceEnv(group, slug)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		jsonReply(w, map[string]string{"env": text, "env_json": js})
+		jsonReply(w, view)
 	case action == "settings" && (r.Method == http.MethodPut || r.Method == http.MethodPost):
 		var body deploy.SettingsUpdate
 		if err := decodeJSONBody(r, &body); err != nil {

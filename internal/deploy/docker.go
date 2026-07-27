@@ -99,7 +99,30 @@ func summarizeDockerArgs(args []string) string {
 }
 
 func (m *Manager) stopContainer(ctx context.Context, name string) {
-	_, _ = m.dockerQuiet(ctx, "rm", "-f", name)
+	name = strings.TrimSpace(strings.TrimPrefix(name, "/"))
+	if name == "" {
+		return
+	}
+	out, err := m.dockerQuiet(ctx, "rm", "-f", name)
+	if err == nil {
+		return
+	}
+	// Idempotent: already gone is success (postgres/bucket never had this container;
+	// redeploy remove-before-create often races with a prior rm).
+	if dockerAbsent(out, err) {
+		return
+	}
+	m.logf("warn", "docker rm %s · %s", name, strings.TrimSpace(out))
+}
+
+func dockerAbsent(out string, err error) bool {
+	msg := strings.ToLower(out)
+	if err != nil {
+		msg += " " + strings.ToLower(err.Error())
+	}
+	return strings.Contains(msg, "no such container") ||
+		strings.Contains(msg, "no such object") ||
+		strings.Contains(msg, "is not running")
 }
 
 func (m *Manager) writeRuntimeEnv(group, slug, body string) (string, error) {

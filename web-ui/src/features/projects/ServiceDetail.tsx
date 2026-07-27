@@ -212,16 +212,27 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
         <div className="flex flex-wrap items-center gap-1">
           {svc.type === 'go' && !building && !queued ? (
             <>
+              {svc.running ? (
+                <Button
+                  variant="dangerSoft"
+                  icon={<CircleStop className="h-3.5 w-3.5" />}
+                  loading={act.isPending}
+                  onClick={() => void onAct('stop')}
+                >
+                  Stop
+                </Button>
+              ) : (
+                <Button
+                  variant="successSoft"
+                  icon={<Play className="h-3.5 w-3.5" />}
+                  loading={act.isPending}
+                  onClick={() => void onAct('start')}
+                >
+                  Start
+                </Button>
+              )}
               <Button
-                variant="primary"
-                icon={svc.running ? <CircleStop className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                loading={act.isPending}
-                onClick={() => void onAct(svc.running ? 'stop' : 'start')}
-              >
-                {svc.running ? 'Stop' : 'Start'}
-              </Button>
-              <Button
-                variant="quiet"
+                variant="warningSoft"
                 icon={<RotateCw className="h-3.5 w-3.5" />}
                 loading={act.isPending}
                 onClick={() => void onAct('redeploy')}
@@ -482,12 +493,16 @@ function ConfigTab({
           <div className={`${tile} p-2.5 grid gap-2`}>
             <strong className="text-xs">Linked resources</strong>
             <p className={`text-[11px] m-0 ${muted}`}>
-              Linking injects env values into this service (saved on apply).
+              Same-group database or bucket — connection env is injected at start (see Variables).
             </p>
             <div className="grid gap-2 sm:grid-cols-2">
               <Field
                 label="Database"
-                tip={db ? `Injects ${LINKED_DB_KEYS.slice(0, 5).join(', ')}…` : 'Optional Postgres in this group.'}
+                tip={
+                  db
+                    ? `Runtime injects ${LINKED_DB_KEYS.slice(0, 4).join(', ')}… from ${db}`
+                    : 'Optional Postgres in this group.'
+                }
               >
                 <Select value={db} onChange={(e) => setDb(e.target.value)}>
                   <option value="">No database</option>
@@ -500,7 +515,11 @@ function ConfigTab({
               </Field>
               <Field
                 label="Bucket"
-                tip={bucket ? `Injects ${LINKED_BUCKET_KEYS.join(', ')}` : 'Optional object storage in this group.'}
+                tip={
+                  bucket
+                    ? `Runtime injects ${LINKED_BUCKET_KEYS.slice(0, 4).join(', ')}… from ${bucket}`
+                    : 'Optional object storage in this group.'
+                }
               >
                 <Select value={bucket} onChange={(e) => setBucket(e.target.value)}>
                   <option value="">No bucket</option>
@@ -597,7 +616,7 @@ function VariablesTab({ group, slug, svc }: { group: string; slug: string; svc: 
 
   useEffect(() => {
     if (envQ.data?.env != null) setDraft(envQ.data.env)
-  }, [envQ.data?.env])
+  }, [envQ.data?.env, group, slug])
 
   const save = useMutation({
     mutationFn: () => updateServiceSettings(group, slug, { env: draft }),
@@ -608,35 +627,57 @@ function VariablesTab({ group, slug, svc }: { group: string; slug: string; svc: 
     onError: (e: Error) => showToast(e.message, 'error'),
   })
 
-  const linkedHint = useMemo(() => {
-    const bits: string[] = []
-    if (svc.linked_database) bits.push(`DB from ${svc.linked_database}`)
-    if (svc.linked_bucket) bits.push(`Bucket from ${svc.linked_bucket}`)
-    return bits.join(' · ')
-  }, [svc.linked_database, svc.linked_bucket])
-
   if (envQ.isLoading) return <Spinner compact label="Loading variables…" />
   if (envQ.isError) {
     return <Empty compact title="Could not load env" body={(envQ.error as Error).message} />
   }
 
+  const linked = envQ.data?.linked || []
+  const kind = envQ.data?.kind || svc.type
+  const isGo = kind === 'go'
+  const isConn = kind === 'postgres' || kind === 'bucket'
+
   return (
-    <div className="grid gap-2.5 max-w-2xl">
+    <div className="grid gap-3 max-w-2xl">
       <Field
-        label="Environment"
+        label={isConn ? 'Connection variables' : 'Service variables'}
         tip={
-          linkedHint
-            ? `One KEY=value per line. Linked values are managed automatically (${linkedHint}).`
-            : 'One KEY=value per line. Secrets stay on this Pi.'
+          isConn
+            ? 'Credentials for apps in this group. Each service owns its own env file.'
+            : isGo
+              ? 'This app’s own KEY=value pairs. Linked database/bucket values appear below (injected at start).'
+              : 'One KEY=value per line. Secrets stay on this Pi.'
         }
       >
         <TextArea
-          className="min-h-56 font-mono text-xs"
+          className="min-h-48 font-mono text-xs"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           spellCheck={false}
+          aria-label={isConn ? 'Connection variables' : 'Service variables'}
         />
       </Field>
+
+      {linked.length ? (
+        <div className="grid gap-2">
+          <div>
+            <strong className="text-xs">Linked (group-scoped)</strong>
+            <p className={`text-[11px] m-0 mt-0.5 ${muted}`}>
+              Read-only preview from siblings — applied when the container starts, not stored in this file.
+            </p>
+          </div>
+          {linked.map((block) => (
+            <Field key={`${block.kind}-${block.source}`} label={block.label || block.source}>
+              <pre className={`${codeSurface} min-h-0 max-h-48 select-all`}>{block.env || '—'}</pre>
+            </Field>
+          ))}
+        </div>
+      ) : isGo && (svc.linked_database || svc.linked_bucket) ? (
+        <p className={`text-xs m-0 ${muted}`}>
+          Linked resource has no connection env yet — open the database/bucket Variables tab.
+        </p>
+      ) : null}
+
       <Button variant="primary" loading={save.isPending} onClick={() => save.mutate()}>
         Save variables
       </Button>
@@ -712,7 +753,7 @@ function ConsoleTab({
           {logsQ.isFetching ? ' · updating' : ''}
         </p>
         <Button
-          variant="quiet"
+          variant="infoSoft"
           icon={<RotateCw className={`h-3.5 w-3.5 ${logsQ.isFetching ? 'animate-spin' : ''}`} />}
           onClick={() => void logsQ.refetch()}
         >
@@ -727,7 +768,7 @@ function ConsoleTab({
           title="Could not load logs"
           body={(logsQ.error as Error).message}
           action={
-            <Button variant="quiet" onClick={() => void logsQ.refetch()}>
+            <Button variant="infoSoft" onClick={() => void logsQ.refetch()}>
               Retry
             </Button>
           }

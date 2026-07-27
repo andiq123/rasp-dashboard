@@ -91,7 +91,7 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
           >
             {svc.running ? (
               <Button
-                variant="quiet"
+                variant="dangerSoft"
                 icon={<CircleStop className="h-3.5 w-3.5" aria-hidden />}
                 loading={actPending}
                 disabled={locked}
@@ -101,7 +101,7 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
               />
             ) : (
               <Button
-                variant="primary"
+                variant="successSoft"
                 icon={<Play className="h-3.5 w-3.5" aria-hidden />}
                 loading={actPending}
                 disabled={locked}
@@ -111,7 +111,7 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
               />
             )}
             <Button
-              variant="quiet"
+              variant="warningSoft"
               icon={<RotateCw className="h-3.5 w-3.5" aria-hidden />}
               loading={actPending}
               disabled={locked}

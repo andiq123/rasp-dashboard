@@ -95,7 +95,7 @@ export function FilesPage() {
         actions={
           <div className="join join-horizontal flex-wrap items-center gap-1.5">
             <Button
-              variant="quiet"
+              variant="infoSoft"
               icon={<ArrowUp className="h-3.5 w-3.5" aria-hidden />}
               disabled={!canUp}
               onClick={() => go(parentPath(path))}
@@ -103,7 +103,7 @@ export function FilesPage() {
               Up
             </Button>
             <Button
-              variant="quiet"
+              variant="infoSoft"
               icon={<Home className="h-3.5 w-3.5" aria-hidden />}
               onClick={() => go(home)}
             >

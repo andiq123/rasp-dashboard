@@ -198,9 +198,19 @@ export type ActivitySnapshot = {
   lines: ActivityLine[]
 }
 
+export type LinkedEnvBlock = {
+  kind: string
+  source: string
+  label?: string
+  env: string
+  env_json?: string
+}
+
 export type ServiceEnv = {
   env: string
   env_json?: string
+  linked?: LinkedEnvBlock[]
+  kind?: string
 }
 
 export type ServiceSettings = {

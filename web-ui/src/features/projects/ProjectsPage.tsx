@@ -649,7 +649,7 @@ export function ProjectsPage() {
           meta="link"
           tip={
             goForm.linked_database
-              ? `Injects ${LINKED_DB_KEYS.slice(0, 5).join(', ')}…`
+              ? `Runtime injects ${LINKED_DB_KEYS.slice(0, 4).join(', ')}… from the database`
               : 'Optional Postgres already in this group.'
           }
         >
@@ -670,7 +670,7 @@ export function ProjectsPage() {
           meta="link"
           tip={
             goForm.linked_bucket
-              ? `Injects ${LINKED_BUCKET_KEYS.join(', ')}`
+              ? `Runtime injects ${LINKED_BUCKET_KEYS.slice(0, 4).join(', ')}… from the bucket`
               : 'Optional object storage already in this group.'
           }
         >

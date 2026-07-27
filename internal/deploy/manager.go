@@ -512,18 +512,11 @@ func (m *Manager) Get(group, slug string) (Service, error) {
 }
 
 func (m *Manager) GetEnv(group, slug string) (string, string, error) {
-	if err := requireSlug(group, "group"); err != nil {
+	view, err := m.GetServiceEnv(group, slug)
+	if err != nil {
 		return "", "", err
 	}
-	if err := requireSlug(slug, "service"); err != nil {
-		return "", "", err
-	}
-	body, err := os.ReadFile(filepath.Join(m.serviceDir(group, slug), "env"))
-	if err != nil && !os.IsNotExist(err) {
-		return "", "", err
-	}
-	text := string(body)
-	return text, envToJSON(text), nil
+	return view.Env, view.EnvJSON, nil
 }
 
 func (m *Manager) CreatePostgres(ctx context.Context, group string, name, version string) (Service, error) {
@@ -896,16 +889,11 @@ func (m *Manager) createGo(ctx context.Context, group string, in CreateGoRequest
 	}
 	envBody = clearEnvKeys(envBody, "PORT")
 	envBody = upsertEnv(envBody, "PORT", fmt.Sprintf("%d", port))
-	if link != "" {
-		envBody = m.injectLinkedDatabase(envBody, group, link)
-	} else if linkURL != "" {
-		envBody = injectDatabaseURL(envBody, linkURL)
-	} else if existIdx >= 0 && existing.LinkedDatabase != "" {
+	// Own file only — linked connection env is injected at container start from siblings.
+	if link != "" || (existIdx >= 0 && existing.LinkedDatabase != "") {
 		envBody = removeLinkedDBEnv(envBody)
 	}
-	if blink != "" {
-		envBody = m.injectLinkedBucket(envBody, group, blink)
-	} else if existIdx >= 0 && existing.LinkedBucket != "" {
+	if blink != "" || (existIdx >= 0 && existing.LinkedBucket != "") {
 		envBody = removeLinkedBucketEnv(envBody)
 	}
 	envBody = ensureProductionEnv(envBody)
@@ -1098,7 +1086,8 @@ func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in Set
 			svc.LinkedDatabase = link
 			envPath := filepath.Join(m.serviceDir(group, slug), "env")
 			cur, _ := os.ReadFile(envPath)
-			_ = os.WriteFile(envPath, []byte(m.injectLinkedDatabase(string(cur), group, link)), 0o600)
+			// Own file stays free of DB secrets — injected at container start.
+			_ = os.WriteFile(envPath, []byte(normalizeEnv(removeLinkedDBEnv(string(cur)))), 0o600)
 		} else {
 			cleared, err := m.clearLinkedDatabaseFromService(svc)
 			if err != nil {
@@ -1117,15 +1106,15 @@ func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in Set
 				m.mu.Unlock()
 				return Service{}, fmt.Errorf("bucket must be in this group")
 			}
-			svc.LinkedBucket = link
-			envPath := filepath.Join(m.serviceDir(group, slug), "env")
-			cur, _ := os.ReadFile(envPath)
-			body := m.injectLinkedBucket(string(cur), group, link)
-			if strings.TrimSpace(parseEnvMap(body)["BUCKET"]) == "" {
+			preview := m.injectLinkedBucket("", group, link)
+			if strings.TrimSpace(parseEnvMap(preview)["BUCKET"]) == "" {
 				m.mu.Unlock()
 				return Service{}, fmt.Errorf("linked bucket has no credentials")
 			}
-			_ = os.WriteFile(envPath, []byte(body), 0o600)
+			svc.LinkedBucket = link
+			envPath := filepath.Join(m.serviceDir(group, slug), "env")
+			cur, _ := os.ReadFile(envPath)
+			_ = os.WriteFile(envPath, []byte(normalizeEnv(removeLinkedBucketEnv(string(cur)))), 0o600)
 		} else {
 			cleared, err := m.clearLinkedBucketFromService(svc)
 			if err != nil {
@@ -1147,14 +1136,11 @@ func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in Set
 		if strings.TrimSpace(body) == "" && strings.TrimSpace(curNorm) != "" {
 			body = curNorm
 		} else {
-			if svc.Type == TypeGo && svc.LinkedDatabase != "" {
-				body = m.injectLinkedDatabase(body, group, svc.LinkedDatabase)
-			}
-			if svc.Type == TypeGo && svc.LinkedBucket != "" {
-				body = m.injectLinkedBucket(body, group, svc.LinkedBucket)
+			if svc.Type == TypeGo {
+				body = ownEnvBody(body, svc)
 			}
 			if body != curNorm {
-				if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+				if err := os.WriteFile(path, []byte(normalizeEnv(body)), 0o600); err != nil {
 					m.mu.Unlock()
 					return Service{}, err
 				}
@@ -1183,9 +1169,14 @@ func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in Set
 		}
 		if recreate {
 			m.logf("info", "Env/limits/DB link changed — restart only (no rebuild)")
-			if err := m.recreateGo(ctx, svc); err != nil {
+			if err := m.acquireJob("Restart · "+slug, group+"/"+slug); err != nil {
 				return m.refreshStatus(ctx, svc), err
 			}
+			if err := m.recreateGo(ctx, svc); err != nil {
+				m.releaseJob(false, err.Error())
+				return m.refreshStatus(ctx, svc), err
+			}
+			m.releaseJob(true, "Container restarted")
 		}
 	}
 	return m.refreshStatus(ctx, svc), nil
@@ -1526,19 +1517,20 @@ func (m *Manager) Delete(ctx context.Context, group, slug string) error {
 	m.mu.Lock()
 	regPeek, errPeek := m.loadRegistry()
 	wasBuilding := false
+	svcType := ""
 	if errPeek == nil {
 		if svcPeek, i := findService(regPeek, group, slug); i >= 0 {
 			wasBuilding = svcPeek.Status == "building"
+			svcType = svcPeek.Type
 		}
 	}
 	m.mu.Unlock()
 
-	// If a deploy is in flight for this service, cancel it and free the job slot.
 	if m.jobBusyScoped(group, slug) {
 		wasBuilding = true
 		m.stopBuildForDelete(ctx, group, slug)
-	} else {
-		// Orphan build containers from a crashed deploy.
+	} else if svcType == TypeGo {
+		// Orphan build/runtime containers from a crashed Go deploy.
 		stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		m.removeServiceContainers(stopCtx, group, slug)
 		cancel()
@@ -1720,6 +1712,11 @@ func (m *Manager) refreshStatus(ctx context.Context, svc Service) Service {
 				m.persistInterruptedAsync(svc)
 			}
 		default:
+			// Mid restart/redeploy (container replaced under the job lock) — keep prior status.
+			if m.jobBusyScoped(svc.Group, svc.Slug) {
+				svc.LastError = ""
+				break
+			}
 			if st.Restarting || st.Status == "exited" || st.Status == "dead" {
 				svc.Running = false
 				svc.Status = "failed"
