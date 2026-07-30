@@ -3,11 +3,11 @@ import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Box,
+  CircleStop,
   Container,
   HardDrive,
   Play,
   RefreshCw,
-  Square,
   Trash2,
 } from 'lucide-react'
 import { dockerAction, fetchManage } from '@/api/endpoints'
@@ -337,7 +337,7 @@ export function DockerPanel() {
                                 {c.running ? (
                                   <Button
                                     variant="warningSoft"
-                                    icon={<Square className="h-3.5 w-3.5" aria-hidden />}
+                                    icon={<CircleStop className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />}
                                     aria-label={`Stop ${c.name}`}
                                     disabled={act.isPending}
                                     onClick={() => act.mutate({ action: 'stop', id: c.id })}

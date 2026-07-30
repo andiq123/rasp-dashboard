@@ -11,18 +11,21 @@ export const tile = 'bg-base-200/70 border border-base-300 rounded-box'
 export const choice =
   'flex w-full items-center gap-3 text-left p-3.5 rounded-box border border-base-300 bg-base-100 cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-colors'
 
+export type IconWellTone = 'primary' | 'success' | 'warning' | 'info' | 'error'
+
 /** Icon chip inside a choice row / service card. */
-export function iconWell(
-  tone: 'primary' | 'success' | 'warning' = 'primary',
-  size: 'sm' | 'md' = 'md',
-): string {
+export function iconWell(tone: IconWellTone = 'primary', size: 'sm' | 'md' = 'md'): string {
   const colors =
     tone === 'success'
       ? 'bg-success/15 text-success'
       : tone === 'warning'
         ? 'bg-warning/15 text-warning'
-        : 'bg-primary/15 text-primary'
-  const box = size === 'sm' ? 'h-8 w-8' : 'h-10 w-10'
+        : tone === 'info'
+          ? 'bg-info/15 text-info'
+          : tone === 'error'
+            ? 'bg-error/15 text-error'
+            : 'bg-primary/15 text-primary'
+  const box = size === 'sm' ? 'h-9 w-9' : 'h-10 w-10'
   return `grid ${box} shrink-0 place-items-center rounded-box ${colors}`
 }
 

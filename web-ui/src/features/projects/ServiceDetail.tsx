@@ -40,13 +40,22 @@ import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { activityMatchesService, useActivity } from '@/hooks/useActivity'
 import { useLiveState } from '@/hooks/useLiveState'
+import { useRealtime } from '@/hooks/realtime'
 import { actionDoneLabel } from '@/lib/actions'
 import { fmtRelative } from '@/lib/format'
 import { hostCapacity, reservedFromServices, RESOURCE } from '@/lib/resources'
 import { codeSurface, iconWell, muted, surface, tile } from '@/lib/ui'
 import { LogConsole } from '@/components/ui/LogConsole/LogConsole'
 import { activityToLogLines, textToLogLines, type LogLineView } from '@/lib/logLines'
-import { isBuilding, isQueued, phaseLabel, serviceTypeIcon, statusLabel } from './serviceStatus'
+import {
+  isBuilding,
+  isQueued,
+  phaseLabel,
+  serviceTypeIcon,
+  statusDot,
+  statusLabel,
+  statusTone,
+} from './serviceStatus'
 
 type Tab = 'config' | 'variables' | 'console' | 'deploys'
 
@@ -81,8 +90,8 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
   const statsQ = useQuery({
     queryKey: queryKeys.groupStats(group),
     queryFn: () => fetchGroupStats(group),
-    refetchInterval: 4000,
-    staleTime: 0,
+    refetchInterval: live ? false : 4000,
+    staleTime: live ? 60_000 : 0,
   })
   const svc = useMemo(() => {
     const base = svcQ.data
@@ -190,29 +199,30 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
   const publicUrl = svc.public_url || svc.url || ''
   const queued = isQueued(svc)
   const busy = building || deployingHere
+  const waiting = queued && !busy
+  const tone = statusTone(svc, { busy, waiting })
   const queuePos = (activity.queue || []).find((q) => q.group === group && q.slug === slug)?.position
 
   return (
     <div className={`card ${surface} overflow-hidden section-enter`}>
       <header className="flex flex-wrap items-start justify-between gap-3 px-3 sm:px-4 py-3 border-b border-base-300">
         <div className="min-w-0 flex gap-3">
-          <div className={iconWell(busy ? 'success' : queued ? 'warning' : svc.running ? 'success' : 'primary')}>
-            {busy ? (
-              <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-            ) : (
-              <TypeIcon className="h-5 w-5" aria-hidden />
-            )}
+          <div className={iconWell(tone)}>
+            <TypeIcon className="h-5 w-5" strokeWidth={1.75} aria-hidden />
           </div>
           <div className="min-w-0 grid gap-0.5">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-base font-bold m-0 tracking-tight truncate">{svc.name || svc.slug}</h3>
+              <h3 className="text-base font-bold m-0 tracking-tight truncate inline-flex items-center gap-1.5 min-w-0">
+                <span className={`status ${statusDot(tone)} shrink-0`} aria-hidden />
+                <span className="truncate">{svc.name || svc.slug}</span>
+              </h3>
               <span
-                className={`badge badge-sm ${busy ? 'badge-info' : queued ? 'badge-warning' : st.badge}`}
+                className={`badge badge-sm gap-1 ${busy ? 'badge-info' : waiting ? 'badge-warning' : st.badge}`}
               >
                 {busy ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : null}
                 {deployingHere && activity.progress?.label
                   ? activity.progress.label
-                  : queued && queuePos
+                  : waiting && queuePos
                     ? `Queued #${queuePos}`
                     : st.text}
               </span>
@@ -244,7 +254,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
               {svc.running ? (
                 <Button
                   variant="dangerSoft"
-                  icon={<CircleStop className="h-3.5 w-3.5" />}
+                  icon={<CircleStop className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />}
                   loading={act.isPending}
                   onClick={() => void onAct('stop')}
                 >
@@ -253,7 +263,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
               ) : (
                 <Button
                   variant="successSoft"
-                  icon={<Play className="h-3.5 w-3.5" />}
+                  icon={<Play className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />}
                   loading={act.isPending}
                   onClick={() => void onAct('start')}
                 >
@@ -262,7 +272,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
               )}
               <Button
                 variant="warningSoft"
-                icon={<RotateCw className="h-3.5 w-3.5" />}
+                icon={<RotateCw className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />}
                 loading={act.isPending}
                 onClick={() => void onAct('redeploy')}
               >
@@ -293,6 +303,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
         <div className="px-3 sm:px-4 py-2.5 border-b border-base-300 bg-base-200/40">
           <ServiceUsage
             compact
+            live={live}
             stats={svc.stats}
             fallbackMem={svc.memory_mb}
             fallbackCpu={svc.cpus}
@@ -309,18 +320,23 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
         <p className="text-error text-xs m-0 px-4 py-2 border-b border-base-300 bg-error/5">{svc.last_error}</p>
       ) : null}
 
-      <div role="tablist" className="flex gap-0.5 px-2 pt-2 border-b border-base-300 overflow-x-auto">
+      <div role="tablist" aria-label="Service sections" className="flex gap-0.5 px-2 pt-2 border-b border-base-300 overflow-x-auto">
         {TABS.map((t) => {
           const Icon = t.icon
           const active = tab === t.id
+          const tabId = `svc-tab-${t.id}`
+          const panelId = `svc-panel-${t.id}`
           return (
             <button
               key={t.id}
+              id={tabId}
               type="button"
               role="tab"
               aria-selected={active}
+              aria-controls={panelId}
+              tabIndex={active ? 0 : -1}
               className={[
-                'inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-t-box border-b-2 -mb-px transition-colors duration-300',
+                'inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-t-box border-b-2 -mb-px transition-colors duration-200',
                 active
                   ? 'border-primary text-primary bg-primary/5'
                   : `border-transparent ${muted} hover:text-base-content hover:bg-base-200/60`,
@@ -338,7 +354,13 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
       </div>
 
       <div className="p-3 sm:p-4">
-        <div key={tab} className="tab-enter" role="tabpanel">
+        <div
+          key={tab}
+          id={`svc-panel-${tab}`}
+          className="tab-enter"
+          role="tabpanel"
+          aria-labelledby={`svc-tab-${tab}`}
+        >
           {tab === 'config' ? (
             <ConfigTab svc={svc} group={group} siblings={siblings} onSaved={invalidate} />
           ) : null}
@@ -421,6 +443,7 @@ function ConfigTab({
 }) {
   const { showToast } = useToast()
   const { state } = useLiveState()
+  const { live } = useRealtime()
   const dbs = siblings.filter((s) => s.type === 'postgres')
   const buckets = siblings.filter((s) => s.type === 'bucket')
   const [name, setName] = useState(svc.name || '')
@@ -587,20 +610,12 @@ function ConfigTab({
       {svc.type === 'go' || svc.type === 'postgres' ? (
         <div className="grid gap-3">
           {svc.running && svc.stats ? (
-            <div className={`${tile} p-3 grid gap-2`}>
-              <div className="flex items-baseline justify-between gap-2">
-                <strong className="text-xs m-0">Live usage</strong>
-                <span className={`text-[11px] ${muted}`}>
-                  updates every few seconds
-                  {svc.stats.shared ? ' · shared engine' : ''}
-                </span>
-              </div>
-              <ServiceUsage
-                stats={svc.stats}
-                fallbackMem={svc.memory_mb}
-                fallbackCpu={svc.cpus}
-              />
-            </div>
+            <ServiceUsage
+              stats={svc.stats}
+              fallbackMem={svc.memory_mb}
+              fallbackCpu={svc.cpus}
+              live={live}
+            />
           ) : null}
           {svc.type === 'go' ? (
             <>

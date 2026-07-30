@@ -4,13 +4,13 @@ import {
   Activity,
   ArrowDownToLine,
   ArrowUpFromLine,
+  CircleStop,
   Cpu,
   HardDrive,
   MemoryStick,
   Play,
-  RefreshCw,
+  RotateCw,
   Shield,
-  Square,
   Thermometer,
 } from 'lucide-react'
 import {
@@ -226,7 +226,7 @@ export function OverviewPage() {
         <div className="flex flex-wrap gap-1.5">
           <Button
             variant="successSoft"
-            icon={<Play className="h-3.5 w-3.5" />}
+            icon={<Play className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />}
             disabled={state.hotspot_running}
             loading={hs.isPending && hs.variables === 'start'}
             onClick={() => void onHotspot('start')}
@@ -235,7 +235,7 @@ export function OverviewPage() {
           </Button>
           <Button
             variant="dangerSoft"
-            icon={<Square className="h-3.5 w-3.5" />}
+            icon={<CircleStop className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />}
             disabled={!state.hotspot_running}
             loading={hs.isPending && hs.variables === 'stop'}
             onClick={() => void onHotspot('stop')}
@@ -244,7 +244,7 @@ export function OverviewPage() {
           </Button>
           <Button
             variant="warningSoft"
-            icon={<RefreshCw className="h-3.5 w-3.5" />}
+            icon={<RotateCw className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />}
             loading={hs.isPending && hs.variables === 'restart'}
             onClick={() => void onHotspot('restart')}
           >

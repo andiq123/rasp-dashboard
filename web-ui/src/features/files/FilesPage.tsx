@@ -213,20 +213,21 @@ export function FilesPage() {
                     return (
                       <tr
                         key={e.path}
-                        className={`list-row cursor-pointer border-b border-base-300/70 last:border-0 hover:bg-primary/5 ${
+                        className={`list-row border-b border-base-300/70 last:border-0 hover:bg-primary/5 ${
                           active ? 'bg-primary/10' : ''
                         }`}
                         style={{ animationDelay: `${Math.min(i, 12) * 18}ms` }}
-                        onClick={() => {
-                          if (e.type === 'dir') go(e.path)
-                          else setSelected(e.path)
-                        }}
                       >
                         <td>
-                          <span
-                            className={`inline-flex items-center gap-2 font-medium min-w-0 ${
+                          <button
+                            type="button"
+                            className={`inline-flex items-center gap-2 font-medium min-w-0 max-w-full text-left rounded-btn focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
                               hidden ? muted : ''
                             }`}
+                            onClick={() => {
+                              if (e.type === 'dir') go(e.path)
+                              else setSelected(e.path)
+                            }}
                           >
                             {e.type === 'dir' ? (
                               <Folder className={`h-4 w-4 ${muted} shrink-0`} aria-hidden />
@@ -234,7 +235,7 @@ export function FilesPage() {
                               <File className={`h-4 w-4 ${muted} shrink-0`} aria-hidden />
                             )}
                             <span className="truncate">{e.name}</span>
-                          </span>
+                          </button>
                         </td>
                         <td className={`text-right tabular-nums ${muted}`}>
                           {e.type === 'dir' ? '—' : e.size_human || fmtBytes(e.size)}

@@ -5,7 +5,7 @@ type Props = {
   title: string
   description: string
   icon: ReactNode
-  tone?: 'primary' | 'success'
+  tone?: 'primary' | 'success' | 'warning' | 'info' | 'error'
   onClick: () => void
 }
 

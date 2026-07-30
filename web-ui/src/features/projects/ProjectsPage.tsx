@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  Archive,
   ArrowLeft,
   Box,
   Database,
@@ -100,8 +101,9 @@ export function ProjectsPage() {
     queryKey: queryKeys.groupStats(groupSlug),
     queryFn: () => fetchGroupStats(groupSlug),
     enabled: !!groupSlug,
-    refetchInterval: 4000,
-    staleTime: 0,
+    // SSE pushes stats when live; poll only as fallback.
+    refetchInterval: live ? false : 4000,
+    staleTime: live ? 60_000 : 0,
   })
   const ghQ = useQuery({ queryKey: queryKeys.githubStatus, queryFn: fetchGitHubStatus })
 
@@ -455,7 +457,7 @@ export function ProjectsPage() {
                     }
                   />
                 ) : (
-                  <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2">
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2.5">
                     {services.map((svc) => (
                       <ServiceCard
                         key={svc.slug}
@@ -463,6 +465,7 @@ export function ProjectsPage() {
                         svc={svc}
                         selected={svc.slug === serviceSlug}
                         activity={activity}
+                        sseLive={live}
                         actPending={svcAct.isPending && svcAct.variables?.slug === svc.slug}
                         onAction={(slug, action) => void onServiceAction(slug, action)}
                       />
@@ -551,7 +554,7 @@ export function ProjectsPage() {
           <Choice
             title="Bucket"
             description="Object storage on this Pi"
-            icon={<Box className="h-5 w-5" aria-hidden />}
+            icon={<Archive className="h-5 w-5" aria-hidden />}
             onClick={() => setWizard('bucket')}
           />
         </div>

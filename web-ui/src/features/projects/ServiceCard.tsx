@@ -5,7 +5,15 @@ import { Button } from '@/components/ui/Button/Button'
 import { ServiceUsage } from '@/components/ui/UsageMeter/UsageMeter'
 import { activityMatchesService } from '@/hooks/useActivity'
 import { iconWell, muted } from '@/lib/ui'
-import { isBuilding, isQueued, serviceTypeIcon, statusLabel } from './serviceStatus'
+import {
+  isBuilding,
+  isQueued,
+  serviceTypeIcon,
+  statusBorder,
+  statusDot,
+  statusLabel,
+  statusTone,
+} from './serviceStatus'
 
 type Props = {
   group: string
@@ -14,10 +22,11 @@ type Props = {
   activity: ActivitySnapshot
   actPending: boolean
   onAction: (slug: string, action: string) => void
+  sseLive?: boolean
 }
 
 /** Whole-card hit target to open details; action buttons sit above the link. */
-export function ServiceCard({ group, svc, selected, activity, actPending, onAction }: Props) {
+export function ServiceCard({ group, svc, selected, activity, actPending, onAction, sseLive }: Props) {
   const st = statusLabel(svc)
   const building = isBuilding(svc)
   const queued = isQueued(svc)
@@ -34,45 +43,40 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
       : waiting && queuePos
         ? `Queued #${queuePos}`
         : st.text
-  const tone = busy ? 'success' : waiting ? 'warning' : svc.running ? 'success' : 'primary'
+  const tone = statusTone(svc, { busy, waiting })
   const locked = busy || waiting
   const go = svc.type === 'go'
   const showUsage = svc.running && !!svc.stats
+  const badge = busy ? 'badge-info' : waiting ? 'badge-warning' : st.badge
 
   return (
     <article
       className={[
         'group relative isolate rounded-box border bg-base-100 shadow-sm',
-        'transition-[border-color,background-color,box-shadow] duration-200',
-        'hover:border-primary/50 hover:bg-primary/[0.03] hover:shadow',
-        'focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/15',
-        busy ? 'border-info/45' : waiting ? 'border-warning/45' : 'border-base-300',
-        selected ? 'border-primary ring-2 ring-primary/20 bg-primary/[0.04]' : '',
+        'transition-[border-color,background-color,box-shadow,transform] duration-200',
+        'motion-safe:hover:-translate-y-px hover:border-primary/50 hover:bg-primary/[0.03] hover:shadow-md',
+        'has-[a:focus-visible]:border-primary/50 has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-primary/15',
+        selected ? 'border-primary ring-2 ring-primary/20 bg-primary/[0.04]' : statusBorder(tone),
       ].join(' ')}
     >
       <Link
         to={to}
-        className="absolute inset-0 z-0 rounded-box focus:outline-none"
+        className="absolute inset-0 z-0 rounded-box focus:outline-none focus-visible:outline-none"
         aria-label={`Open ${name}`}
       />
 
-      <div className="relative z-[1] grid gap-2 p-2.5 pointer-events-none">
-        <div className="flex gap-2 items-start min-w-0">
+      <div className="relative z-[1] grid gap-2.5 p-3 pointer-events-none">
+        <div className="flex gap-2.5 items-start min-w-0">
           <div className={iconWell(tone, 'sm')}>
-            {busy ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-            ) : (
-              <TypeIcon className="h-4 w-4" aria-hidden />
-            )}
+            <TypeIcon className="h-4 w-4" strokeWidth={1.75} aria-hidden />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex justify-between gap-2 items-start">
-              <strong className="text-sm truncate leading-snug">{name}</strong>
-              <span
-                className={`badge badge-sm shrink-0 gap-1 ${
-                  busy ? 'badge-info' : waiting ? 'badge-warning' : st.badge
-                }`}
-              >
+              <strong className="text-sm truncate leading-snug inline-flex items-center gap-1.5 min-w-0">
+                <span className={`status ${statusDot(tone)} shrink-0`} aria-hidden />
+                <span className="truncate">{name}</span>
+              </strong>
+              <span className={`badge badge-sm shrink-0 gap-1 ${badge}`}>
                 {busy ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : null}
                 {statusText}
               </span>
@@ -88,6 +92,7 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
         {showUsage ? (
           <ServiceUsage
             compact
+            live={sseLive}
             stats={svc.stats}
             fallbackMem={svc.memory_mb}
             fallbackCpu={svc.cpus}
@@ -103,7 +108,7 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
             {svc.running ? (
               <Button
                 variant="dangerSoft"
-                icon={<CircleStop className="h-3.5 w-3.5" aria-hidden />}
+                icon={<CircleStop className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />}
                 loading={actPending}
                 disabled={locked}
                 aria-label={`Stop ${svc.slug}`}
@@ -113,7 +118,7 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
             ) : (
               <Button
                 variant="successSoft"
-                icon={<Play className="h-3.5 w-3.5" aria-hidden />}
+                icon={<Play className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />}
                 loading={actPending}
                 disabled={locked}
                 aria-label={`Start ${svc.slug}`}
@@ -123,21 +128,15 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
             )}
             <Button
               variant="warningSoft"
-              icon={<RotateCw className="h-3.5 w-3.5" aria-hidden />}
+              icon={<RotateCw className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />}
               loading={actPending}
               disabled={locked}
               aria-label={`Redeploy ${svc.slug}`}
-              title={
-                waiting ? 'Already queued' : busy ? 'Deploy in progress' : 'Redeploy'
-              }
+              title={waiting ? 'Already queued' : busy ? 'Deploy in progress' : 'Redeploy'}
               onClick={() => onAction(svc.slug, 'redeploy')}
             />
           </div>
-        ) : (
-          <p className={`text-[11px] m-0 min-h-8 flex items-center ${muted}`}>
-            {showUsage ? 'Live · open details' : 'Open details'}
-          </p>
-        )}
+        ) : null}
       </div>
     </article>
   )

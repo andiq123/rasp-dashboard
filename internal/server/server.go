@@ -173,16 +173,28 @@ func (s *Server) handleAPIEvents(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "event: services\ndata: %s\n\n", b)
 		fl.Flush()
 	}
+	sendStats := func(snap deploy.StatsSnapshot) {
+		b, err := json.Marshal(snap)
+		if err != nil {
+			return
+		}
+		fmt.Fprintf(w, "event: stats\ndata: %s\n\n", b)
+		fl.Flush()
+	}
 
 	var actCh <-chan deploy.ActivitySnapshot
 	var unsubAct func()
 	var regCh <-chan deploy.RegistryEvent
 	var unsubReg func()
+	var statsCh <-chan deploy.StatsSnapshot
+	var unsubStats func()
 	if s.Deploy != nil {
 		actCh, unsubAct = s.Deploy.SubscribeActivity()
 		defer unsubAct()
 		regCh, unsubReg = s.Deploy.SubscribeRegistry()
 		defer unsubReg()
+		statsCh, unsubStats = s.Deploy.SubscribeStats()
+		defer unsubStats()
 	} else {
 		ach := make(chan deploy.ActivitySnapshot)
 		close(ach)
@@ -190,12 +202,15 @@ func (s *Server) handleAPIEvents(w http.ResponseWriter, r *http.Request) {
 		rch := make(chan deploy.RegistryEvent)
 		close(rch)
 		regCh = rch
+		sch := make(chan deploy.StatsSnapshot)
+		close(sch)
+		statsCh = sch
 	}
 
 	sendState()
 	if s.Deploy != nil {
 		sendActivity(s.Deploy.ActivitySnapshot())
-		// Registry subscribe already pushes current seq; no extra bootstrap needed.
+		sendStats(s.Deploy.StatsSnapshot())
 	}
 
 	tick := time.NewTicker(5 * time.Second)
@@ -219,6 +234,12 @@ func (s *Server) handleAPIEvents(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			sendServices(ev)
+		case snap, ok := <-statsCh:
+			if !ok {
+				statsCh = nil
+				continue
+			}
+			sendStats(snap)
 		case <-tick.C:
 			sendState()
 		case <-keepAlive.C:

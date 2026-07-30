@@ -16,6 +16,7 @@ import (
 const (
 	statsInterval     = 5 * time.Second
 	postgresContainer = "firewifi-postgres"
+	statsMaxSubs      = 32
 )
 
 // RuntimeStats is live CPU/RAM usage for a running container.
@@ -29,6 +30,12 @@ type RuntimeStats struct {
 	Source     string  `json:"source,omitempty"` // cgroup|proc
 }
 
+// StatsSnapshot is pushed over SSE after each sample tick.
+type StatsSnapshot struct {
+	At     string                             `json:"at"`
+	Groups map[string]map[string]RuntimeStats `json:"groups"` // group → slug → stats
+}
+
 type cpuSample struct {
 	usageUsec uint64
 	at        time.Time
@@ -38,13 +45,57 @@ type statsHub struct {
 	mu     sync.RWMutex
 	prev   map[string]cpuSample
 	latest map[string]RuntimeStats
+	seq    int
+	subs   map[chan StatsSnapshot]struct{}
 }
 
 func newStatsHub() *statsHub {
 	return &statsHub{
 		prev:   map[string]cpuSample{},
 		latest: map[string]RuntimeStats{},
+		subs:   make(map[chan StatsSnapshot]struct{}),
 	}
+}
+
+func (h *statsHub) subscribe() (chan StatsSnapshot, func()) {
+	ch := make(chan StatsSnapshot, 2)
+	if h == nil {
+		close(ch)
+		return ch, func() {}
+	}
+	h.mu.Lock()
+	if len(h.subs) >= statsMaxSubs {
+		h.mu.Unlock()
+		close(ch)
+		return ch, func() {}
+	}
+	h.subs[ch] = struct{}{}
+	h.mu.Unlock()
+	cancel := func() {
+		h.mu.Lock()
+		if _, ok := h.subs[ch]; ok {
+			delete(h.subs, ch)
+			close(ch)
+		}
+		h.mu.Unlock()
+	}
+	return ch, cancel
+}
+
+func (h *statsHub) publish(snap StatsSnapshot) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.seq++
+	for ch := range h.subs {
+		select {
+		case ch <- snap:
+		default:
+			// Drop if subscriber is slow — next tick will catch up.
+		}
+	}
+	h.mu.Unlock()
 }
 
 // BootstrapStats starts the background sampler for container CPU/RAM.
@@ -136,6 +187,62 @@ func (m *Manager) sampleAllStats(ctx context.Context) {
 		m.stats.latest[t.name] = st
 		m.stats.mu.Unlock()
 	}
+	m.publishStatsSnapshot()
+}
+
+// SubscribeStats fans out live usage snapshots (after each sample tick).
+func (m *Manager) SubscribeStats() (<-chan StatsSnapshot, func()) {
+	if m == nil {
+		ch := make(chan StatsSnapshot)
+		close(ch)
+		return ch, func() {}
+	}
+	if m.stats == nil {
+		m.stats = newStatsHub()
+	}
+	ch, cancel := m.stats.subscribe()
+	// Immediate bootstrap so UI is not empty until the next tick.
+	select {
+	case ch <- m.StatsSnapshot():
+	default:
+	}
+	return ch, cancel
+}
+
+// StatsSnapshot builds group→slug live usage for SSE / API consumers.
+func (m *Manager) StatsSnapshot() StatsSnapshot {
+	out := StatsSnapshot{
+		At:     time.Now().UTC().Format(time.RFC3339),
+		Groups: map[string]map[string]RuntimeStats{},
+	}
+	if m == nil || m.stats == nil {
+		return out
+	}
+	m.mu.Lock()
+	reg, err := m.loadRegistry()
+	m.mu.Unlock()
+	if err != nil {
+		return out
+	}
+	for _, svc := range reg.Services {
+		st := m.statsForService(svc)
+		if st == nil {
+			continue
+		}
+		g := svc.Group
+		if out.Groups[g] == nil {
+			out.Groups[g] = map[string]RuntimeStats{}
+		}
+		out.Groups[g][svc.Slug] = *st
+	}
+	return out
+}
+
+func (m *Manager) publishStatsSnapshot() {
+	if m == nil || m.stats == nil {
+		return
+	}
+	m.stats.publish(m.StatsSnapshot())
 }
 
 func (m *Manager) statsForService(svc Service) *RuntimeStats {
