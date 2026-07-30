@@ -13,9 +13,11 @@ type Props = {
   unit?: string
   onChange: (n: number) => void
   disabled?: boolean
+  /** Live usage (same unit as value) — draws a smooth fill under the limit thumb. */
+  liveValue?: number | null
 }
 
-/** Range + numeric input for memory/CPU with live meta. */
+/** Range + numeric input for memory/CPU with optional live usage fill. */
 export function ResourceSlider({
   id,
   label,
@@ -28,7 +30,15 @@ export function ResourceSlider({
   unit = '',
   onChange,
   disabled,
+  liveValue,
 }: Props) {
+  const span = max - min
+  const livePct =
+    liveValue != null && span > 0
+      ? Math.max(0, Math.min(100, ((liveValue - min) / span) * 100))
+      : null
+  const limitPct = span > 0 ? Math.max(0, Math.min(100, ((value - min) / span) * 100)) : 0
+
   return (
     <fieldset className="fieldset p-0">
       <div className="flex items-baseline justify-between gap-2 mb-1">
@@ -38,17 +48,32 @@ export function ResourceSlider({
         {meta ? <span className={`text-xs ${muted}`}>{meta}</span> : null}
       </div>
       <div className="grid gap-2">
-        <input
-          id={id}
-          type="range"
-          className="range range-primary range-xs"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          disabled={disabled}
-          onChange={(e) => onChange(Number(e.target.value))}
-        />
+        <div className="relative h-5 flex items-center">
+          <div className="absolute inset-x-0 h-1.5 rounded-full bg-base-300 overflow-hidden pointer-events-none">
+            {livePct != null ? (
+              <div
+                className="usage-fill absolute inset-y-0 left-0 rounded-full bg-info/55"
+                style={{ width: `${livePct}%` }}
+                title={`Live ${liveValue}${unit}`}
+              />
+            ) : null}
+            <div
+              className="usage-fill absolute inset-y-0 left-0 rounded-full bg-primary/25"
+              style={{ width: `${limitPct}%` }}
+            />
+          </div>
+          <input
+            id={id}
+            type="range"
+            className="range range-primary range-xs relative z-[1] bg-transparent [--range-shdw:transparent]"
+            min={min}
+            max={max}
+            step={step}
+            value={value}
+            disabled={disabled}
+            onChange={(e) => onChange(Number(e.target.value))}
+          />
+        </div>
         <div className="flex items-center gap-2">
           <input
             type="number"
@@ -67,6 +92,9 @@ export function ResourceSlider({
           <span className={`text-xs ${muted}`}>
             {unit} · {min}–{max}
             {unit}
+            {liveValue != null ? (
+              <span className="text-info"> · live {Math.round(liveValue * 10) / 10}{unit}</span>
+            ) : null}
           </span>
         </div>
       </div>

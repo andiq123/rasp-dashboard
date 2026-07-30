@@ -18,6 +18,7 @@ import {
   deleteService,
   fetchDeployLogs,
   fetchDeployments,
+  fetchGroupStats,
   fetchService,
   fetchServiceEnv,
   fetchServiceLogs,
@@ -34,6 +35,7 @@ import { Field, Input, Select, TextArea } from '@/components/ui/Field/Field'
 import { RepoRootPicker } from '@/components/RepoRootPicker/RepoRootPicker'
 import { ResourceBudget } from '@/components/ui/ResourceBudget/ResourceBudget'
 import { clampCpu, clampMem, ResourceSlider } from '@/components/ui/ResourceSlider/ResourceSlider'
+import { ServiceUsage } from '@/components/ui/UsageMeter/UsageMeter'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { activityMatchesService, useActivity } from '@/hooks/useActivity'
@@ -76,7 +78,19 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
     queryFn: () => fetchService(group, slug),
     refetchInterval: live ? 12_000 : 4000,
   })
-  const svc = svcQ.data
+  const statsQ = useQuery({
+    queryKey: queryKeys.groupStats(group),
+    queryFn: () => fetchGroupStats(group),
+    refetchInterval: 4000,
+    staleTime: 0,
+  })
+  const svc = useMemo(() => {
+    const base = svcQ.data
+    if (!base) return undefined
+    const liveStats =
+      statsQ.data?.[slug] || siblings.find((s) => s.slug === slug)?.stats || base.stats
+    return liveStats ? { ...base, stats: liveStats } : base
+  }, [svcQ.data, statsQ.data, siblings, slug])
   const building = svc ? isBuilding(svc) : false
   const deployingHere = activityMatchesService(activity, group, slug) && (activity.active || building)
 
@@ -274,6 +288,16 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
 
       {deployingHere && activity.progress ? (
         <DeployProgress progress={activity.progress} title={activity.title} />
+      ) : null}
+      {svc.running && svc.stats && !deployingHere ? (
+        <div className="px-3 sm:px-4 py-2.5 border-b border-base-300 bg-base-200/40">
+          <ServiceUsage
+            compact
+            stats={svc.stats}
+            fallbackMem={svc.memory_mb}
+            fallbackCpu={svc.cpus}
+          />
+        </div>
       ) : null}
       {queued && !deployingHere ? (
         <p className="text-warning text-xs m-0 px-4 py-2 border-b border-base-300 bg-warning/5 queue-enter" role="status">
@@ -560,42 +584,90 @@ function ConfigTab({
         </>
       ) : null}
 
-      {svc.type === 'go' ? (
+      {svc.type === 'go' || svc.type === 'postgres' ? (
         <div className="grid gap-3">
-          <ResourceBudget
-            host={host}
-            reserved={reserved}
-            draftLabel="including this service"
-          />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <ResourceSlider
-              id="svc-mem"
-              label="Memory"
-              unit="MB"
-              min={RESOURCE.memMin}
-              max={RESOURCE.memMax}
-              step={64}
-              value={mem}
-              onChange={setMemory}
-              meta={`${mem}MB`}
-              tip="Docker memory limit for this container (64–3072MB)."
-            />
-            <ResourceSlider
-              id="svc-cpu"
-              label="CPUs"
-              min={RESOURCE.cpuMin}
-              max={RESOURCE.cpuMax}
-              step={RESOURCE.cpuStep}
-              value={cpu}
-              onChange={setCpus}
-              meta={`${cpu} cores`}
-              tip="Docker CPU share for this container (0.1–4)."
-            />
-          </div>
+          {svc.running && svc.stats ? (
+            <div className={`${tile} p-3 grid gap-2`}>
+              <div className="flex items-baseline justify-between gap-2">
+                <strong className="text-xs m-0">Live usage</strong>
+                <span className={`text-[11px] ${muted}`}>
+                  updates every few seconds
+                  {svc.stats.shared ? ' · shared engine' : ''}
+                </span>
+              </div>
+              <ServiceUsage
+                stats={svc.stats}
+                fallbackMem={svc.memory_mb}
+                fallbackCpu={svc.cpus}
+              />
+            </div>
+          ) : null}
+          {svc.type === 'go' ? (
+            <>
+              <ResourceBudget
+                host={host}
+                reserved={reserved}
+                draftLabel="including this service"
+              />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ResourceSlider
+                  id="svc-mem"
+                  label="Memory"
+                  unit="MB"
+                  min={RESOURCE.memMin}
+                  max={RESOURCE.memMax}
+                  step={64}
+                  value={mem}
+                  onChange={setMemory}
+                  meta={`${mem}MB`}
+                  liveValue={svc.running ? svc.stats?.memory_mb : null}
+                  tip="Docker memory limit for this container (64–3072MB)."
+                />
+                <ResourceSlider
+                  id="svc-cpu"
+                  label="CPUs"
+                  min={RESOURCE.cpuMin}
+                  max={RESOURCE.cpuMax}
+                  step={RESOURCE.cpuStep}
+                  value={cpu}
+                  onChange={setCpus}
+                  meta={`${cpu} cores`}
+                  liveValue={
+                    svc.running && svc.stats?.cpu_percent != null
+                      ? Math.round((svc.stats.cpu_percent / 100) * 10) / 10
+                      : null
+                  }
+                  tip="Docker CPU share for this container (0.1–4). Blue fill = live cores in use."
+                />
+              </div>
+            </>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Memory (MB)" tip="Not applied to shared Postgres engines." htmlFor="svc-mem">
+                <Input
+                  id="svc-mem"
+                  type="number"
+                  min={64}
+                  value={mem}
+                  onChange={(e) => setMemory(Number(e.target.value))}
+                />
+              </Field>
+              <Field label="CPUs" tip="Not applied to shared Postgres engines." htmlFor="svc-cpu">
+                <Input
+                  id="svc-cpu"
+                  type="number"
+                  min={0.1}
+                  step={0.1}
+                  value={cpu}
+                  onChange={(e) => setCpus(Number(e.target.value))}
+                />
+              </Field>
+            </div>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Memory (MB)" tip="Not applied to shared Postgres/bucket engines." htmlFor="svc-mem">
+          <Field label="Memory (MB)" tip="Not applied to shared bucket engines." htmlFor="svc-mem">
             <Input
               id="svc-mem"
               type="number"
@@ -604,7 +676,7 @@ function ConfigTab({
               onChange={(e) => setMemory(Number(e.target.value))}
             />
           </Field>
-          <Field label="CPUs" tip="Not applied to shared Postgres/bucket engines." htmlFor="svc-cpu">
+          <Field label="CPUs" tip="Not applied to shared bucket engines." htmlFor="svc-cpu">
             <Input
               id="svc-cpu"
               type="number"

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -20,6 +20,7 @@ import {
   fetchBranches,
   fetchGitHubStatus,
   fetchGroups,
+  fetchGroupStats,
   fetchPorts,
   fetchRepos,
   fetchServices,
@@ -95,10 +96,24 @@ export function ProjectsPage() {
     enabled: !!groupSlug,
     refetchInterval: live ? 15_000 : 5_000,
   })
+  const statsQ = useQuery({
+    queryKey: queryKeys.groupStats(groupSlug),
+    queryFn: () => fetchGroupStats(groupSlug),
+    enabled: !!groupSlug,
+    refetchInterval: 4000,
+    staleTime: 0,
+  })
   const ghQ = useQuery({ queryKey: queryKeys.githubStatus, queryFn: fetchGitHubStatus })
 
   const group = (groupsQ.data || []).find((g) => g.slug === groupSlug)
-  const services = servicesQ.data || []
+  const services = useMemo(() => {
+    const list = servicesQ.data || []
+    const stats = statsQ.data || {}
+    return list.map((s) => {
+      const liveStats = stats[s.slug]
+      return liveStats ? { ...s, stats: liveStats } : s
+    })
+  }, [servicesQ.data, statsQ.data])
   const selected = services.find((s) => s.slug === serviceSlug)
   const buildingN = services.filter(isBuilding).length
   const queuedN = services.filter(isQueued).length

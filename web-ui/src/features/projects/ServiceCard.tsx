@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { CircleStop, Loader2, Play, RotateCw } from 'lucide-react'
 import type { ActivitySnapshot, Service } from '@/api/types'
 import { Button } from '@/components/ui/Button/Button'
+import { ServiceUsage } from '@/components/ui/UsageMeter/UsageMeter'
 import { activityMatchesService } from '@/hooks/useActivity'
 import { iconWell, muted } from '@/lib/ui'
 import { isBuilding, isQueued, serviceTypeIcon, statusLabel } from './serviceStatus'
@@ -36,6 +37,7 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
   const tone = busy ? 'success' : waiting ? 'warning' : svc.running ? 'success' : 'primary'
   const locked = busy || waiting
   const go = svc.type === 'go'
+  const showUsage = svc.running && !!svc.stats
 
   return (
     <article
@@ -83,6 +85,15 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
           </div>
         </div>
 
+        {showUsage ? (
+          <ServiceUsage
+            compact
+            stats={svc.stats}
+            fallbackMem={svc.memory_mb}
+            fallbackCpu={svc.cpus}
+          />
+        ) : null}
+
         {go ? (
           <div
             className="flex flex-wrap gap-1 min-h-8 items-center pointer-events-auto"
@@ -117,17 +128,15 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
               disabled={locked}
               aria-label={`Redeploy ${svc.slug}`}
               title={
-                waiting
-                  ? 'Already queued'
-                  : busy
-                    ? 'Deploy in progress'
-                    : 'Redeploy'
+                waiting ? 'Already queued' : busy ? 'Deploy in progress' : 'Redeploy'
               }
               onClick={() => onAction(svc.slug, 'redeploy')}
             />
           </div>
         ) : (
-          <p className={`text-[11px] m-0 min-h-8 flex items-center ${muted}`}>Open details</p>
+          <p className={`text-[11px] m-0 min-h-8 flex items-center ${muted}`}>
+            {showUsage ? 'Live · open details' : 'Open details'}
+          </p>
         )}
       </div>
     </article>

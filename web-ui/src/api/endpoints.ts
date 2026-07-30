@@ -15,6 +15,7 @@ import type {
   GitHubStatus,
   Group,
   ManageOverview,
+  RuntimeStats,
   Service,
   ServiceEnv,
   ServiceSettings,
@@ -78,6 +79,11 @@ export const fetchServices = (group: string) =>
   api<{ services: Service[] }>(`/api/groups/${encodeURIComponent(group)}/services`).then(
     (r) => r.services || [],
   )
+
+export const fetchGroupStats = (group: string) =>
+  api<{ stats?: Record<string, RuntimeStats> }>(
+    `/api/groups/${encodeURIComponent(group)}/stats`,
+  ).then((r) => r.stats || {})
 
 export const fetchService = (group: string, slug: string) =>
   api<Service>(`/api/groups/${encodeURIComponent(group)}/services/${encodeURIComponent(slug)}`)

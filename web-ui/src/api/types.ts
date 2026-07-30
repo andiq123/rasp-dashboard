@@ -80,6 +80,16 @@ export type Deployment = {
   active?: boolean
 }
 
+export type RuntimeStats = {
+  cpu_percent?: number
+  memory_mb?: number
+  limit_mb?: number
+  limit_cpus?: number
+  pids?: number
+  shared?: boolean
+  source?: string
+}
+
 export type Service = {
   group?: string
   slug: string
@@ -107,6 +117,7 @@ export type Service = {
   deploy_sha?: string
   deploy_id?: string
   active_deploy_id?: string
+  stats?: RuntimeStats
   updated_at?: string
 }
 
