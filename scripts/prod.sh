@@ -45,6 +45,8 @@ if [[ "$binary_current" -eq 1 ]]; then
     echo "==> start inactive $UNIT"
     systemctl --user restart "$UNIT"
     systemctl --user is-active "$UNIT"
+  elif systemctl --user cat "$UNIT" >/dev/null 2>&1; then
+    echo "==> $UNIT already active"
   fi
   exit 0
 fi
@@ -80,7 +82,12 @@ fi
 if systemctl --user cat "$UNIT" >/dev/null 2>&1; then
   echo "==> restart $UNIT"
   systemctl --user restart "$UNIT"
-  systemctl --user is-active "$UNIT"
+  if ! systemctl --user is-active --quiet "$UNIT"; then
+    echo "error: $UNIT did not become active" >&2
+    systemctl --user status "$UNIT" --no-pager --lines=20 >&2 || true
+    exit 1
+  fi
+  echo "==> active · $UNIT"
   echo "==> ok · serving embedded UI from $OUT"
   exit 0
 fi

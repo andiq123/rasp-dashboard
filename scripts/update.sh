@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Pi entrypoint: sync checkout → rebuild only what changed → restart.
+# One-command Pi update: sync → reload this script → build → restart.
 #
 # From the dashboard checkout on the Pi:
 #   ./scripts/update.sh
 #
-# Dependency and compiler caches are preserved. An already-current Pi exits fast.
+# The script re-executes itself after Git sync, so newly pulled updater logic is
+# used immediately. Dependency/compiler caches are preserved for fast Pi builds.
 #
 # Env (optional):
 #   FIREWIFI_BIN            binary path (default: $HOME/apps/firewifi-dashboard)
@@ -12,6 +13,7 @@
 #   FIREWIFI_SKIP_PULL=1    skip git sync
 #   FIREWIFI_FORCE=1        rebuild even when the checkout is current
 #   FIREWIFI_CLEAN=1        force npm ci and clear UI caches
+#   FIREWIFI_POST_SYNC=1    internal re-exec guard; do not set manually
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -40,11 +42,18 @@ if [[ ! -d .git ]]; then
   exit 1
 fi
 
-if [[ "${FIREWIFI_SKIP_PULL:-}" != "1" ]]; then
+if [[ "${FIREWIFI_SKIP_PULL:-}" != "1" && "${FIREWIFI_POST_SYNC:-}" != "1" ]]; then
+  echo "==> [1/4] Sync repository"
   if ! git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
     echo "error: no upstream branch — set tracking (e.g. git push -u origin main)" >&2
     exit 1
   fi
+
+  upstream="$(git rev-parse --abbrev-ref '@{u}')"
+  remote="${upstream%%/*}"
+  before="$(git rev-parse --short HEAD)"
+  echo "    fetch $remote"
+  git fetch --prune "$remote"
 
   ahead="$(git rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
   if [[ "$ahead" != "0" ]]; then
@@ -53,39 +62,36 @@ if [[ "${FIREWIFI_SKIP_PULL:-}" != "1" ]]; then
     exit 1
   fi
 
-  dirty_runtime="$(git diff --name-only -- main.go go.mod internal web-ui || true)"
-  echo "==> git fetch --prune"
-  before="$(git rev-parse --short HEAD)"
-  git fetch --prune origin
-
-  upstream="$(git rev-parse --abbrev-ref '@{u}')"
-  echo "==> reset --hard $upstream (override local/stale checkout)"
+  echo "    reset to $upstream"
   git reset --hard '@{u}'
   # Remove only obsolete generated UI assets; Vite hashes filenames per build.
   git clean -fd internal/server/web/dist >/dev/null
   after="$(git rev-parse --short HEAD)"
   if [[ "$before" == "$after" ]]; then
-    echo "==> already at $after"
+    echo "    already current · $after"
   else
-    echo "==> $before → $after"
+    echo "    updated · $before → $after"
   fi
 
-  if [[ "${FIREWIFI_FORCE:-}" != "1" && "$before" == "$after" && -z "$dirty_runtime" \
-    && -x "$FIREWIFI_BIN" && -f internal/server/web/dist/index.html ]]; then
-    unit="firewifi-dashboard.service"
-    if systemctl --user cat "$unit" >/dev/null 2>&1 && ! systemctl --user is-active --quiet "$unit"; then
-      echo "==> code current; restart inactive $unit"
-      systemctl --user restart "$unit"
-      systemctl --user is-active "$unit"
-    else
-      echo "==> code, UI, and binary already current"
-    fi
-    exit 0
-  fi
+  echo "==> [2/4] Reload updater"
+  exec env FIREWIFI_POST_SYNC=1 "$ROOT/scripts/update.sh" "$@"
 fi
 
+echo "==> [3/4] Verify toolchain"
 need_cmd go
 need_cmd node
 need_cmd npm
 
-exec "$ROOT/scripts/prod.sh"
+echo "    $(go version)"
+echo "    node $(node --version) · npm $(npm --version)"
+
+echo "==> [4/4] Build and activate dashboard"
+"$ROOT/scripts/prod.sh"
+
+commit="$(git rev-parse --short HEAD)"
+if [[ "${FIREWIFI_SKIP_RESTART:-}" == "1" ]]; then
+  echo "==> complete · $commit built (restart skipped)"
+else
+  echo "==> complete · $commit is installed"
+  echo "    refresh the dashboard to load the latest UI"
+fi

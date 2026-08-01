@@ -32,7 +32,7 @@ Root-level npm commands proxy to `web-ui/`. Run `npm run build`, `npm run typech
 
 ## Production (Pi) — get latest + rebuild
 
-One command on the Pi syncs to remote, incrementally rebuilds what changed, and restarts when needed:
+One command on the Pi syncs to remote, reloads the newly pulled updater, incrementally builds what changed, and restarts when needed:
 
 ```bash
 cd ~/sources/dashboard
@@ -42,10 +42,11 @@ cd ~/sources/dashboard
 The updater:
 
 1. `git fetch` + `reset --hard` to upstream (overrides local/stale tracked files; refuses if you have unpushed commits)
-2. Runs `npm ci` only when dependencies changed or are missing
-3. Rebuilds the embedded UI only when its sources changed
-4. Uses Go's build cache and atomically replaces `FIREWIFI_BIN`
-5. Restarts `firewifi-dashboard.service` only after a new binary is built
+2. Re-executes the newly downloaded `update.sh`, so updater changes apply immediately
+3. Runs `npm ci` only when dependencies changed or are missing
+4. Rebuilds the embedded UI only when its sources changed
+5. Uses Go's build cache and atomically replaces `FIREWIFI_BIN`
+6. Restarts and verifies `firewifi-dashboard.service` after a new binary is built
 
 When the checkout, UI, binary, and service are already current, the command exits immediately. Node memory and Go compiler parallelism are capped automatically on low-memory Pis.
 
