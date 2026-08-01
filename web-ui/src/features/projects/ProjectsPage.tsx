@@ -8,8 +8,10 @@ import {
   Database,
   Folder,
   FolderGit2,
+  Layers3,
   Loader2,
   Plus,
+  ShieldCheck,
   Trash2,
 } from 'lucide-react'
 import {
@@ -49,7 +51,15 @@ import { usePendingAddGo } from './pendingAddGo'
 import { ServiceCard } from './ServiceCard'
 import { ServiceDetail } from './ServiceDetail'
 import { DeployQueue } from './DeployQueue'
-import { isBuilding, isQueued, phaseLabel } from './serviceStatus'
+import {
+  isBuilding,
+  isQueued,
+  phaseLabel,
+  serviceTypeIcon,
+  statusDot,
+  statusLabel,
+  statusTone,
+} from './serviceStatus'
 import { activityMatchesGroup, useActivity } from '@/hooks/useActivity'
 import { useLiveState } from '@/hooks/useLiveState'
 
@@ -216,22 +226,24 @@ export function ProjectsPage() {
 
   const pgMut = useMutation({
     mutationFn: () => createPostgres(groupSlug, { type: 'postgres', name: pgName.trim(), version: 'latest' }),
-    onSuccess: async () => {
+    onSuccess: async (svc) => {
       showToast('Postgres creating…', 'info')
       setWizard(null)
       setPgName('')
       await qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) })
+      navigate(`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`)
     },
     onError: (e: Error) => showToast(e.message, 'error'),
   })
 
   const bucketMut = useMutation({
     mutationFn: () => createBucket(groupSlug, { type: 'bucket', name: bucketName.trim() }),
-    onSuccess: async () => {
+    onSuccess: async (svc) => {
       showToast('Bucket creating…', 'info')
       setWizard(null)
       setBucketName('')
       await qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) })
+      navigate(`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`)
     },
     onError: (e: Error) => showToast(e.message, 'error'),
   })
@@ -353,6 +365,61 @@ export function ProjectsPage() {
                 ))}
               </nav>
             )}
+
+            {groupSlug ? (
+              <div className="grid gap-2 pt-3 border-t border-base-300">
+                <div className="flex items-center gap-2 px-1">
+                  <Layers3 className={`h-3.5 w-3.5 ${muted}`} aria-hidden />
+                  <h3 className="text-xs font-bold m-0">Services</h3>
+                  <span className={`text-[11px] ${muted}`}>{services.length}</span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-xs ml-auto text-primary"
+                    onClick={openAddService}
+                  >
+                    <Plus className="h-3 w-3" aria-hidden />
+                    Add
+                  </button>
+                </div>
+                {servicesQ.isLoading ? (
+                  <Spinner compact label="Loading services…" />
+                ) : services.length ? (
+                  <nav className="grid gap-1" aria-label="Services in selected group">
+                    {services.map((svc) => {
+                      const Icon = serviceTypeIcon(svc.type)
+                      const busy = isBuilding(svc) || (activity.active && activity.scope?.startsWith(`${groupSlug}/${svc.slug}`))
+                      const waiting = isQueued(svc) && !busy
+                      const tone = statusTone(svc, { busy, waiting })
+                      const label = statusLabel(svc)
+                      return (
+                        <Link
+                          key={svc.slug}
+                          to={`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`}
+                          className={[
+                            'group flex items-center gap-2 rounded-box border px-2.5 py-2 transition-all duration-200',
+                            svc.slug === serviceSlug
+                              ? 'border-primary/40 bg-primary/10 text-primary shadow-sm'
+                              : 'border-transparent hover:border-base-300 hover:bg-base-200/70',
+                          ].join(' ')}
+                        >
+                          <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
+                          <span className="min-w-0 flex-1">
+                            <strong className="block text-xs truncate">{svc.name || svc.slug}</strong>
+                            <span className={`flex items-center gap-1.5 text-[10px] ${muted}`}>
+                              <span className={`status ${statusDot(tone)}`} aria-hidden />
+                              {busy ? 'Deploying' : waiting ? 'Queued' : label.text}
+                            </span>
+                          </span>
+                          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin text-info" aria-hidden /> : null}
+                        </Link>
+                      )
+                    })}
+                  </nav>
+                ) : (
+                  <p className={`text-[11px] m-0 px-1 ${muted}`}>No services in this group yet.</p>
+                )}
+              </div>
+            ) : null}
           </div>
         </aside>
 
@@ -379,7 +446,7 @@ export function ProjectsPage() {
             ) : (
               <>
                 <header
-                  className={`flex items-start gap-2.5 pb-3 border-b border-base-300 ${
+                  className={`grid grid-cols-[auto_minmax(0,1fr)] sm:flex items-start gap-2.5 pb-3 border-b border-base-300 ${
                     deployingN ? 'relative after:absolute after:left-0 after:right-0 after:-bottom-px after:h-0.5 after:rounded after:bg-gradient-to-r after:from-info/20 after:via-info after:to-info/20 after:bg-[length:220%_100%] motion-safe:after:animate-pulse' : ''
                   }`}
                 >
@@ -392,7 +459,7 @@ export function ProjectsPage() {
                   <div className="flex-1 min-w-0 grid gap-1">
                     <div className="flex gap-2 items-center">
                       <Input
-                        className="max-w-[360px] h-10 text-lg font-semibold tracking-tight"
+                        className="w-full min-w-0 max-w-[360px] h-10 text-lg font-semibold tracking-tight"
                         value={draftName}
                         onChange={(e) => setDraftName(e.target.value)}
                         aria-label="Group name"
@@ -416,7 +483,7 @@ export function ProjectsPage() {
                       ) : null}
                     </div>
                   </div>
-                  <div className="join join-horizontal flex-wrap gap-1.5">
+                  <div className="col-span-2 flex flex-wrap justify-end gap-1.5 sm:ml-auto">
                     <Button
                       variant="dangerSoft"
                       icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />}
@@ -529,7 +596,7 @@ export function ProjectsPage() {
 
       <Modal
         open={wizard === 'type'}
-        title="Add service"
+        title="Choose a service"
         sub={
           <>
             In <strong>{groupSlug}</strong>
@@ -537,26 +604,35 @@ export function ProjectsPage() {
         }
         onClose={() => setWizard(null)}
       >
-        <div className="grid gap-2">
+        <div className="grid gap-3">
+          <div className="flex gap-2.5 rounded-box border border-primary/20 bg-primary/5 p-3">
+            <ShieldCheck className="h-4 w-4 text-primary shrink-0 mt-0.5" aria-hidden />
+            <p className={`text-xs m-0 ${muted}`}>
+              Everything stays inside <strong className="text-base-content">{groupSlug}</strong>. Containers, credentials,
+              volumes, and network links are scoped to this group.
+            </p>
+          </div>
+          <div className="grid gap-2">
           <Choice
             title="Go app"
-            description="Clone from GitHub, build, and run"
+            description="Deploy a container from GitHub and link its dependencies"
             icon={<Box className="h-5 w-5" aria-hidden />}
             onClick={pickGo}
           />
           <Choice
             title="Postgres"
-            description="Shared database for apps"
+            description="Private database with app-ready connection variables"
             tone="success"
             icon={<Database className="h-5 w-5" aria-hidden />}
             onClick={() => setWizard('postgres')}
           />
           <Choice
             title="Bucket"
-            description="Object storage on this Pi"
+            description="S3-compatible object storage with scoped credentials"
             icon={<Archive className="h-5 w-5" aria-hidden />}
             onClick={() => setWizard('bucket')}
           />
+          </div>
         </div>
       </Modal>
 
@@ -763,6 +839,7 @@ export function ProjectsPage() {
       <Modal
         open={wizard === 'postgres'}
         title="Add Postgres"
+        sub="Create a private database, then link it to an app in this group."
         onClose={() => setWizard(null)}
         footer={
           <>
@@ -780,14 +857,24 @@ export function ProjectsPage() {
           </>
         }
       >
+        <div className="grid gap-3">
         <Field label="Name" tip="Prefix is added automatically" htmlFor="wiz-pg-name">
           <Input id="wiz-pg-name" autoFocus value={pgName} onChange={(e) => setPgName(e.target.value)} />
         </Field>
+        <div className={`${tile} p-3 grid gap-1.5`}>
+          <strong className="text-xs">Ready for application code</strong>
+          <p className={`text-[11px] m-0 ${muted}`}>
+            We create isolated credentials and expose <span className="font-mono">DATABASE_URL</span> plus standard
+            Postgres variables only to apps you explicitly link.
+          </p>
+        </div>
+        </div>
       </Modal>
 
       <Modal
         open={wizard === 'bucket'}
         title="Add Bucket"
+        sub="Create S3-compatible storage, then connect it to an app in this group."
         onClose={() => setWizard(null)}
         footer={
           <>
@@ -805,6 +892,7 @@ export function ProjectsPage() {
           </>
         }
       >
+        <div className="grid gap-3">
         <Field label="Name" tip="Prefix is added automatically" htmlFor="wiz-bucket-name">
           <Input
             id="wiz-bucket-name"
@@ -813,6 +901,14 @@ export function ProjectsPage() {
             onChange={(e) => setBucketName(e.target.value)}
           />
         </Field>
+        <div className={`${tile} p-3 grid gap-1.5`}>
+          <strong className="text-xs">Secure by default</strong>
+          <p className={`text-[11px] m-0 ${muted}`}>
+            A dedicated bucket and credentials are created for this service. Link it to a Go app to inject the endpoint,
+            bucket name, access key, secret, and path-style setting.
+          </p>
+        </div>
+        </div>
       </Modal>
     </div>
   )

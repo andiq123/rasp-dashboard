@@ -31,7 +31,7 @@ The binary embeds `dist/` at **compile time**. After `git pull` on the Pi, run `
 ```bash
 ./start.sh                     # Air: rebuild UI when sources change
 # or UI-only:
-cd web-ui && npm run dev       # proxies /api → :8484
+npm run dev                    # proxies /api → :8484
 ```
 
 ## Adding a feature

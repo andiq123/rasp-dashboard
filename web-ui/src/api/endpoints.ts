@@ -122,7 +122,7 @@ export const createPostgres = (group: string, body: Record<string, unknown>) =>
   })
 
 export const createBucket = (group: string, body: Record<string, unknown>) =>
-  api(`/api/groups/${encodeURIComponent(group)}/services`, {
+  api<Service>(`/api/groups/${encodeURIComponent(group)}/services`, {
     method: 'POST',
     body: { ...body, type: 'bucket' },
   })

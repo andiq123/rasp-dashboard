@@ -74,7 +74,7 @@ export function FilesPage() {
     if (ok) delMut.mutate(selected)
   }
 
-  const allEntries = listingQ.data?.entries || []
+  const allEntries = useMemo(() => listingQ.data?.entries || [], [listingQ.data?.entries])
   const hiddenCount = listingQ.data?.summary?.hidden ?? allEntries.filter(isHiddenEntry).length
 
   const entries = useMemo(() => {

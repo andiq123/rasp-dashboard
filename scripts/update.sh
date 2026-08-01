@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
-# Pi entrypoint: sync to remote → clean UI + Go rebuild → restart service.
+# Pi entrypoint: sync checkout → rebuild only what changed → restart.
 #
 # From the dashboard checkout on the Pi:
 #   ./scripts/update.sh
 #
-# Always:
-#   1. fetch + hard-reset to upstream (drops local build dirt / stale tracked files)
-#   2. clean pack of web-ui into embed dist (fresh npm ci + wipe dist)
-#   3. rebuild Go binary atomically and restart firewifi-dashboard.service
+# Dependency and compiler caches are preserved. An already-current Pi exits fast.
 #
 # Env (optional):
 #   FIREWIFI_BIN            binary path (default: $HOME/apps/firewifi-dashboard)
 #   FIREWIFI_SKIP_RESTART=1 build only (passed through to prod.sh)
-#   FIREWIFI_SKIP_PULL=1    skip git sync (still does a clean rebuild)
+#   FIREWIFI_SKIP_PULL=1    skip git sync
+#   FIREWIFI_FORCE=1        rebuild even when the checkout is current
+#   FIREWIFI_CLEAN=1        force npm ci and clear UI caches
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -26,7 +25,6 @@ if [[ -s "${HOME}/.nvm/nvm.sh" ]]; then
 fi
 export PATH="/usr/local/go/bin:${HOME}/go/bin:${PATH:-}"
 export FIREWIFI_BIN="${FIREWIFI_BIN:-$HOME/apps/firewifi-dashboard}"
-export FIREWIFI_CLEAN=1
 
 need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -36,9 +34,6 @@ need_cmd() {
 }
 
 need_cmd git
-need_cmd go
-need_cmd node
-need_cmd npm
 
 if [[ ! -d .git ]]; then
   echo "error: $ROOT is not a git checkout" >&2
@@ -58,6 +53,7 @@ if [[ "${FIREWIFI_SKIP_PULL:-}" != "1" ]]; then
     exit 1
   fi
 
+  dirty_runtime="$(git diff --name-only -- main.go go.mod internal web-ui || true)"
   echo "==> git fetch --prune"
   before="$(git rev-parse --short HEAD)"
   git fetch --prune origin
@@ -65,16 +61,31 @@ if [[ "${FIREWIFI_SKIP_PULL:-}" != "1" ]]; then
   upstream="$(git rev-parse --abbrev-ref '@{u}')"
   echo "==> reset --hard $upstream (override local/stale checkout)"
   git reset --hard '@{u}'
-  # Leftover hashed Vite assets not in git must not be embedded.
-  rm -rf internal/server/web/dist
-  mkdir -p internal/server/web/dist
-
+  # Remove only obsolete generated UI assets; Vite hashes filenames per build.
+  git clean -fd internal/server/web/dist >/dev/null
   after="$(git rev-parse --short HEAD)"
   if [[ "$before" == "$after" ]]; then
     echo "==> already at $after"
   else
     echo "==> $before → $after"
   fi
+
+  if [[ "${FIREWIFI_FORCE:-}" != "1" && "$before" == "$after" && -z "$dirty_runtime" \
+    && -x "$FIREWIFI_BIN" && -f internal/server/web/dist/index.html ]]; then
+    unit="firewifi-dashboard.service"
+    if systemctl --user cat "$unit" >/dev/null 2>&1 && ! systemctl --user is-active --quiet "$unit"; then
+      echo "==> code current; restart inactive $unit"
+      systemctl --user restart "$unit"
+      systemctl --user is-active "$unit"
+    else
+      echo "==> code, UI, and binary already current"
+    fi
+    exit 0
+  fi
 fi
+
+need_cmd go
+need_cmd node
+need_cmd npm
 
 exec "$ROOT/scripts/prod.sh"

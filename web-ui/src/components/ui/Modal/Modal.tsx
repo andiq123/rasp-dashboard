@@ -26,7 +26,10 @@ export function Modal({ open, title, sub, onClose, children, footer, size = 'sm'
     <dialog
       ref={dialogRef}
       className={`modal ${open ? 'modal-open' : ''}`}
-      onClose={onClose}
+      // Closing one wizard dialog programmatically must not cancel the next step.
+      onClose={() => {
+        if (open) onClose()
+      }}
       aria-labelledby={titleId}
     >
       <div className={`modal-box ${size === 'md' ? 'max-w-3xl' : 'max-w-md'}`}>

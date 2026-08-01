@@ -3,11 +3,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { LucideIcon } from 'lucide-react'
 import {
   Braces,
+  Check,
   CircleStop,
+  Copy,
   ExternalLink,
   History,
   Loader2,
   Play,
+  PlugZap,
   RotateCw,
   Settings2,
   Terminal,
@@ -57,7 +60,7 @@ import {
   statusTone,
 } from './serviceStatus'
 
-type Tab = 'config' | 'variables' | 'console' | 'deploys'
+type Tab = 'config' | 'integrate' | 'variables' | 'console' | 'deploys'
 
 type Props = {
   group: string
@@ -69,6 +72,7 @@ type Props = {
 
 const TABS: Array<{ id: Tab; label: string; icon: LucideIcon }> = [
   { id: 'config', label: 'Config', icon: Settings2 },
+  { id: 'integrate', label: 'Integrate', icon: PlugZap },
   { id: 'variables', label: 'Variables', icon: Braces },
   { id: 'console', label: 'Console', icon: Terminal },
   { id: 'deploys', label: 'Deploys', icon: History },
@@ -364,6 +368,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
           {tab === 'config' ? (
             <ConfigTab svc={svc} group={group} siblings={siblings} onSaved={invalidate} />
           ) : null}
+          {tab === 'integrate' ? <IntegrateTab svc={svc} siblings={siblings} /> : null}
           {tab === 'variables' ? <VariablesTab group={group} slug={slug} svc={svc} /> : null}
           {tab === 'console' ? (
             <ConsoleTab
@@ -389,6 +394,199 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
       </div>
     </div>
   )
+}
+
+const POSTGRES_INSTALL = 'go get github.com/jackc/pgx/v5/pgxpool'
+const POSTGRES_GO = `package data
+
+import (
+  "context"
+  "os"
+
+  "github.com/jackc/pgx/v5/pgxpool"
+)
+
+func Open(ctx context.Context) (*pgxpool.Pool, error) {
+  // DATABASE_URL is injected when this database is linked to the app.
+  return pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
+}`
+
+const BUCKET_INSTALL = 'go get github.com/aws/aws-sdk-go-v2/config github.com/aws/aws-sdk-go-v2/credentials github.com/aws/aws-sdk-go-v2/service/s3'
+const BUCKET_GO = `package storage
+
+import (
+  "context"
+  "os"
+
+  "github.com/aws/aws-sdk-go-v2/aws"
+  "github.com/aws/aws-sdk-go-v2/config"
+  "github.com/aws/aws-sdk-go-v2/credentials"
+  "github.com/aws/aws-sdk-go-v2/service/s3"
+)
+
+func Open(ctx context.Context) (*s3.Client, error) {
+  cfg, err := config.LoadDefaultConfig(ctx,
+    config.WithRegion("us-east-1"),
+    config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+      os.Getenv("ACCESS_KEY_ID"), os.Getenv("SECRET_ACCESS_KEY"), "",
+    )),
+  )
+  if err != nil { return nil, err }
+
+  return s3.NewFromConfig(cfg, func(o *s3.Options) {
+    o.BaseEndpoint = aws.String(os.Getenv("ENDPOINT"))
+    o.UsePathStyle = os.Getenv("FORCE_PATH_STYLE") == "true"
+  }), nil
+}
+
+// Use os.Getenv("BUCKET") for PutObject/GetObject calls.`
+
+function CopyCode({ value, label = 'Copy' }: { value: string; label?: string }) {
+  const [copied, setCopied] = useState(false)
+
+  async function copy() {
+    await navigator.clipboard.writeText(value)
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1800)
+  }
+
+  return (
+    <Button
+      variant="quiet"
+      icon={copied ? <Check className="h-3.5 w-3.5 text-success" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />}
+      onClick={() => void copy()}
+    >
+      {copied ? 'Copied' : label}
+    </Button>
+  )
+}
+
+function CodeGuide({ title, value }: { title: string; value: string }) {
+  return (
+    <div className="rounded-box border border-base-300 overflow-hidden bg-neutral text-neutral-content">
+      <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-white/10 bg-black/10">
+        <strong className="text-[11px] font-medium text-white/70">{title}</strong>
+        <CopyCode value={value} />
+      </div>
+      <pre className="m-0 p-3 overflow-x-auto text-[11px] leading-relaxed whitespace-pre font-mono text-white/90">{value}</pre>
+    </div>
+  )
+}
+
+function IntegrateTab({ svc, siblings }: { svc: Service; siblings: Service[] }) {
+  const isBucket = svc.type === 'bucket'
+
+  if (svc.type === 'go') {
+    const db = siblings.find((item) => item.slug === svc.linked_database)
+    const bucket = siblings.find((item) => item.slug === svc.linked_bucket)
+    return (
+      <div className="grid gap-4 max-w-3xl">
+        <div>
+          <span className="badge badge-primary badge-sm mb-2">Runtime integrations</span>
+          <h4 className="text-base font-bold m-0">Dependencies for {svc.name || svc.slug}</h4>
+          <p className={`text-xs mt-1 mb-0 ${muted}`}>
+            Links stay inside this group. Credentials are injected into this container at start and never committed to the repository.
+          </p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <IntegrationState
+            title="Postgres"
+            linked={db?.name || db?.slug}
+            keys={LINKED_DB_KEYS.slice(0, 4)}
+            empty="Link a database in Config to receive DATABASE_URL."
+          />
+          <IntegrationState
+            title="Bucket storage"
+            linked={bucket?.name || bucket?.slug}
+            keys={LINKED_BUCKET_KEYS}
+            empty="Link a bucket in Config to receive S3-compatible credentials."
+          />
+        </div>
+        <div className={`${tile} p-3 flex gap-2.5`}>
+          <ShieldNote />
+          <p className={`text-xs m-0 ${muted}`}>
+            Read configuration once at startup, validate required values, reuse connection pools and SDK clients, and never print secrets or full connection URLs in logs.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  const keys = isBucket ? LINKED_BUCKET_KEYS : LINKED_DB_KEYS
+  const install = isBucket ? BUCKET_INSTALL : POSTGRES_INSTALL
+  const example = isBucket ? BUCKET_GO : POSTGRES_GO
+  const title = isBucket ? 'Connect this bucket to a Go app' : 'Connect this database to a Go app'
+
+  return (
+    <div className="grid gap-4 max-w-3xl">
+      <div>
+        <span className="badge badge-primary badge-sm mb-2">Go integration</span>
+        <h4 className="text-base font-bold m-0">{title}</h4>
+        <p className={`text-xs mt-1 mb-0 ${muted}`}>
+          Open the app’s Config tab, select <strong>{svc.name || svc.slug}</strong> under {isBucket ? 'Bucket' : 'Database'}, then save and redeploy.
+        </p>
+      </div>
+
+      <ol className="grid gap-2 list-none m-0 p-0 sm:grid-cols-3">
+        {[
+          ['1', 'Link', `Select this ${isBucket ? 'bucket' : 'database'} in the Go app config.`],
+          ['2', 'Read env', 'Use the injected variables—never hard-code credentials.'],
+          ['3', 'Reuse client', `Create one ${isBucket ? 'S3 client' : 'connection pool'} at startup.`],
+        ].map(([number, heading, body]) => (
+          <li key={number} className={`${tile} p-3`}>
+            <span className="badge badge-primary badge-sm mb-2">{number}</span>
+            <strong className="block text-xs">{heading}</strong>
+            <p className={`text-[11px] m-0 mt-1 ${muted}`}>{body}</p>
+          </li>
+        ))}
+      </ol>
+
+      <div className="grid gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <strong className="text-xs">Injected configuration</strong>
+            <p className={`text-[11px] m-0 ${muted}`}>Available only to explicitly linked apps in this group.</p>
+          </div>
+          <CopyCode value={keys.join('\n')} label="Copy names" />
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {keys.map((key) => <span key={key} className="badge badge-ghost badge-sm font-mono">{key}</span>)}
+        </div>
+      </div>
+
+      <CodeGuide title="Install dependency" value={install} />
+      <CodeGuide title={isBucket ? 'storage/client.go' : 'data/postgres.go'} value={example} />
+
+      <div className="rounded-box border border-warning/25 bg-warning/5 p-3 flex gap-2.5">
+        <ShieldNote />
+        <div>
+          <strong className="text-xs">Production checklist</strong>
+          <p className={`text-[11px] m-0 mt-1 ${muted}`}>
+            {isBucket
+              ? 'Set upload size limits, validate object keys, use timeouts, and keep the bucket private. Stream large objects instead of buffering them in memory.'
+              : 'Use context timeouts, cap the pool size for this Pi, run migrations as a controlled deploy step, and close the pool on graceful shutdown.'}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function IntegrationState({ title, linked, keys, empty }: { title: string; linked?: string; keys: readonly string[]; empty: string }) {
+  return (
+    <div className={`${tile} p-3 grid gap-2`}>
+      <div className="flex items-center justify-between gap-2">
+        <strong className="text-xs">{title}</strong>
+        <span className={`badge badge-sm ${linked ? 'badge-success' : 'badge-ghost'}`}>{linked ? 'Linked' : 'Not linked'}</span>
+      </div>
+      <p className={`text-[11px] m-0 ${muted}`}>{linked ? linked : empty}</p>
+      {linked ? <div className="flex flex-wrap gap-1">{keys.map((key) => <span key={key} className="badge badge-ghost badge-xs font-mono">{key}</span>)}</div> : null}
+    </div>
+  )
+}
+
+function ShieldNote() {
+  return <span className="grid h-7 w-7 place-items-center rounded-full bg-primary/10 text-primary shrink-0"><PlugZap className="h-3.5 w-3.5" aria-hidden /></span>
 }
 
 function DeployProgress({ progress, title }: { progress: Progress; title?: string }) {
@@ -938,7 +1136,7 @@ function DeploysTab({
     refetchInterval: deploying ? 2000 : 8000,
   })
 
-  const items = listQ.data || []
+  const items = useMemo(() => listQ.data || [], [listQ.data])
   const selected = items.find((d) => d.id === deployId) || null
   const selectedLive =
     !!selected &&

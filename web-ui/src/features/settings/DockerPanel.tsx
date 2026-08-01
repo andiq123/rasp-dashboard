@@ -72,8 +72,8 @@ export function DockerPanel() {
   const daemon = manage.data?.daemon
   const docker = manage.data?.docker
   const err = manage.data?.docker_error
-  const containers = docker?.containers || []
-  const images = docker?.images || []
+  const containers = useMemo(() => docker?.containers || [], [docker?.containers])
+  const images = useMemo(() => docker?.images || [], [docker?.images])
   const volumes = docker?.volumes || []
   const disk = docker?.disk || []
 

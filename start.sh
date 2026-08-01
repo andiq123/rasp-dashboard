@@ -17,9 +17,8 @@ if ! command -v air >/dev/null 2>&1; then
   go install github.com/air-verse/air@latest
 fi
 
-if [[ ! -f internal/server/web/dist/index.html ]]; then
-  "$ROOT/scripts/build-ui.sh"
-fi
+# This is incremental and also repairs missing/stale npm dependencies.
+"$ROOT/scripts/build-ui.sh"
 
 echo "==> FireWifi dashboard (dev)"
 echo "    app    http://localhost:${PORT}"

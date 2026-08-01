@@ -6,15 +6,17 @@ import { OverviewPage } from '@/features/overview/OverviewPage'
 import { ProjectsPage } from '@/features/projects/ProjectsPage'
 import { SettingsPage } from '@/features/settings/SettingsPage'
 import { FilesPage } from '@/features/files/FilesPage'
+import { useActivity } from '@/hooks/useActivity'
 
 export function App() {
   const { live } = useLiveState()
+  const { activity } = useActivity()
 
   return (
     <div className="flex min-h-svh bg-base-200 text-base-content">
       <Rail />
       <div className="flex min-w-0 flex-1 flex-col min-h-svh">
-        <Topbar live={live} />
+        <Topbar live={live} activity={activity} />
         <main
           id="app-main"
           className="mx-auto w-full max-w-[1440px] flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5"

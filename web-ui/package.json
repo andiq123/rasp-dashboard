@@ -6,8 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --pretty false",
     "lint": "oxlint",
+    "check": "npm run typecheck && npm run lint",
     "preview": "vite preview"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "allowScripts": {
+    "fsevents@2.3.3": true
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

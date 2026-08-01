@@ -8,22 +8,7 @@ cd "$ROOT"
 export PATH="$(go env GOPATH 2>/dev/null)/bin:/usr/local/go/bin:${PATH:-}"
 export CGO_ENABLED="${CGO_ENABLED:-0}"
 
-DIST_INDEX="internal/server/web/dist/index.html"
-need_ui=0
-
-if [[ ! -f "$DIST_INDEX" ]]; then
-  need_ui=1
-elif [[ -n "$(find web-ui/src web-ui/index.html web-ui/vite.config.ts web-ui/package.json \
-  web-ui/package-lock.json web-ui/tsconfig.json web-ui/tsconfig.app.json web-ui/tsconfig.node.json \
-  -type f -newer "$DIST_INDEX" 2>/dev/null | head -n 1)" ]]; then
-  need_ui=1
-fi
-
-if [[ "$need_ui" -eq 1 ]]; then
-  "$ROOT/scripts/build-ui.sh"
-else
-  echo "==> web-ui dist up to date"
-fi
+"$ROOT/scripts/build-ui.sh"
 
 echo "==> go build"
 go build -buildvcs=false -o ./tmp/firewifi-dashboard .
