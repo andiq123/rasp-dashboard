@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"firewifi/dashboard/internal/deploy"
+	"firewifi/dashboard/internal/monitor"
 )
 
 var pathSlug = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
@@ -385,6 +386,8 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 		}
 		st := map[string]interface{}{"group": group, "slug": slug, "logs": text}
 		jsonReply(w, st)
+	case action == "history" && r.Method == http.MethodGet:
+		s.historyReply(w, r, monitor.ServiceSubject(group, slug))
 	case action == "start" && r.Method == http.MethodPost:
 		if err := s.Deploy.Start(r.Context(), group, slug); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)

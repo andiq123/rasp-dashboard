@@ -8,6 +8,8 @@ import type {
   DockerAction,
   DockerActionResult,
   EngineView,
+  HistorySeries,
+  DashboardTunnelStatus,
   FilesListing,
   GitHubBranch,
   GitHubRepo,
@@ -84,6 +86,26 @@ export const fetchGroupStats = (group: string) =>
   api<{ stats?: Record<string, RuntimeStats> }>(
     `/api/groups/${encodeURIComponent(group)}/stats`,
   ).then((r) => r.stats || {})
+
+export const fetchSystemHistory = (range = '6h') =>
+  api<HistorySeries>(`/api/history/system?range=${encodeURIComponent(range)}`)
+
+export const fetchServiceHistory = (group: string, slug: string, range = '6h') =>
+  api<HistorySeries>(
+    `/api/groups/${encodeURIComponent(group)}/services/${encodeURIComponent(slug)}/history?range=${encodeURIComponent(range)}`,
+  )
+
+export const fetchDashboardTunnel = () => api<DashboardTunnelStatus>('/api/dashboard/tunnel')
+
+export const exposeDashboard = (body: {
+  mode: 'quick' | 'managed'
+  token?: string
+  hostname?: string
+  access_guarded?: boolean
+}) => api<DashboardTunnelStatus>('/api/dashboard/tunnel', { method: 'POST', body })
+
+export const unexposeDashboard = () =>
+  api<DashboardTunnelStatus>('/api/dashboard/tunnel', { method: 'DELETE' })
 
 export const fetchService = (group: string, slug: string) =>
   api<Service>(`/api/groups/${encodeURIComponent(group)}/services/${encodeURIComponent(slug)}`)

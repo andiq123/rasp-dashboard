@@ -16,6 +16,7 @@ import (
 const (
 	statsInterval     = 5 * time.Second
 	postgresContainer = "firewifi-postgres"
+	minioContainer    = "firewifi-minio"
 	statsMaxSubs      = 32
 )
 
@@ -157,6 +158,12 @@ func (m *Manager) sampleAllStats(ctx context.Context) {
 					limitMB: svc.MemoryMB, limitCPU: svc.CPUs,
 				}
 			}
+			if svc.Type == TypeBucket {
+				seen[minioContainer] = target{
+					name: minioContainer, shared: true,
+					limitMB: svc.MemoryMB, limitCPU: svc.CPUs,
+				}
+			}
 		}
 	}
 	// Always try the shared engine when present.
@@ -255,6 +262,8 @@ func (m *Manager) statsForService(svc Service) *RuntimeStats {
 		name = containerName(svc.Group, svc.Slug)
 	case TypePostgres:
 		name = postgresContainer
+	case TypeBucket:
+		name = minioContainer
 	default:
 		return nil
 	}
@@ -273,6 +282,34 @@ func (m *Manager) statsForService(svc Service) *RuntimeStats {
 		out.Shared = true
 	}
 	return &out
+}
+
+// MonitorServices returns the persisted service inventory with cached live
+// stats. It performs no Docker calls and is safe for the low-frequency history
+// recorder.
+func (m *Manager) MonitorServices() []Service {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	reg, err := m.loadRegistry()
+	m.mu.Unlock()
+	if err != nil {
+		return nil
+	}
+	out := make([]Service, 0, len(reg.Services))
+	for _, svc := range reg.Services {
+		// A cached cgroup sample is authoritative even if the registry's last
+		// persisted Running bit is stale (for example after an external start).
+		probe := svc
+		probe.Running = true
+		if st := m.statsForService(probe); st != nil {
+			svc.Stats = st
+			svc.Running = true
+		}
+		out = append(out, svc)
+	}
+	return out
 }
 
 func (m *Manager) readContainerStatsPID(name string, pid int) (RuntimeStats, bool) {

@@ -61,6 +61,7 @@ func NewManager(baseDir, homeDir string, pg *infra.Postgres, mn *infra.MinIO) *M
 	}
 	m.bindActivityPersist()
 	m.startBackground(m.BootstrapQuickTunnels)
+	m.startBackground(m.BootstrapDashboardTunnel)
 	m.startBackground(m.BootstrapAutoDeploy)
 	m.startBackground(m.BootstrapStats)
 	m.startBackground(m.BootstrapJobWatchdog)
@@ -1027,6 +1028,30 @@ func (m *Manager) persistService(svc Service) {
 	reg.Services[idx] = svc
 	_ = m.saveRegistry(reg)
 	_ = m.writeMeta(svc)
+}
+
+// persistServiceExact is for explicit operator changes where empty values are
+// meaningful (for example removing a public URL). Deploy pipelines use
+// persistService instead so concurrently rebuilt values retain operator config.
+func (m *Manager) persistServiceExact(svc Service) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	reg, err := m.loadRegistry()
+	if err != nil {
+		return err
+	}
+	if m.isDeleting(svc.Group, svc.Slug) {
+		return fmt.Errorf("service is being deleted")
+	}
+	_, idx := findService(reg, svc.Group, svc.Slug)
+	if idx < 0 {
+		return fmt.Errorf("service not found")
+	}
+	reg.Services[idx] = svc
+	if err := m.saveRegistry(reg); err != nil {
+		return err
+	}
+	return m.writeMeta(svc)
 }
 
 // markBuilding updates registry immediately so polls never show Failed mid-deploy.

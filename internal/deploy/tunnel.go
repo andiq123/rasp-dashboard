@@ -582,7 +582,6 @@ func (m *Manager) stopTunnelProcesses(group, slug string) {
 }
 
 func (m *Manager) StopTunnel(ctx context.Context, group, slug string) (Service, error) {
-	_ = ctx
 	if err := requireSlug(group, "group"); err != nil {
 		return Service{}, err
 	}
@@ -607,7 +606,13 @@ func (m *Manager) StopTunnel(ctx context.Context, group, slug string) (Service, 
 	svc.TunnelVerified = false
 	m.writeTunnelOpenPath(group, slug, "")
 	svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	m.persistService(svc)
+	if err := m.persistServiceExact(svc); err != nil {
+		return Service{}, err
+	}
+	// Return the same complete shape as Get: current runtime state and current
+	// deployment records, never the registry's possibly older attached slice.
+	svc = m.refreshStatus(ctx, svc)
+	m.attachDeployments(&svc)
 	m.logf("info", "Tunnel closed for %s/%s", group, slug)
 	return svc, nil
 }

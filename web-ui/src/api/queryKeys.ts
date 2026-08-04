@@ -10,6 +10,10 @@ export const queryKeys = {
   groups: ['groups'] as const,
   services: (group: string) => ['services', group] as const,
   groupStats: (group: string) => ['stats', group] as const,
+  systemHistory: (range: string) => ['history', 'system', range] as const,
+  serviceHistory: (group: string, slug: string, range: string) =>
+    ['history', 'service', group, slug, range] as const,
+  dashboardTunnel: ['dashboard', 'tunnel'] as const,
   service: (group: string, slug: string) => ['service', group, slug] as const,
   serviceEnv: (group: string, slug: string) => ['service', group, slug, 'env'] as const,
   serviceLogs: (group: string, slug: string) => ['service', group, slug, 'logs'] as const,

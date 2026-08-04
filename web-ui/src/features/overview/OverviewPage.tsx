@@ -35,6 +35,7 @@ import { Empty } from '@/components/ui/Empty/Empty'
 import { Field, Input } from '@/components/ui/Field/Field'
 import { Panel } from '@/components/ui/Panel/Panel'
 import { ResourceBudget } from '@/components/ui/ResourceBudget/ResourceBudget'
+import { MonitorHistory } from '@/components/monitor/MonitorHistory'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { useLiveState } from '@/hooks/useLiveState'
@@ -42,6 +43,7 @@ import { actionDoneLabel } from '@/lib/actions'
 import { fmtBytes, fmtPct, fmtRate } from '@/lib/format'
 import { hostCapacity, reservedFromServices } from '@/lib/resources'
 import { muted, tile } from '@/lib/ui'
+import { DashboardExposure } from './DashboardExposure'
 
 function Metric({
   label,
@@ -606,6 +608,12 @@ export function OverviewPage() {
         </div>
         <ResourceBudget host={host} reserved={reserved} compact />
       </Panel>
+
+      <DashboardExposure />
+
+      <div className="card bg-base-100 border border-base-300 shadow-sm p-3.5 section-enter">
+        <MonitorHistory kind="system" />
+      </div>
     </div>
   )
 }

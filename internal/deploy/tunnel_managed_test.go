@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -24,6 +25,47 @@ func TestNormalizeTunnelHostname(t *testing.T) {
 		if _, err := normalizeTunnelHostname(input); err == nil {
 			t.Fatalf("normalizeTunnelHostname(%q) should fail", input)
 		}
+	}
+}
+
+func TestStopTunnelPersistsClearedPublicState(t *testing.T) {
+	dir := t.TempDir()
+	m := &Manager{DeployDir: dir}
+	original := Service{
+		Group: "apps", Slug: "api", Type: TypeGo, Name: "API", Port: 5100,
+		PublicURL: "https://api.example.com", PublicPath: "/health",
+		TunnelActive: true, TunnelVerified: true, TunnelConfigured: true,
+		TunnelMode: "managed", TunnelHostname: "api.example.com", StaticHost: "api.example.com",
+		Deployments: []Deployment{{ID: "dpl_old", Status: "building"}},
+	}
+	if err := m.saveRegistry(registry{
+		Groups: []Group{{Slug: "apps", Name: "Apps"}}, Services: []Service{original},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m.writeTunnelWanted("apps", "api", true)
+	m.writeTunnelURL("apps", "api", original.PublicURL)
+
+	returned, err := m.StopTunnel(context.Background(), "apps", "api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if returned.PublicURL != "" || returned.TunnelActive || returned.TunnelVerified {
+		t.Fatalf("returned tunnel state was not cleared: %+v", returned)
+	}
+	reg, err := m.loadRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, idx := findService(reg, "apps", "api")
+	if idx < 0 {
+		t.Fatal("saved service missing")
+	}
+	if saved.PublicURL != "" || saved.PublicPath != "" || saved.TunnelActive || saved.TunnelVerified {
+		t.Fatalf("registry retained stale public state: %+v", saved)
+	}
+	if !saved.TunnelConfigured || saved.TunnelMode != "managed" || saved.TunnelHostname != "api.example.com" {
+		t.Fatalf("reusable managed configuration was lost: %+v", saved)
 	}
 }
 

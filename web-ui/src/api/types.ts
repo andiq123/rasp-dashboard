@@ -131,6 +131,40 @@ export type RuntimeStats = {
   source?: string
 }
 
+export type HistoryPoint = {
+  at: number
+  cpu_percent?: number
+  memory_mb?: number
+  memory_percent?: number
+  temperature_c?: number
+  disk_percent?: number
+  down_bps?: number
+  up_bps?: number
+  pids?: number
+  running?: boolean
+}
+
+export type HistorySeries = {
+  subject: string
+  from: number
+  to: number
+  retention_seconds: number
+  points: HistoryPoint[]
+}
+
+export type DashboardTunnelStatus = {
+  active: boolean
+  verified: boolean
+  configured: boolean
+  mode?: 'quick' | 'managed' | string
+  hostname?: string
+  public_url?: string
+  local_url: string
+  auth_enabled: boolean
+  access_guarded: boolean
+  last_error?: string
+}
+
 export type Service = {
   group?: string
   slug: string

@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"firewifi/dashboard/internal/deploy"
 	"firewifi/dashboard/internal/infra"
+	"firewifi/dashboard/internal/monitor"
 	"firewifi/dashboard/internal/server/web"
 	"firewifi/dashboard/internal/state"
 )
@@ -51,6 +54,7 @@ type Server struct {
 	Config    ConfigProvider
 	Deploy    *deploy.Manager
 	Postgres  *infra.Postgres
+	History   *monitor.Store
 	vpnRepair *vpnRepairCoordinator
 }
 
@@ -73,6 +77,14 @@ func New(
 		Postgres: pg,
 	}
 	s.vpnRepair = newVPNRepairCoordinator(st, hotspot)
+	if dep != nil {
+		history, err := monitor.Open(filepath.Join(dep.DeployDir, "monitor", "history.db"))
+		if err != nil {
+			log.Printf("monitor history disabled: %v", err)
+		} else {
+			s.History = history
+		}
+	}
 	return s
 }
 
@@ -80,6 +92,9 @@ func New(
 func (s *Server) StartBackground(ctx context.Context) {
 	if s != nil && s.vpnRepair != nil {
 		s.vpnRepair.start(ctx)
+	}
+	if s != nil && s.History != nil {
+		go s.monitorHistory(ctx)
 	}
 }
 
@@ -90,6 +105,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/", s.handlePage)
 	mux.HandleFunc("/api/state", s.handleAPIState)
 	mux.HandleFunc("/api/activity", s.handleAPIActivity)
+	mux.HandleFunc("/api/history/system", s.handleSystemHistory)
+	mux.HandleFunc("/api/dashboard/tunnel", s.handleDashboardTunnel)
 	mux.HandleFunc("/api/files", s.handleAPIFiles)
 	mux.HandleFunc("/api/files/preview", s.handleAPIFilesPreview)
 	mux.HandleFunc("/api/events", s.handleAPIEvents)

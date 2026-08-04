@@ -74,6 +74,29 @@ FIREWIFI_CLEAN=1 FIREWIFI_FORCE=1 ./scripts/update.sh
 | Env | Purpose |
 |-----|---------|
 | `FIREWIFI_AUTH=user:pass` | HTTP Basic Auth for UI + APIs (hooks keep their own tokens) |
+
+## Monitor history
+
+The dashboard stores one lightweight host and per-service sample every 30 seconds in
+`$HOME/deployments/monitor/history.db`. The embedded pure-Go Bolt store keeps seven
+days of data, removes expired samples in every write transaction, and
+downsamples API responses to at most 360 points. This keeps disk writes, response size,
+and browser chart work bounded on a Raspberry Pi.
+
+- System history: `GET /api/history/system?range=1h|6h|24h|7d`
+- Service history: `GET /api/groups/{group}/services/{service}/history?range=...`
+
+## Remote dashboard through Cloudflare
+
+Overview → **Remote dashboard** can expose the dashboard origin
+`http://127.0.0.1:8484`. Stable mode uses a remotely managed Cloudflare Tunnel and
+stores its connector token in an owner-only file. Its user-systemd connector runs
+independently of dashboard rebuilds and is restored after reboot.
+
+Protect the hostname with a Cloudflare Access application before enabling the route.
+Temporary `trycloudflare.com` previews are accepted only when `FIREWIFI_AUTH` is set.
+The dashboard verifies the public route after starting it and never returns a saved
+connector token to the browser.
 | `FIREWIFI_FILES_ROOT` | Files browser chroot (default: `$HOME`) |
 | `FIREWIFI_BASE` | Config / token base directory |
 | `HOME` | Deployments root (`$HOME/deployments`) and default paths |

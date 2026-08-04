@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { LucideIcon } from 'lucide-react'
 import {
+  Activity,
   Braces,
   Check,
   CircleStop,
@@ -54,6 +55,7 @@ import { fmtRelative } from '@/lib/format'
 import { hostCapacity, reservedFromServices, RESOURCE } from '@/lib/resources'
 import { codeSurface, iconWell, muted, surface, tile } from '@/lib/ui'
 import { LogConsole } from '@/components/ui/LogConsole/LogConsole'
+import { MonitorHistory } from '@/components/monitor/MonitorHistory'
 import { activityToLogLines, textToLogLines, type LogLineView } from '@/lib/logLines'
 import {
   isBuilding,
@@ -65,7 +67,7 @@ import {
   statusTone,
 } from './serviceStatus'
 
-type Tab = 'config' | 'integrate' | 'variables' | 'console' | 'deploys'
+type Tab = 'config' | 'monitor' | 'integrate' | 'variables' | 'console' | 'deploys'
 type TunnelAction =
   | { kind: 'expose'; mode: 'quick' | 'managed'; token?: string; hostname?: string }
   | { kind: 'unexpose' }
@@ -80,6 +82,7 @@ type Props = {
 
 const TABS: Array<{ id: Tab; label: string; icon: LucideIcon }> = [
   { id: 'config', label: 'Config', icon: Settings2 },
+  { id: 'monitor', label: 'Monitor', icon: Activity },
   { id: 'integrate', label: 'Integrate', icon: PlugZap },
   { id: 'variables', label: 'Variables', icon: Braces },
   { id: 'console', label: 'Console', icon: Terminal },
@@ -193,11 +196,27 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
         setExposeOpen(false)
         setTunnelToken('')
       }
-      qc.setQueryData(queryKeys.service(group, slug), updated)
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: queryKeys.service(group, slug) }),
-        qc.invalidateQueries({ queryKey: queryKeys.services(group) }),
-      ])
+      const applyTunnelState = (current: Service): Service => ({
+        ...current,
+        public_url: updated.public_url,
+        public_path: updated.public_path,
+        tunnel_active: updated.tunnel_active,
+        tunnel_verified: updated.tunnel_verified,
+        tunnel_configured: updated.tunnel_configured,
+        tunnel_mode: updated.tunnel_mode,
+        tunnel_hostname: updated.tunnel_hostname,
+        updated_at: updated.updated_at,
+      })
+      qc.setQueryData(queryKeys.service(group, slug), (current: Service | undefined) =>
+        current ? applyTunnelState(current) : updated,
+      )
+      qc.setQueryData(queryKeys.services(group), (current: Service[] | undefined) =>
+        current?.map((service) => service.slug === slug ? applyTunnelState(service) : service),
+      )
+      // The visible state is already exact; refresh quietly for any unrelated
+      // runtime changes without keeping the action button in a loading state.
+      void qc.invalidateQueries({ queryKey: queryKeys.service(group, slug) })
+      void qc.invalidateQueries({ queryKey: queryKeys.services(group) })
     },
     onError: (e: Error) => showToast(e.message, 'error'),
   })
@@ -306,7 +325,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
                   <span className="truncate max-w-[min(100%,28rem)]">{publicUrl.replace(/^https?:\/\//, '')}</span>
                   <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
                 </a>
-                {svc.tunnel_mode === 'managed' ? (
+                {svc.public_url && svc.tunnel_mode === 'managed' ? (
                   <span
                     className={`badge badge-xs ${svc.tunnel_verified ? 'badge-success' : 'badge-warning'}`}
                     title={
@@ -472,6 +491,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
           {tab === 'config' ? (
             <ConfigTab svc={svc} group={group} siblings={siblings} onSaved={invalidate} />
           ) : null}
+          {tab === 'monitor' ? <MonitorHistory kind="service" group={group} slug={slug} compact /> : null}
           {tab === 'integrate' ? <IntegrateTab svc={svc} siblings={siblings} /> : null}
           {tab === 'variables' ? <VariablesTab group={group} slug={slug} svc={svc} /> : null}
           {tab === 'console' ? (
