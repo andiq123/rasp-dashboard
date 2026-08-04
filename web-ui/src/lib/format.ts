@@ -37,11 +37,11 @@ export function fmtRelative(iso: string | undefined | null): string {
 }
 
 export function slugify(s: string): string {
-  let out = String(s || '')
+  return String(s || '')
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-  if (out && /^[0-9]/.test(out)) out = `app-${out}`
-  return out.slice(0, 48)
+    .slice(0, 48)
+    .replace(/-+$/g, '')
 }

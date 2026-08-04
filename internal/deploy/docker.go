@@ -16,7 +16,9 @@ import (
 
 var (
 	buildCmdDanger = regexp.MustCompile(`[;&|$\x60]|\$\(|\n|\r`)
-	slugOK         = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+	// Numeric-leading slugs are valid and already exist in registries created
+	// through the dashboard (for example, "999scraper").
+	slugOK = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 )
 
 func validSlug(s string) bool {

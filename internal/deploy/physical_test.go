@@ -37,6 +37,9 @@ func TestPhysicalNames_groupScoped(t *testing.T) {
 	if got := physicalBucketName("driver-logs", "driver-logs"); got != "driver-logs--driver-logs" {
 		t.Fatalf("bucket=%q", got)
 	}
+	if got := physicalDatabaseName("999scraper", "data"); got != "db_999scraper__data" {
+		t.Fatalf("numeric group db=%q", got)
+	}
 }
 
 func TestFitPhysicalName_stableHash(t *testing.T) {

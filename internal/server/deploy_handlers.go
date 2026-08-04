@@ -9,7 +9,7 @@ import (
 	"firewifi/dashboard/internal/deploy"
 )
 
-var pathSlug = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+var pathSlug = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 
 func badSlug(w http.ResponseWriter, label string) {
 	http.Error(w, "invalid "+label, http.StatusBadRequest)

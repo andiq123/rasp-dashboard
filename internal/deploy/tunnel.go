@@ -456,22 +456,23 @@ func (m *Manager) BootstrapQuickTunnels() {
 			return
 		default:
 		}
+		group, slug := svc.Group, svc.Slug
 		if m.tunnelAlive(svc.Group, svc.Slug) {
-			go func(group, slug string) {
+			m.startBackground(func() {
 				ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 				defer cancel()
 				if _, err := m.EnsureTunnel(ctx, group, slug); err != nil {
 					m.logf("warn", "Tunnel heal %s/%s: %v", group, slug, err)
 				}
-			}(svc.Group, svc.Slug)
+			})
 			continue
 		}
-		go func(group, slug string) {
+		m.startBackground(func() {
 			ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 			defer cancel()
 			if _, err := m.StartTunnel(ctx, group, slug); err != nil {
 				m.logf("warn", "auto-expose %s/%s: %v", group, slug, err)
 			}
-		}(svc.Group, svc.Slug)
+		})
 	}
 }

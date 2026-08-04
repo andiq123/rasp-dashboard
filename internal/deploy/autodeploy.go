@@ -97,8 +97,8 @@ func (m *Manager) BootstrapAutoDeploy() {
 			m.logf("warn", "Auto-deploy token: %v", err)
 		}
 		m.enableAutoDeployDefaults()
-		go m.ensureAutoDeployHooksForRegistry()
-		go m.autoDeployLoop()
+		m.startBackground(m.ensureAutoDeployHooksForRegistry)
+		m.startBackground(m.autoDeployLoop)
 	})
 }
 

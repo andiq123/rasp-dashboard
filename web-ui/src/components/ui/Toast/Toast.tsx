@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { createPortal } from 'react-dom'
 
 export type ToastTone = 'success' | 'error' | 'info'
 
@@ -23,8 +24,15 @@ const alertClass: Record<ToastTone, string> = {
   info: 'alert-info',
 }
 
+function resolveToastHost(): Element | null {
+  if (typeof document === 'undefined') return null
+  const dialogs = document.querySelectorAll<HTMLDialogElement>('dialog[open]')
+  return dialogs.item(dialogs.length - 1) || document.body
+}
+
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null)
+  const [portalHost, setPortalHost] = useState<Element | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -33,8 +41,27 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  useEffect(() => {
+    if (!toast || typeof document === 'undefined') return
+    const updateHost = () => {
+      setPortalHost(resolveToastHost())
+    }
+    updateHost()
+    // Native modal dialogs live in the browser's top layer, above any normal
+    // z-index. Follow the active dialog, then return to body when it closes.
+    const observer = new MutationObserver(updateHost)
+    observer.observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['open'],
+    })
+    return () => observer.disconnect()
+  }, [toast])
+
   const showToast = useCallback((message: string, tone: ToastTone = 'success') => {
     if (timerRef.current) clearTimeout(timerRef.current)
+    setPortalHost(resolveToastHost())
     setToast({ message, tone })
     timerRef.current = setTimeout(() => setToast(null), tone === 'error' ? 4200 : 2800)
   }, [])
@@ -44,17 +71,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider value={value}>
       {children}
-      <div className="toast toast-bottom toast-center z-[60]">
-        {toast ? (
+      {toast && portalHost ? createPortal(
+        <div className="toast toast-bottom toast-center z-[300] pointer-events-none">
           <div
-            className={`alert ${alertClass[toast.tone]} shadow-md text-sm`}
+            className={`alert ${alertClass[toast.tone]} shadow-lg text-sm pointer-events-auto`}
             role={toast.tone === 'error' ? 'alert' : 'status'}
             aria-live={toast.tone === 'error' ? 'assertive' : 'polite'}
           >
             <span>{toast.message}</span>
           </div>
-        ) : null}
-      </div>
+        </div>,
+        portalHost,
+      ) : null}
     </Ctx.Provider>
   )
 }

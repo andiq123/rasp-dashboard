@@ -39,6 +39,7 @@ type Manager struct {
 	stats        *statsHub
 	bgCtx        context.Context
 	bgCancel     context.CancelFunc
+	bgWG         sync.WaitGroup
 }
 
 func NewManager(baseDir, homeDir string, pg *infra.Postgres, mn *infra.MinIO) *Manager {
@@ -57,11 +58,22 @@ func NewManager(baseDir, homeDir string, pg *infra.Postgres, mn *infra.MinIO) *M
 		bgCancel:  bgCancel,
 	}
 	m.bindActivityPersist()
-	go m.BootstrapQuickTunnels()
-	go m.BootstrapAutoDeploy()
-	go m.BootstrapStats()
-	go m.BootstrapJobWatchdog()
+	m.startBackground(m.BootstrapQuickTunnels)
+	m.startBackground(m.BootstrapAutoDeploy)
+	m.startBackground(m.BootstrapStats)
+	m.startBackground(m.BootstrapJobWatchdog)
 	return m
+}
+
+func (m *Manager) startBackground(fn func()) {
+	if m == nil || fn == nil {
+		return
+	}
+	m.bgWG.Add(1)
+	go func() {
+		defer m.bgWG.Done()
+		fn()
+	}()
 }
 
 // Close stops background loops (stats, watchdog, auto-deploy). Safe to call twice.
@@ -70,6 +82,7 @@ func (m *Manager) Close() {
 		return
 	}
 	m.bgCancel()
+	m.bgWG.Wait()
 }
 
 func (m *Manager) bgDone() <-chan struct{} {

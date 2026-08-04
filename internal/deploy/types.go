@@ -144,7 +144,11 @@ type GroupSettingsUpdate struct {
 func slugify(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	s = slugRe.ReplaceAllString(s, "-")
-	return strings.Trim(s, "-")
+	s = strings.Trim(s, "-")
+	if len(s) > 48 {
+		s = strings.TrimRight(s[:48], "-")
+	}
+	return s
 }
 
 func normalizeRepo(repo string) string {

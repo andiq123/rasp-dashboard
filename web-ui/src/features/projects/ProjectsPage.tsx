@@ -67,6 +67,26 @@ import { useLiveState } from '@/hooks/useLiveState'
 
 type WizardStep = 'type' | 'github' | 'group' | 'go' | 'postgres' | 'bucket' | 'redis' | null
 
+function postgresIdentPart(value: string): string {
+  let part = value
+    .toLowerCase()
+    .replace(/-/g, '_')
+    .replace(/[^a-z0-9_]/g, '')
+    .replace(/^_+|_+$/g, '')
+  if (part && /^[0-9]/.test(part)) part = `db_${part}`
+  return part
+}
+
+function postgresNamePreview(group: string, name: string): { value: string; shortened: boolean } {
+  const service = postgresIdentPart(slugify(name))
+  const groupPart = postgresIdentPart(group)
+  if (!service) return { value: '—', shortened: false }
+  const full = groupPart ? `${groupPart}__${service}` : service
+  if (full.length <= 58) return { value: full, shortened: false }
+  const prefix = full.slice(0, 49).replace(/[_.]+$/g, '') || 'db'
+  return { value: `${prefix}_<stable-hash>`, shortened: true }
+}
+
 export function ProjectsPage() {
   const { '*': splat } = useParams()
   const parts = (splat || '').split('/').filter(Boolean)
@@ -99,6 +119,8 @@ export function ProjectsPage() {
   const [pgName, setPgName] = useState('')
   const [bucketName, setBucketName] = useState('')
   const [redisName, setRedisName] = useState('')
+  const pgServiceSlug = slugify(pgName)
+  const pgDatabasePreview = postgresNamePreview(groupSlug, pgName)
 
   const groupsQ = useQuery({
     queryKey: queryKeys.groups,
@@ -886,7 +908,7 @@ export function ProjectsPage() {
       <Modal
         open={wizard === 'postgres'}
         title="Add Postgres"
-        sub="Create a private database, then link it to an app in this group."
+        sub={<>In <strong>{groupSlug}</strong> · create a private database, then link it to an app.</>}
         onClose={() => setWizard(null)}
         footer={
           <>
@@ -905,9 +927,24 @@ export function ProjectsPage() {
         }
       >
         <div className="grid gap-3">
-        <Field label="Name" tip="Prefix is added automatically" htmlFor="wiz-pg-name">
-          <Input id="wiz-pg-name" autoFocus value={pgName} onChange={(e) => setPgName(e.target.value)} />
+        <Field label="Name" tip="The group prefix is added to the physical Postgres identifier." htmlFor="wiz-pg-name">
+          <Input id="wiz-pg-name" autoFocus maxLength={48} value={pgName} onChange={(e) => setPgName(e.target.value)} />
         </Field>
+        {pgName.trim() ? (
+          <div className={`${tile} p-3 grid gap-2`} aria-live="polite">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className={`text-[11px] ${muted}`}>Service slug</span>
+              <code className="text-xs font-semibold select-all">{pgServiceSlug}</code>
+            </div>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className={`text-[11px] ${muted}`}>Postgres database</span>
+              <code className="text-xs font-semibold text-primary select-all text-right break-all">{pgDatabasePreview.value}</code>
+            </div>
+            {pgDatabasePreview.shortened ? (
+              <p className={`text-[11px] m-0 ${muted}`}>A stable 8-character suffix replaces the preview marker when created.</p>
+            ) : null}
+          </div>
+        ) : null}
         <div className={`${tile} p-3 grid gap-1.5`}>
           <strong className="text-xs">Ready for application code</strong>
           <p className={`text-[11px] m-0 ${muted}`}>
@@ -921,7 +958,7 @@ export function ProjectsPage() {
       <Modal
         open={wizard === 'bucket'}
         title="Add Bucket"
-        sub="Create S3-compatible storage, then connect it to an app in this group."
+        sub={<>In <strong>{groupSlug}</strong> · create S3-compatible storage, then connect it to an app.</>}
         onClose={() => setWizard(null)}
         footer={
           <>
@@ -961,7 +998,7 @@ export function ProjectsPage() {
       <Modal
         open={wizard === 'redis'}
         title="Add Redis"
-        sub="Create a private persistent Redis instance, then link it to an app in this group."
+        sub={<>In <strong>{groupSlug}</strong> · create private persistent Redis, then link it to an app.</>}
         onClose={() => setWizard(null)}
         footer={
           <>

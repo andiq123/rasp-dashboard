@@ -25,7 +25,7 @@ export function Modal({ open, title, sub, onClose, children, footer, size = 'sm'
   return (
     <dialog
       ref={dialogRef}
-      className={`modal ${open ? 'modal-open' : ''}`}
+      className={`modal z-[200] ${open ? 'modal-open' : ''}`}
       // Closing one wizard dialog programmatically must not cancel the next step.
       onClose={() => {
         if (open) onClose()

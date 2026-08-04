@@ -106,7 +106,7 @@ func (m *Manager) BootstrapStats() {
 	if m.stats == nil {
 		m.stats = newStatsHub()
 	}
-	go m.statsLoop()
+	m.statsLoop()
 }
 
 func (m *Manager) statsLoop() {
