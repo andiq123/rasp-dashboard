@@ -5,10 +5,30 @@ export type DeviceMetrics = {
     temperature_celsius?: number
     available?: boolean
     throttled?: boolean
+    throttled_before?: boolean
     throttle_known?: boolean
   }
   storage?: { used_bytes?: number; total_bytes?: number; used_percent?: number }
   network?: { down_bytes_per_sec?: number; up_bytes_per_sec?: number }
+}
+
+export type VPNHealth = {
+  interface_up?: boolean
+  handshake_healthy?: boolean
+  handshake_age_seconds?: number
+  egress_ok?: boolean
+  relay?: string
+  endpoint?: string
+  checked_at?: string
+  error?: string
+}
+
+export type HealthIssue = {
+  code: string
+  severity: 'warning' | 'critical' | string
+  title: string
+  detail: string
+  action?: 'repair-vpn' | 'restart-hotspot' | string
 }
 
 export type AppState = {
@@ -19,6 +39,8 @@ export type AppState = {
   dhcp_start?: string
   dhcp_end?: string
   wg_up?: boolean
+  vpn_health?: VPNHealth
+  issues?: HealthIssue[]
   proxy_running?: boolean
   syncrox_running?: boolean
   device_metrics?: DeviceMetrics

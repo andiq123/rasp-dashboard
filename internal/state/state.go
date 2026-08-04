@@ -2,6 +2,7 @@ package state
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -20,6 +21,8 @@ const (
 	defaultMode     = ModeMullvad
 
 	portCheckTimeout = 2 * time.Second
+	vpnProbeTTL      = 15 * time.Second
+	maxHandshakeAge  = 3 * time.Minute
 )
 
 func ValidMode(m string) bool {
@@ -35,6 +38,8 @@ type State struct {
 	DHCPStart      string        `json:"dhcp_start"`
 	DHCPEnd        string        `json:"dhcp_end"`
 	WGUp           bool          `json:"wg_up"`
+	VPNHealth      VPNHealth     `json:"vpn_health"`
+	Issues         []HealthIssue `json:"issues"`
 	ProxyRunning   bool          `json:"proxy_running"`
 	SyncroxRunning bool          `json:"syncrox_running"`
 	DeviceMetrics  DeviceMetrics `json:"device_metrics"`
@@ -66,7 +71,27 @@ type ThermalMetrics struct {
 	TemperatureCelsius float64 `json:"temperature_celsius"`
 	Available          bool    `json:"available"`
 	Throttled          bool    `json:"throttled"`
+	ThrottledBefore    bool    `json:"throttled_before"`
 	ThrottleKnown      bool    `json:"throttle_known"`
+}
+
+type VPNHealth struct {
+	InterfaceUp         bool   `json:"interface_up"`
+	HandshakeHealthy    bool   `json:"handshake_healthy"`
+	HandshakeAgeSeconds *int64 `json:"handshake_age_seconds,omitempty"`
+	EgressOK            bool   `json:"egress_ok"`
+	Relay               string `json:"relay,omitempty"`
+	Endpoint            string `json:"endpoint,omitempty"`
+	CheckedAt           string `json:"checked_at"`
+	Error               string `json:"error,omitempty"`
+}
+
+type HealthIssue struct {
+	Code     string `json:"code"`
+	Severity string `json:"severity"`
+	Title    string `json:"title"`
+	Detail   string `json:"detail"`
+	Action   string `json:"action,omitempty"`
 }
 
 type StorageMetrics struct {
@@ -107,6 +132,9 @@ type Reader struct {
 	cacheMu sync.Mutex
 	shell   shellCache
 	shellCh chan struct{} // closed when in-flight ReadShellCached finishes
+	vpnMu   sync.Mutex
+	vpnAt   time.Time
+	vpn     VPNHealth
 }
 
 type metricsSample struct {
@@ -131,19 +159,24 @@ func (r *Reader) Read() (State, error) {
 	cfg, _ := LoadConfig(r.BaseDir)
 	hostapdRunning := processRunning("hostapd.*hostapd-uap0")
 	dnsmasqRunning := processRunning("dnsmasq.*dnsmasq-uap0")
-	return State{
+	vpn := r.readVPNHealth(cfg.WGInterface)
+	metrics := r.readDeviceMetrics()
+	st := State{
 		Mode:           mode,
 		HotspotRunning: hostapdRunning && dnsmasqRunning,
 		SSID:           cfg.SSID,
 		HotspotIP:      cfg.HotspotIP,
 		DHCPStart:      cfg.DHCPStart,
 		DHCPEnd:        cfg.DHCPEnd,
-		WGUp:           wgUp(cfg.WGInterface),
+		WGUp:           vpn.InterfaceUp,
+		VPNHealth:      vpn,
 		ProxyRunning:   processRunning("redsocks.*redsocks-hotspot"),
 		SyncroxRunning: portReachable("SYNCROX_PORT", "5090"),
-		DeviceMetrics:  r.readDeviceMetrics(),
+		DeviceMetrics:  metrics,
 		GeneratedAt:    time.Now().Format(time.RFC3339),
-	}, nil
+	}
+	st.Issues = healthIssues(st)
+	return st, nil
 }
 
 func (r *Reader) readDeviceMetrics() DeviceMetrics {
@@ -277,11 +310,17 @@ func readThermalMetrics() ThermalMetrics {
 		text = strings.TrimPrefix(text, "throttled=")
 		value, err := strconv.ParseUint(text, 0, 64)
 		if err == nil {
-			metrics.ThrottleKnown = true
-			metrics.Throttled = value != 0
+			applyThrottleFlags(&metrics, value)
 		}
 	}
 	return metrics
+}
+
+func applyThrottleFlags(metrics *ThermalMetrics, value uint64) {
+	metrics.ThrottleKnown = true
+	// Bits 0-3 are current conditions; bits 16-19 only record past events.
+	metrics.Throttled = value&0xF != 0
+	metrics.ThrottledBefore = value&0xF0000 != 0
 }
 
 func readStorageMetrics(path string) StorageMetrics {
@@ -358,6 +397,138 @@ func wgUp(iface string) bool {
 		return false
 	}
 	return exec.Command("ip", "link", "show", iface).Run() == nil
+}
+
+func (r *Reader) readVPNHealth(iface string) VPNHealth {
+	r.vpnMu.Lock()
+	defer r.vpnMu.Unlock()
+	if !r.vpnAt.IsZero() && time.Since(r.vpnAt) < vpnProbeTTL {
+		return r.vpn
+	}
+
+	now := time.Now()
+	h := VPNHealth{InterfaceUp: wgUp(iface), CheckedAt: now.Format(time.RFC3339)}
+	h.Relay, h.Endpoint = readWireGuardPeer(r.BaseDir)
+	if !h.InterfaceUp {
+		h.Error = "WireGuard interface is down"
+		r.vpn, r.vpnAt = h, now
+		return h
+	}
+
+	out, err := exec.Command("sudo", "-n", "wg", "show", iface, "latest-handshakes").Output()
+	if err != nil {
+		h.Error = "Could not read WireGuard handshake"
+	} else if fields := strings.Fields(string(out)); len(fields) >= 2 {
+		if ts, parseErr := strconv.ParseInt(fields[1], 10, 64); parseErr == nil && ts > 0 {
+			age := now.Unix() - ts
+			if age < 0 {
+				age = 0
+			}
+			h.HandshakeAgeSeconds = &age
+			h.HandshakeHealthy = time.Duration(age)*time.Second <= maxHandshakeAge
+		}
+	}
+
+	if h.HandshakeHealthy {
+		h.EgressOK, err = mullvadEgressOK(iface)
+		if err != nil {
+			h.Error = err.Error()
+		}
+	} else if h.Error == "" {
+		h.Error = "WireGuard handshake is stale or missing"
+	}
+	r.vpn, r.vpnAt = h, now
+	return h
+}
+
+func readWireGuardPeer(baseDir string) (string, string) {
+	b, err := os.ReadFile(filepath.Join(baseDir, "config", "mullvad-wg.conf"))
+	if err != nil {
+		return "", ""
+	}
+	var relay, endpoint string
+	for _, line := range strings.Split(string(b), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "# Mullvad relay:") {
+			relay = strings.TrimSpace(strings.TrimPrefix(trimmed, "# Mullvad relay:"))
+		}
+		if strings.HasPrefix(trimmed, "Endpoint") {
+			if parts := strings.SplitN(trimmed, "=", 2); len(parts) == 2 {
+				endpoint = strings.TrimSpace(parts[1])
+			}
+		}
+	}
+	return relay, endpoint
+}
+
+func mullvadEgressOK(iface string) (bool, error) {
+	gatewayOut, err := exec.Command("sh", "-c", "ip -4 route show default | awk 'NR==1 {print $3}'").Output()
+	if err != nil || strings.TrimSpace(string(gatewayOut)) == "" {
+		return false, fmt.Errorf("could not find upstream DNS gateway")
+	}
+	dns := strings.TrimSpace(string(gatewayOut))
+	lookup, err := exec.Command("busybox", "nslookup", "am.i.mullvad.net", dns).CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("could not resolve Mullvad status through upstream DNS")
+	}
+	ip := lastIPv4(string(lookup))
+	if ip == "" {
+		return false, fmt.Errorf("upstream DNS returned no Mullvad status address")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "curl", "-4", "--interface", iface,
+		"--resolve", "am.i.mullvad.net:443:"+ip, "--connect-timeout", "2", "--max-time", "4",
+		"-fsS", "https://am.i.mullvad.net/connected").Output()
+	if err != nil {
+		return false, fmt.Errorf("Mullvad egress check failed")
+	}
+	return strings.HasPrefix(strings.TrimSpace(string(out)), "You are connected to Mullvad"), nil
+}
+
+func lastIPv4(text string) string {
+	var found string
+	for _, field := range strings.Fields(text) {
+		candidate := strings.TrimSpace(field)
+		if ip := net.ParseIP(candidate); ip != nil && strings.Contains(candidate, ".") {
+			found = candidate
+		}
+	}
+	return found
+}
+
+func healthIssues(st State) []HealthIssue {
+	issues := make([]HealthIssue, 0)
+	if !st.HotspotRunning {
+		issues = append(issues, HealthIssue{Code: "hotspot-down", Severity: "critical", Title: "Hotspot is down", Detail: "hostapd or dnsmasq is not running.", Action: "restart-hotspot"})
+	}
+	if st.Mode == ModeMullvad {
+		switch {
+		case !st.VPNHealth.InterfaceUp:
+			issues = append(issues, HealthIssue{Code: "vpn-interface-down", Severity: "critical", Title: "Mullvad tunnel is down", Detail: st.VPNHealth.Error, Action: "repair-vpn"})
+		case !st.VPNHealth.HandshakeHealthy:
+			detail := st.VPNHealth.Error
+			if st.VPNHealth.HandshakeAgeSeconds != nil {
+				detail = fmt.Sprintf("Latest WireGuard handshake is %d seconds old.", *st.VPNHealth.HandshakeAgeSeconds)
+			}
+			issues = append(issues, HealthIssue{Code: "vpn-handshake-stale", Severity: "critical", Title: "Mullvad handshake is stale", Detail: detail, Action: "repair-vpn"})
+		case !st.VPNHealth.EgressOK:
+			issues = append(issues, HealthIssue{Code: "vpn-egress-failed", Severity: "critical", Title: "Mullvad internet check failed", Detail: st.VPNHealth.Error, Action: "repair-vpn"})
+		}
+	} else if !st.ProxyRunning {
+		issues = append(issues, HealthIssue{Code: "proxy-down", Severity: "critical", Title: "Residential proxy is down", Detail: "The selected hotspot route is not running.", Action: "restart-hotspot"})
+	}
+	if temp := st.DeviceMetrics.Thermal.TemperatureCelsius; st.DeviceMetrics.Thermal.Available && temp >= 75 {
+		severity := "warning"
+		if temp >= 82 {
+			severity = "critical"
+		}
+		issues = append(issues, HealthIssue{Code: "temperature-high", Severity: severity, Title: "Pi temperature is high", Detail: fmt.Sprintf("CPU temperature is %.1f°C; check airflow and cooling.", temp)})
+	}
+	if st.DeviceMetrics.Thermal.Throttled {
+		issues = append(issues, HealthIssue{Code: "thermal-throttling", Severity: "critical", Title: "Pi is currently throttled", Detail: "The current Raspberry Pi throttle flags are active."})
+	}
+	return issues
 }
 
 func portReachable(envKey, defaultPort string) bool {

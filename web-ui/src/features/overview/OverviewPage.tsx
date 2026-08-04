@@ -12,6 +12,8 @@ import {
   RotateCw,
   Shield,
   Thermometer,
+  TriangleAlert,
+  Wrench,
 } from 'lucide-react'
 import {
   fetchConfig,
@@ -92,7 +94,12 @@ export function OverviewPage() {
   const storage = d.storage || {}
   const net = d.network || {}
   const temp = Number(thermal.temperature_celsius || 0)
-  const healthy = !!(state.hotspot_running && (mode === 'mullvad' ? state.wg_up : state.proxy_running))
+  const vpn = state.vpn_health || {}
+  const issues = state.issues || []
+  const vpnHealthy = state.vpn_health
+    ? !!(vpn.interface_up && vpn.handshake_healthy && vpn.egress_ok)
+    : !!state.wg_up
+  const healthy = !!(state.hotspot_running && (mode === 'mullvad' ? vpnHealthy : state.proxy_running))
 
   const modeMut = useMutation({
     mutationFn: (m: string) => setMode(m),
@@ -104,9 +111,9 @@ export function OverviewPage() {
   })
 
   const hs = useMutation({
-    mutationFn: (a: 'start' | 'stop' | 'restart') => hotspotAction(a),
+    mutationFn: (a: 'start' | 'stop' | 'restart' | 'repair-vpn') => hotspotAction(a),
     onSuccess: async (_, a) => {
-      showToast(`Hotspot ${actionDoneLabel(a).toLowerCase()}`)
+      showToast(a === 'repair-vpn' ? 'VPN repaired and verified' : `Hotspot ${actionDoneLabel(a).toLowerCase()}`)
       await qc.invalidateQueries({ queryKey: queryKeys.state })
     },
     onError: (e: Error) => showToast(e.message, 'error'),
@@ -163,6 +170,15 @@ export function OverviewPage() {
     if (ok) hs.mutate(a)
   }
 
+  async function onRepairVPN() {
+    const ok = await confirm({
+      title: 'Repair Mullvad VPN?',
+      body: 'The Pi will refresh the saved relay, restart only WireGuard, and verify a fresh handshake. Wi‑Fi clients may briefly lose internet.',
+      confirmLabel: 'Repair VPN',
+    })
+    if (ok) hs.mutate('repair-vpn')
+  }
+
   async function onSyncrox() {
     if (!state.syncrox_running) {
       sx.mutate('start')
@@ -201,6 +217,53 @@ export function OverviewPage() {
             {healthy ? 'Online' : 'Offline'}
           </div>
         </div>
+
+        {issues.length > 0 ? (
+          <div className="grid gap-1.5" aria-label="Detected issues">
+            {issues.map((issue) => (
+              <div
+                key={issue.code}
+                className={`rounded-lg border px-2.5 py-2 ${
+                  issue.severity === 'critical'
+                    ? 'border-error/35 bg-error/10'
+                    : 'border-warning/35 bg-warning/10'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <strong className="flex items-center gap-1.5 text-xs">
+                      <TriangleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                      {issue.title}
+                    </strong>
+                    <p className={`m-0 mt-1 text-[11px] leading-snug ${muted}`}>{issue.detail}</p>
+                  </div>
+                  {issue.action === 'repair-vpn' ? (
+                    <Button
+                      variant="warningSoft"
+                      icon={<Wrench className="h-3.5 w-3.5" aria-hidden />}
+                      loading={hs.isPending && hs.variables === 'repair-vpn'}
+                      onClick={() => void onRepairVPN()}
+                    >
+                      Repair VPN
+                    </Button>
+                  ) : issue.action === 'restart-hotspot' ? (
+                    <Button
+                      variant="warningSoft"
+                      loading={hs.isPending && hs.variables === 'restart'}
+                      onClick={() => void onHotspot('restart')}
+                    >
+                      Restart
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-success/25 bg-success/10 px-2.5 py-2 text-xs">
+            No active hotspot or route issues detected.
+          </div>
+        )}
 
         <div className="join w-full">
           <Button
@@ -260,6 +323,18 @@ export function OverviewPage() {
               'DHCP',
               state.dhcp_start && state.dhcp_end ? `${state.dhcp_start} – ${state.dhcp_end}` : 'Not set',
             ],
+            ...(mode === 'mullvad'
+              ? [
+                  ['Relay', vpn.relay || 'Unknown'],
+                  [
+                    'Handshake',
+                    vpn.handshake_healthy
+                      ? `${Number(vpn.handshake_age_seconds || 0)}s ago`
+                      : 'Stale or missing',
+                  ],
+                  ['Mullvad egress', vpn.egress_ok ? 'Verified' : 'Failed'],
+                ]
+              : []),
           ].map(([k, v]) => (
             <div key={k} className="flex justify-between gap-3 px-2.5 py-2 bg-base-100/60">
               <span className={`${muted} text-xs`}>{k}</span>
@@ -361,7 +436,15 @@ export function OverviewPage() {
             icon={Thermometer}
             label="Thermal"
             value={thermal.available ? `${temp.toFixed(0)}°` : 'n/a'}
-            detail={thermal.throttle_known ? (thermal.throttled ? 'Throttled' : 'OK') : 'Sensor'}
+            detail={
+              thermal.throttle_known
+                ? thermal.throttled
+                  ? 'Throttled now'
+                  : thermal.throttled_before
+                    ? 'OK now · past event'
+                    : 'OK'
+                : 'Sensor'
+            }
             percent={(temp / 85) * 100}
           />
           <Metric

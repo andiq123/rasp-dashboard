@@ -30,6 +30,7 @@ type HotspotController interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
 	Restart(ctx context.Context) error
+	RepairVPN(ctx context.Context) error
 }
 
 type AppController interface {
@@ -86,6 +87,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/hotspot/start", s.handleHotspot)
 	mux.HandleFunc("/api/hotspot/stop", s.handleHotspot)
 	mux.HandleFunc("/api/hotspot/restart", s.handleHotspot)
+	mux.HandleFunc("/api/hotspot/repair-vpn", s.handleHotspot)
+	mux.HandleFunc("/api/health", s.handleHealth)
+	mux.HandleFunc("/api/ready", s.handleReady)
 	mux.HandleFunc("/api/syncrox/start", s.handleAppController(func() AppController { return s.Syncrox }))
 	mux.HandleFunc("/api/syncrox/stop", s.handleAppController(func() AppController { return s.Syncrox }))
 	mux.HandleFunc("/api/config", s.handleAPIConfig)
@@ -294,6 +298,37 @@ func (s *Server) handleAPIState(w http.ResponseWriter, r *http.Request) {
 	jsonReply(w, st)
 }
 
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+	jsonReply(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+	st, err := s.readShellState()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	ready := st.HotspotRunning
+	if st.Mode == state.ModeMullvad {
+		ready = ready && st.VPNHealth.InterfaceUp && st.VPNHealth.HandshakeHealthy && st.VPNHealth.EgressOK
+	} else {
+		ready = ready && st.ProxyRunning
+	}
+	if !ready {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
+	jsonReply(w, map[string]interface{}{"ok": ready, "issues": st.Issues, "generated_at": st.GeneratedAt})
+}
+
 func (s *Server) handleAPIMode(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		methodNotAllowed(w)
@@ -330,6 +365,8 @@ func (s *Server) handleHotspot(w http.ResponseWriter, r *http.Request) {
 		err = s.Hotspot.Stop(r.Context())
 	case strings.HasSuffix(r.URL.Path, "/restart"):
 		err = s.Hotspot.Restart(r.Context())
+	case strings.HasSuffix(r.URL.Path, "/repair-vpn"):
+		err = s.Hotspot.RepairVPN(r.Context())
 	default:
 		http.NotFound(w, r)
 		return

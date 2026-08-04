@@ -156,7 +156,7 @@ export const dockerAction = (body: DockerAction) =>
   api<DockerActionResult>('/api/docker', { method: 'POST', body })
 
 export const setMode = (mode: string) => api('/api/mode', { method: 'POST', body: { mode } })
-export const hotspotAction = (action: 'start' | 'stop' | 'restart') =>
+export const hotspotAction = (action: 'start' | 'stop' | 'restart' | 'repair-vpn') =>
   api(`/api/hotspot/${action}`, { method: 'POST' })
 export const syncroxAction = (action: 'start' | 'stop') =>
   api(`/api/syncrox/${action}`, { method: 'POST' })

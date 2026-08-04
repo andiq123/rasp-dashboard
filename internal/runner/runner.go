@@ -27,6 +27,9 @@ func (r *Runner) SwitchMode(ctx context.Context, mode string) error {
 func (r *Runner) Start(ctx context.Context) error   { return r.run(ctx, "start") }
 func (r *Runner) Stop(ctx context.Context) error    { return r.run(ctx, "stop") }
 func (r *Runner) Restart(ctx context.Context) error { return r.run(ctx, "restart") }
+func (r *Runner) RepairVPN(ctx context.Context) error {
+	return r.run(ctx, "update-mullvad-relay", "--apply", "--restart")
+}
 
 func (r *Runner) run(ctx context.Context, script string, args ...string) error {
 	if _, ok := ctx.Deadline(); !ok {
