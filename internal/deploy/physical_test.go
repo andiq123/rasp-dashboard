@@ -40,6 +40,9 @@ func TestPhysicalNames_groupScoped(t *testing.T) {
 	if got := physicalDatabaseName("999scraper", "data"); got != "db_999scraper__data" {
 		t.Fatalf("numeric group db=%q", got)
 	}
+	if got := physicalBucketName("999scraper", "files"); got != "999scraper--files" {
+		t.Fatalf("numeric group bucket=%q", got)
+	}
 }
 
 func TestFitPhysicalName_stableHash(t *testing.T) {

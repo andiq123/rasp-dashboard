@@ -87,6 +87,49 @@ function postgresNamePreview(group: string, name: string): { value: string; shor
   return { value: `${prefix}_<stable-hash>`, shortened: true }
 }
 
+function bucketNamePreview(group: string, name: string): { value: string; shortened: boolean } {
+  const clean = (value: string) => value
+    .toLowerCase()
+    .replace(/_/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/^-+|-+$/g, '')
+  const service = clean(slugify(name))
+  const groupPart = clean(group)
+  if (!service) return { value: '—', shortened: false }
+  const full = groupPart ? `${groupPart}--${service}` : service
+  if (full.length <= 63) return { value: full, shortened: false }
+  const prefix = full.slice(0, 54).replace(/[-_.]+$/g, '') || 'bucket'
+  return { value: `${prefix}-<stable-hash>`, shortened: true }
+}
+
+function runtimeContainerName(group: string, slug: string): string {
+  return group && slug ? `fw-${group}-${slug}` : '—'
+}
+
+function NamingPreview({
+  rows,
+  shortened,
+}: {
+  rows: Array<{ label: string; value: string; primary?: boolean }>
+  shortened?: boolean
+}) {
+  return (
+    <div className={`${tile} p-3 grid gap-2`} aria-live="polite">
+      {rows.map((row) => (
+        <div key={row.label} className="flex items-baseline justify-between gap-3 min-w-0">
+          <span className={`text-[11px] shrink-0 ${muted}`}>{row.label}</span>
+          <code className={`text-xs font-semibold select-all text-right break-all ${row.primary ? 'text-primary' : ''}`}>
+            {row.value || '—'}
+          </code>
+        </div>
+      ))}
+      {shortened ? (
+        <p className={`text-[11px] m-0 ${muted}`}>A stable 8-character suffix replaces the preview marker when created.</p>
+      ) : null}
+    </div>
+  )
+}
+
 export function ProjectsPage() {
   const { '*': splat } = useParams()
   const parts = (splat || '').split('/').filter(Boolean)
@@ -121,6 +164,12 @@ export function ProjectsPage() {
   const [redisName, setRedisName] = useState('')
   const pgServiceSlug = slugify(pgName)
   const pgDatabasePreview = postgresNamePreview(groupSlug, pgName)
+  const bucketServiceSlug = slugify(bucketName)
+  const bucketPhysicalPreview = bucketNamePreview(groupSlug, bucketName)
+  const redisServiceSlug = slugify(redisName)
+  const redisContainerPreview = runtimeContainerName(groupSlug, redisServiceSlug)
+  const goServiceSlug = slugify(goForm.repo.split('/').pop() || '')
+  const goContainerPreview = runtimeContainerName(groupSlug, goServiceSlug)
 
   const groupsQ = useQuery({
     queryKey: queryKeys.groups,
@@ -152,11 +201,14 @@ export function ProjectsPage() {
       return liveStats ? { ...s, stats: liveStats } : s
     })
   }, [servicesQ.data, statsQ.data])
+  const pgSlugTaken = !!pgServiceSlug && services.some((service) => service.slug === pgServiceSlug)
+  const bucketSlugTaken = !!bucketServiceSlug && services.some((service) => service.slug === bucketServiceSlug)
+  const redisSlugTaken = !!redisServiceSlug && services.some((service) => service.slug === redisServiceSlug)
   const selected = services.find((s) => s.slug === serviceSlug)
   const buildingN = services.filter(isBuilding).length
-  const queuedN = services.filter(isQueued).length
+  const queuedN = Math.max(services.filter(isQueued).length, (activity.queue || []).length)
   const liveDeploying = activity.active && activityMatchesGroup(activity, groupSlug)
-  const deployingN = Math.max(buildingN + queuedN, liveDeploying ? 1 : 0, (activity.queue || []).length)
+  const deployingN = Math.max(buildingN + queuedN, liveDeploying ? 1 : 0)
 
   useEffect(() => {
     if (group) setDraftName(group.name || group.slug)
@@ -184,7 +236,7 @@ export function ProjectsPage() {
   const portsQ = useQuery({
     queryKey: queryKeys.ports,
     queryFn: fetchPorts,
-    enabled: wizard === 'go',
+    enabled: wizard === 'go' || wizard === 'redis',
   })
 
   useEffect(() => {
@@ -254,11 +306,15 @@ export function ProjectsPage() {
   const pgMut = useMutation({
     mutationFn: () => createPostgres(groupSlug, { type: 'postgres', name: pgName.trim(), version: 'latest' }),
     onSuccess: async (svc) => {
-      showToast('Postgres creating…', 'info')
+      const queued = svc.status === 'queued'
+      showToast(queued ? 'Postgres queued — it will start automatically' : 'Postgres ready', queued ? 'info' : 'success')
       setWizard(null)
       setPgName('')
-      await qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) })
-      navigate(`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`)
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) }),
+        qc.invalidateQueries({ queryKey: queryKeys.activity }),
+      ])
+      if (!queued) navigate(`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`)
     },
     onError: (e: Error) => showToast(e.message, 'error'),
   })
@@ -266,11 +322,15 @@ export function ProjectsPage() {
   const bucketMut = useMutation({
     mutationFn: () => createBucket(groupSlug, { type: 'bucket', name: bucketName.trim() }),
     onSuccess: async (svc) => {
-      showToast('Bucket creating…', 'info')
+      const queued = svc.status === 'queued'
+      showToast(queued ? 'Bucket queued — it will start automatically' : 'Bucket ready', queued ? 'info' : 'success')
       setWizard(null)
       setBucketName('')
-      await qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) })
-      navigate(`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`)
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) }),
+        qc.invalidateQueries({ queryKey: queryKeys.activity }),
+      ])
+      if (!queued) navigate(`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`)
     },
     onError: (e: Error) => showToast(e.message, 'error'),
   })
@@ -278,11 +338,15 @@ export function ProjectsPage() {
   const redisMut = useMutation({
     mutationFn: () => createRedis(groupSlug, { name: redisName.trim() }),
     onSuccess: async (svc) => {
-      showToast('Redis creating…', 'info')
+      const queued = svc.status === 'queued'
+      showToast(queued ? 'Redis queued — it will start automatically' : 'Redis ready', queued ? 'info' : 'success')
       setWizard(null)
       setRedisName('')
-      await qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) })
-      navigate(`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`)
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) }),
+        qc.invalidateQueries({ queryKey: queryKeys.activity }),
+      ])
+      if (!queued) navigate(`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`)
     },
     onError: (e: Error) => showToast(e.message, 'error'),
   })
@@ -759,6 +823,15 @@ export function ProjectsPage() {
             ))}
           </Select>
         </Field>
+        {goServiceSlug ? (
+          <NamingPreview
+            rows={[
+              { label: 'Service slug', value: goServiceSlug },
+              { label: 'Runtime container', value: goContainerPreview, primary: true },
+              { label: 'Local address', value: `rasp.local:${portsQ.data?.next ?? 'auto'}` },
+            ]}
+          />
+        ) : null}
         <Field label="Branch" tip="Deploy clones this branch on every build.">
           <Select
             value={goForm.branch}
@@ -918,7 +991,7 @@ export function ProjectsPage() {
             <Button
               variant="primary"
               loading={pgMut.isPending}
-              disabled={!pgName.trim()}
+              disabled={!pgServiceSlug || pgSlugTaken}
               onClick={() => pgMut.mutate()}
             >
               Create
@@ -930,21 +1003,17 @@ export function ProjectsPage() {
         <Field label="Name" tip="The group prefix is added to the physical Postgres identifier." htmlFor="wiz-pg-name">
           <Input id="wiz-pg-name" autoFocus maxLength={48} value={pgName} onChange={(e) => setPgName(e.target.value)} />
         </Field>
-        {pgName.trim() ? (
-          <div className={`${tile} p-3 grid gap-2`} aria-live="polite">
-            <div className="flex items-baseline justify-between gap-3">
-              <span className={`text-[11px] ${muted}`}>Service slug</span>
-              <code className="text-xs font-semibold select-all">{pgServiceSlug}</code>
-            </div>
-            <div className="flex items-baseline justify-between gap-3">
-              <span className={`text-[11px] ${muted}`}>Postgres database</span>
-              <code className="text-xs font-semibold text-primary select-all text-right break-all">{pgDatabasePreview.value}</code>
-            </div>
-            {pgDatabasePreview.shortened ? (
-              <p className={`text-[11px] m-0 ${muted}`}>A stable 8-character suffix replaces the preview marker when created.</p>
-            ) : null}
-          </div>
-        ) : null}
+        {pgServiceSlug ? (
+          <NamingPreview
+            rows={[
+              { label: 'Service slug', value: pgServiceSlug },
+              { label: 'Postgres database', value: pgDatabasePreview.value, primary: true },
+              { label: 'Engine', value: 'Shared Postgres' },
+            ]}
+            shortened={pgDatabasePreview.shortened}
+          />
+        ) : pgName.trim() ? <p className="text-xs text-error m-0">Use at least one letter or number.</p> : null}
+        {pgSlugTaken ? <p className="text-xs text-error m-0">Service slug <code>{pgServiceSlug}</code> already exists in this group.</p> : null}
         <div className={`${tile} p-3 grid gap-1.5`}>
           <strong className="text-xs">Ready for application code</strong>
           <p className={`text-[11px] m-0 ${muted}`}>
@@ -968,7 +1037,7 @@ export function ProjectsPage() {
             <Button
               variant="primary"
               loading={bucketMut.isPending}
-              disabled={!bucketName.trim()}
+              disabled={!bucketServiceSlug || bucketSlugTaken}
               onClick={() => bucketMut.mutate()}
             >
               Create
@@ -977,14 +1046,26 @@ export function ProjectsPage() {
         }
       >
         <div className="grid gap-3">
-        <Field label="Name" tip="Prefix is added automatically" htmlFor="wiz-bucket-name">
+        <Field label="Name" tip="The group prefix is added to the physical bucket name." htmlFor="wiz-bucket-name">
           <Input
             id="wiz-bucket-name"
             autoFocus
+            maxLength={48}
             value={bucketName}
             onChange={(e) => setBucketName(e.target.value)}
           />
         </Field>
+        {bucketServiceSlug ? (
+          <NamingPreview
+            rows={[
+              { label: 'Service slug', value: bucketServiceSlug },
+              { label: 'S3 bucket', value: bucketPhysicalPreview.value, primary: true },
+              { label: 'Engine', value: 'Shared MinIO' },
+            ]}
+            shortened={bucketPhysicalPreview.shortened}
+          />
+        ) : bucketName.trim() ? <p className="text-xs text-error m-0">Use at least one letter or number.</p> : null}
+        {bucketSlugTaken ? <p className="text-xs text-error m-0">Service slug <code>{bucketServiceSlug}</code> already exists in this group.</p> : null}
         <div className={`${tile} p-3 grid gap-1.5`}>
           <strong className="text-xs">Secure by default</strong>
           <p className={`text-[11px] m-0 ${muted}`}>
@@ -1006,7 +1087,7 @@ export function ProjectsPage() {
             <Button
               variant="primary"
               loading={redisMut.isPending}
-              disabled={!redisName.trim()}
+              disabled={!redisServiceSlug || redisSlugTaken}
               onClick={() => redisMut.mutate()}
             >
               Create
@@ -1019,11 +1100,23 @@ export function ProjectsPage() {
             <Input
               id="wiz-redis-name"
               autoFocus
+              maxLength={48}
               value={redisName}
               onChange={(e) => setRedisName(e.target.value)}
               placeholder="cache"
             />
           </Field>
+          {redisServiceSlug ? (
+            <NamingPreview
+              rows={[
+                { label: 'Service slug', value: redisServiceSlug },
+                { label: 'Runtime container', value: redisContainerPreview, primary: true },
+                { label: 'Persistent volume', value: `${redisContainerPreview}-data` },
+                { label: 'Local port', value: String(portsQ.data?.next ?? 'assigned automatically') },
+              ]}
+            />
+          ) : redisName.trim() ? <p className="text-xs text-error m-0">Use at least one letter or number.</p> : null}
+          {redisSlugTaken ? <p className="text-xs text-error m-0">Service slug <code>{redisServiceSlug}</code> already exists in this group.</p> : null}
           <div className={`${tile} p-3 grid gap-1.5`}>
             <strong className="text-xs">Safe defaults for a small server</strong>
             <p className={`text-[11px] m-0 ${muted}`}>

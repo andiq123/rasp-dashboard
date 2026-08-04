@@ -18,6 +18,8 @@ function reasonLabel(reason?: string): string {
       return 'auto'
     case 'redeploy':
       return 'redeploy'
+    case 'create':
+      return 'create'
     default:
       return 'deploy'
   }
@@ -32,13 +34,13 @@ export function DeployQueue({ activity, group }: Props) {
   return (
     <section
       className={`queue-enter ${surface} border border-base-300 px-3 py-2.5 grid gap-2`}
-      aria-label="Deploy queue"
+      aria-label="Service operation queue"
     >
       <div className="flex flex-wrap items-center gap-2 justify-between">
         <div className="flex items-center gap-2 min-w-0">
           <ListOrdered className="h-4 w-4 text-warning shrink-0" aria-hidden />
-          <strong className="text-xs">Deploy pipeline</strong>
-          <span className={`text-[11px] ${muted}`}>one at a time</span>
+          <strong className="text-xs">Service pipeline</strong>
+          <span className={`text-[11px] ${muted}`}>FIFO · one at a time</span>
         </div>
         {showActive ? (
           <span className="badge badge-info badge-sm gap-1" role="status">
@@ -64,14 +66,16 @@ export function DeployQueue({ activity, group }: Props) {
           ))}
         </ol>
       ) : showActive ? (
-        <p className={`text-[11px] m-0 ${muted}`}>Queue empty — next redeploy runs after this finishes.</p>
+        <p className={`text-[11px] m-0 ${muted}`}>Queue empty — the next service operation starts immediately.</p>
       ) : null}
     </section>
   )
 }
 
 function QueueRow({ item, index, dim }: { item: QueueItem; index: number; dim?: boolean }) {
-  const to = `/projects/${encodeURIComponent(item.group)}/${encodeURIComponent(item.slug)}`
+  const to = item.pending_create
+    ? `/projects/${encodeURIComponent(item.group)}`
+    : `/projects/${encodeURIComponent(item.group)}/${encodeURIComponent(item.slug)}`
   return (
     <li
       className={[
@@ -81,9 +85,10 @@ function QueueRow({ item, index, dim }: { item: QueueItem; index: number; dim?: 
       style={{ animationDelay: `${index * 40}ms` }}
     >
       <span className="badge badge-warning badge-sm font-mono tabular-nums">#{item.position}</span>
-      <Link to={to} className="min-w-0 flex-1 truncate text-xs font-semibold link link-hover">
+      <Link to={to} title={item.title} className="min-w-0 flex-1 truncate text-xs font-semibold link link-hover">
         {item.name || item.slug}
       </Link>
+      {item.type ? <span className="badge badge-ghost badge-xs font-mono shrink-0">{item.type}</span> : null}
       <span className={`text-[10px] uppercase tracking-wide shrink-0 ${muted}`}>{reasonLabel(item.reason)}</span>
     </li>
   )

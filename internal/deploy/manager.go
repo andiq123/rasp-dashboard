@@ -533,20 +533,14 @@ func (m *Manager) GetEnv(group, slug string) (string, string, error) {
 }
 
 func (m *Manager) CreatePostgres(ctx context.Context, group string, name, version string) (Service, error) {
-	name = strings.TrimSpace(name)
-	scope := group + "/" + slugify(name)
-	if err := m.acquireJob("Create database · "+name, scope); err != nil {
-		return Service{}, err
-	}
-	m.startProgress(CreatePostgresSteps())
-	svc, err := m.createPostgres(ctx, group, name, version)
+	started, queued, next, err := m.reserveOrEnqueueCreate(TypePostgres, group, name, version)
 	if err != nil {
-		m.releaseJob(false, err.Error())
 		return Service{}, err
 	}
-	m.logf("ok", "Ready · link Go apps to get DB_* + DATABASE_URL")
-	m.releaseJob(true, "Database ready · "+svc.Slug)
-	return svc, nil
+	if !started {
+		return queued, nil
+	}
+	return m.executeQueuedCreate(ctx, next)
 }
 
 func (m *Manager) createPostgres(ctx context.Context, group string, name, version string) (Service, error) {

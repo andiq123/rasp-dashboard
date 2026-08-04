@@ -10,20 +10,14 @@ import (
 )
 
 func (m *Manager) CreateBucket(ctx context.Context, group, name string) (Service, error) {
-	name = strings.TrimSpace(name)
-	scope := group + "/" + slugify(name)
-	if err := m.acquireJob("Create bucket · "+name, scope); err != nil {
-		return Service{}, err
-	}
-	m.startProgress(CreateBucketSteps())
-	svc, err := m.createBucket(ctx, group, name)
+	started, queued, next, err := m.reserveOrEnqueueCreate(TypeBucket, group, name, "")
 	if err != nil {
-		m.releaseJob(false, err.Error())
 		return Service{}, err
 	}
-	m.logf("ok", "Ready · link a Go app for ${{bucket.*}} vars")
-	m.releaseJob(true, "Bucket ready · "+svc.Slug)
-	return svc, nil
+	if !started {
+		return queued, nil
+	}
+	return m.executeQueuedCreate(ctx, next)
 }
 
 func (m *Manager) createBucket(ctx context.Context, group, name string) (Service, error) {

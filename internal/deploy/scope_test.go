@@ -9,6 +9,12 @@ func TestContainerScopeNames(t *testing.T) {
 	if got := buildContainerName("findvibe", "api"); got != "fw-build-findvibe-api" {
 		t.Fatalf("build name: %s", got)
 	}
+	if got := containerName("999scraper", "main-redis"); got != "fw-999scraper-main-redis" {
+		t.Fatalf("numeric group runtime name: %s", got)
+	}
+	if got := redisVolumeName("999scraper", "main-redis"); got != "fw-999scraper-main-redis-data" {
+		t.Fatalf("redis volume name: %s", got)
+	}
 	labels := dockerScopeLabels("findvibe", "api", "runtime")
 	joined := ""
 	for _, a := range labels {

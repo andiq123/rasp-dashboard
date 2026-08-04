@@ -9,7 +9,7 @@ import (
 
 const maxDeployQueue = 32
 
-// QueueItem is a waiting Go deploy shown in the live activity console.
+// QueueItem is a waiting deploy or data-service creation shown in the live pipeline.
 type QueueItem struct {
 	ID         string `json:"id"`
 	Group      string `json:"group"`
@@ -19,13 +19,71 @@ type QueueItem struct {
 	Reason     string `json:"reason,omitempty"` // deploy | redeploy | auto | webhook
 	EnqueuedAt string `json:"enqueued_at"`
 	Position   int    `json:"position"`
+	Type       string `json:"type,omitempty"`
+	Create     bool   `json:"pending_create,omitempty"`
 }
 
 type queuedDeploy struct {
 	id         string
+	kind       string
 	plan       goDeployPlan
+	group      string
+	slug       string
+	name       string
+	version    string
 	reason     string
 	enqueuedAt time.Time
+}
+
+func (q queuedDeploy) serviceType() string {
+	if strings.TrimSpace(q.kind) == "" {
+		return TypeGo
+	}
+	return q.kind
+}
+
+func (q queuedDeploy) scope() string {
+	if q.serviceType() == TypeGo {
+		return q.plan.scope()
+	}
+	return serviceKey(q.group, q.slug)
+}
+
+func (q queuedDeploy) groupSlug() (string, string) {
+	if q.serviceType() == TypeGo {
+		return q.plan.Group, q.plan.Slug
+	}
+	return q.group, q.slug
+}
+
+func (q queuedDeploy) displayName() string {
+	if q.serviceType() == TypeGo {
+		return q.plan.Name
+	}
+	return q.name
+}
+
+func (q queuedDeploy) title() string {
+	if q.serviceType() == TypeGo {
+		return q.plan.title()
+	}
+	switch q.serviceType() {
+	case TypePostgres:
+		return "Create Postgres · " + q.name
+	case TypeBucket:
+		return "Create Bucket · " + q.name
+	case TypeRedis:
+		return "Create Redis · " + q.name
+	default:
+		return "Create service · " + q.name
+	}
+}
+
+func (q queuedDeploy) pendingCreate() bool {
+	// Go creates are written to the registry as queued immediately, so their
+	// detail route exists. Infrastructure services are only persisted after
+	// provisioning succeeds and must link back to their group while waiting.
+	return q.serviceType() != TypeGo
 }
 
 func newQueueID() string {
@@ -47,7 +105,11 @@ func (m *Manager) reserveOrEnqueue(plan goDeployPlan, reason string) (started bo
 	if m.jobBusy {
 		coalesced := false
 		for i := range m.deployQueue {
-			if m.deployQueue[i].plan.Group == plan.Group && m.deployQueue[i].plan.Slug == plan.Slug {
+			if m.deployQueue[i].scope() == plan.scope() {
+				if m.deployQueue[i].serviceType() != TypeGo {
+					m.jobMu.Unlock()
+					return false, Service{}, fmt.Errorf("service already queued with another type")
+				}
 				m.deployQueue[i].plan = plan
 				m.deployQueue[i].reason = reason
 				coalesced = true
@@ -61,6 +123,7 @@ func (m *Manager) reserveOrEnqueue(plan goDeployPlan, reason string) (started bo
 			}
 			m.deployQueue = append(m.deployQueue, queuedDeploy{
 				id:         newQueueID(),
+				kind:       TypeGo,
 				plan:       plan,
 				reason:     reason,
 				enqueuedAt: time.Now().UTC(),
@@ -86,6 +149,98 @@ func (m *Manager) reserveOrEnqueue(plan goDeployPlan, reason string) (started bo
 
 	m.beginJob(plan.title(), plan.scope())
 	return true, Service{}, nil
+}
+
+// reserveOrEnqueueCreate joins Postgres, Bucket, and Redis creation to the same
+// FIFO pipeline as Go deploys. Validation happens before accepting the item.
+func (m *Manager) reserveOrEnqueueCreate(kind, group, name, version string) (bool, Service, queuedDeploy, error) {
+	name = strings.TrimSpace(name)
+	slug := slugify(name)
+	if err := requireSlug(group, "group"); err != nil {
+		return false, Service{}, queuedDeploy{}, err
+	}
+	if name == "" || slug == "" {
+		return false, Service{}, queuedDeploy{}, fmt.Errorf("name required")
+	}
+	switch kind {
+	case TypePostgres:
+		if m.Postgres == nil {
+			return false, Service{}, queuedDeploy{}, fmt.Errorf("postgres engine not configured")
+		}
+	case TypeBucket:
+		if m.MinIO == nil {
+			return false, Service{}, queuedDeploy{}, fmt.Errorf("minio engine not configured")
+		}
+	case TypeRedis:
+	default:
+		return false, Service{}, queuedDeploy{}, fmt.Errorf("unsupported queued service type %q", kind)
+	}
+
+	m.mu.Lock()
+	reg, err := m.loadRegistry()
+	if err == nil {
+		if _, idx := findGroup(reg, group); idx < 0 {
+			err = fmt.Errorf("group not found — create a group first")
+		} else if _, idx := findService(reg, group, slug); idx >= 0 {
+			err = fmt.Errorf("service already exists in group")
+		}
+	}
+	m.mu.Unlock()
+	if err != nil {
+		return false, Service{}, queuedDeploy{}, err
+	}
+
+	next := queuedDeploy{
+		id: newQueueID(), kind: kind, group: group, slug: slug, name: name,
+		version: strings.TrimSpace(version), reason: "create", enqueuedAt: time.Now().UTC(),
+	}
+	queued := Service{
+		Group: group, Slug: slug, Type: kind, Name: name,
+		Status: "queued", Running: false, UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	m.jobMu.Lock()
+	if m.jobBusy {
+		if strings.TrimSpace(m.jobScope) == group {
+			m.jobMu.Unlock()
+			return false, Service{}, queuedDeploy{}, fmt.Errorf("group operation in progress — wait for it to finish")
+		}
+		if strings.TrimSpace(m.jobScope) == next.scope() {
+			m.jobMu.Unlock()
+			return false, Service{}, queuedDeploy{}, fmt.Errorf("service is already being created")
+		}
+		for i := range m.deployQueue {
+			if m.deployQueue[i].scope() != next.scope() {
+				continue
+			}
+			if m.deployQueue[i].serviceType() != kind {
+				m.jobMu.Unlock()
+				return false, Service{}, queuedDeploy{}, fmt.Errorf("service already queued with another type")
+			}
+			m.deployQueue[i].name = name
+			m.deployQueue[i].version = next.version
+			updated := m.deployQueue[i]
+			m.syncQueueLocked()
+			m.jobMu.Unlock()
+			return false, queued, updated, nil
+		}
+		if len(m.deployQueue) >= maxDeployQueue {
+			m.jobMu.Unlock()
+			return false, Service{}, queuedDeploy{}, fmt.Errorf("deploy queue full (%d) — wait for the pipeline", maxDeployQueue)
+		}
+		m.deployQueue = append(m.deployQueue, next)
+		position := len(m.deployQueue)
+		m.syncQueueLocked()
+		m.jobMu.Unlock()
+		m.logf("info", "Queued · %s (#%d) · %s", next.scope(), position, next.serviceType())
+		return false, queued, next, nil
+	}
+	m.jobBusy = true
+	m.jobScope = next.scope()
+	m.jobStartedAt = time.Now()
+	m.jobMu.Unlock()
+	m.beginJob(next.title(), next.scope())
+	return true, Service{}, next, nil
 }
 
 func (m *Manager) markServiceQueued(plan goDeployPlan) Service {
@@ -116,15 +271,18 @@ func (m *Manager) markServiceQueued(plan goDeployPlan) Service {
 func (m *Manager) syncQueueLocked() {
 	items := make([]QueueItem, 0, len(m.deployQueue))
 	for i, q := range m.deployQueue {
+		group, slug := q.groupSlug()
 		items = append(items, QueueItem{
 			ID:         q.id,
-			Group:      q.plan.Group,
-			Slug:       q.plan.Slug,
-			Name:       q.plan.Name,
-			Title:      q.plan.title(),
+			Group:      group,
+			Slug:       slug,
+			Name:       q.displayName(),
+			Title:      q.title(),
 			Reason:     q.reason,
 			EnqueuedAt: q.enqueuedAt.Format(time.RFC3339),
 			Position:   i + 1,
+			Type:       q.serviceType(),
+			Create:     q.pendingCreate(),
 		})
 	}
 	if m.Activity != nil {
@@ -142,15 +300,15 @@ func (m *Manager) popNextDeployLocked() (queuedDeploy, bool) {
 	next := m.deployQueue[0]
 	m.deployQueue = m.deployQueue[1:]
 	m.jobBusy = true
-	m.jobScope = strings.TrimSpace(next.plan.scope())
+	m.jobScope = strings.TrimSpace(next.scope())
 	m.jobStartedAt = time.Now()
 	m.syncQueueLocked()
 	return next, true
 }
 
 func (m *Manager) startQueuedDeploy(next queuedDeploy) {
-	m.beginJob(next.plan.title(), next.plan.scope())
-	m.logf("info", "Dequeued · %s · %s", next.plan.scope(), next.reason)
+	m.beginJob(next.title(), next.scope())
+	m.logf("info", "Dequeued · %s · %s", next.scope(), next.reason)
 
 	parent := context.Background()
 	if m.bgCtx != nil {
@@ -159,7 +317,11 @@ func (m *Manager) startQueuedDeploy(next queuedDeploy) {
 	go func() {
 		ctx, cancel := context.WithTimeout(parent, 25*time.Minute)
 		defer cancel()
-		_, _ = m.executeGoDeploy(ctx, next.plan)
+		if next.serviceType() == TypeGo {
+			_, _ = m.executeGoDeploy(ctx, next.plan)
+		} else {
+			_, _ = m.executeQueuedCreate(ctx, next)
+		}
 	}()
 }
 
@@ -189,7 +351,7 @@ func (m *Manager) dropQueuedDeploy(group, slug string) {
 	out := m.deployQueue[:0]
 	changed := false
 	for _, q := range m.deployQueue {
-		if q.plan.Group == group && q.plan.Slug == slug {
+		if q.scope() == serviceKey(group, slug) {
 			changed = true
 			continue
 		}
@@ -210,7 +372,7 @@ func (m *Manager) isDeployQueued(group, slug string) bool {
 	m.jobMu.Lock()
 	defer m.jobMu.Unlock()
 	for _, q := range m.deployQueue {
-		if q.plan.Group == group && q.plan.Slug == slug {
+		if q.scope() == serviceKey(group, slug) {
 			return true
 		}
 	}

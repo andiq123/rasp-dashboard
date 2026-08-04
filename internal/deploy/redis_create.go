@@ -18,19 +18,14 @@ func redisVolumeName(group, slug string) string {
 // CreateRedis provisions a dedicated password-protected Redis container.
 // Each service owns its container, loopback-only port, credentials, and volume.
 func (m *Manager) CreateRedis(ctx context.Context, group, name string) (Service, error) {
-	name = strings.TrimSpace(name)
-	scope := group + "/" + slugify(name)
-	if err := m.acquireJob("Create Redis · "+name, scope); err != nil {
-		return Service{}, err
-	}
-	m.startProgress(CreateRedisSteps())
-	svc, err := m.createRedis(ctx, group, name)
+	started, queued, next, err := m.reserveOrEnqueueCreate(TypeRedis, group, name, "")
 	if err != nil {
-		m.releaseJob(false, err.Error())
 		return Service{}, err
 	}
-	m.releaseJob(true, "Redis ready · "+svc.Slug)
-	return svc, nil
+	if !started {
+		return queued, nil
+	}
+	return m.executeQueuedCreate(ctx, next)
 }
 
 func (m *Manager) createRedis(ctx context.Context, group, name string) (Service, error) {
@@ -169,8 +164,10 @@ func (m *Manager) runRedisContainer(ctx context.Context, svc Service) error {
 		"--env-file", envPath,
 		"--volume", volume + ":/data",
 		"--cpus", formatCPUs(cpus),
+		"--log-opt", "max-size=10m", "--log-opt", "max-file=3",
 		"--health-cmd", `REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli --no-auth-warning ping || exit 1`,
-		"--health-interval", "5s", "--health-timeout", "3s", "--health-retries", "12",
+		"--health-start-period", "3s", "--health-interval", "3s",
+		"--health-timeout", "2s", "--health-retries", "10",
 	}
 	if cgroupMemorySupported() {
 		runArgs = append(runArgs, "--memory", fmt.Sprintf("%dm", mem))
@@ -190,7 +187,7 @@ func (m *Manager) runRedisContainer(ctx context.Context, svc Service) error {
 		return fmt.Errorf("start redis: %w", err)
 	}
 	m.stepProgress("health")
-	if err := m.waitContainerHealthy(ctx, name, svc.Port); err != nil {
+	if err := m.waitRedisHealthy(ctx, name, svc.Port); err != nil {
 		logs, _ := m.TailContainerLogs(ctx, svc.Group, svc.Slug, 40)
 		if strings.TrimSpace(logs) != "" {
 			m.logAppOutput("Redis logs", logs)
@@ -198,4 +195,38 @@ func (m *Manager) runRedisContainer(ctx context.Context, svc Service) error {
 		return fmt.Errorf("redis health: %w", err)
 	}
 	return nil
+}
+
+// waitRedisHealthy requires Docker's authenticated redis-cli PING healthcheck
+// to pass. A listening TCP port alone is not enough: Redis may be starting,
+// loading its AOF, or rejecting authentication.
+func (m *Manager) waitRedisHealthy(ctx context.Context, name string, port int) error {
+	deadline := time.Now().Add(45 * time.Second)
+	lastHealth := "starting"
+	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		st := m.inspectContainer(ctx, name)
+		if st.Status == "missing" {
+			lastHealth = "container missing"
+		} else if st.Restarting || st.Status == "exited" || st.Status == "dead" {
+			return fmt.Errorf("container %s (exit %d)", st.Status, st.ExitCode)
+		} else if st.Running {
+			out, err := m.dockerQuiet(ctx, "inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}", name)
+			if err == nil {
+				lastHealth = strings.TrimSpace(out)
+				if lastHealth == "healthy" {
+					if port <= 0 || m.portOpen(port) {
+						return nil
+					}
+					lastHealth = fmt.Sprintf("healthy but loopback port %d is closed", port)
+				} else if lastHealth == "unhealthy" {
+					return fmt.Errorf("authenticated PING failed")
+				}
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("authenticated PING not ready in time (%s)", lastHealth)
 }

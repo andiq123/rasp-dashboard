@@ -311,6 +311,8 @@ export type QueueItem = {
   reason?: string
   enqueued_at: string
   position: number
+  type?: string
+  pending_create?: boolean
 }
 
 export type ActivitySnapshot = {
