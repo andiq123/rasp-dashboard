@@ -20,9 +20,13 @@ const (
 	ModeResidential = "residential"
 	defaultMode     = ModeMullvad
 
-	portCheckTimeout = 2 * time.Second
-	vpnProbeTTL      = 15 * time.Second
-	maxHandshakeAge  = 3 * time.Minute
+	portCheckTimeout    = 2 * time.Second
+	vpnStatusTTL        = 2 * time.Second
+	vpnEgressTTL        = 10 * time.Second
+	vpnEgressFailureTTL = 3 * time.Second
+	// WireGuard can legitimately keep using a session for roughly two minutes;
+	// real egress catches outages sooner, so this threshold avoids false alarms.
+	maxHandshakeAge = 3 * time.Minute
 )
 
 func ValidMode(m string) bool {
@@ -84,6 +88,7 @@ type VPNHealth struct {
 	CountryAllowed      bool   `json:"country_allowed"`
 	Relay               string `json:"relay,omitempty"`
 	EgressServer        string `json:"egress_server,omitempty"`
+	EgressCheckedAt     string `json:"egress_checked_at,omitempty"`
 	Endpoint            string `json:"endpoint,omitempty"`
 	LastRepairError     string `json:"last_repair_error,omitempty"`
 	CheckedAt           string `json:"checked_at"`
@@ -120,7 +125,7 @@ type Config struct {
 	WGInterface string `json:"-"`
 }
 
-const shellStateCacheTTL = 5 * time.Second
+const shellStateCacheTTL = time.Second
 
 type shellCache struct {
 	at    time.Time
@@ -130,15 +135,21 @@ type shellCache struct {
 
 // Reader reads system state from disk and running processes.
 type Reader struct {
-	BaseDir string
-	mu      sync.Mutex
-	prev    metricsSample
-	cacheMu sync.Mutex
-	shell   shellCache
-	shellCh chan struct{} // closed when in-flight ReadShellCached finishes
-	vpnMu   sync.Mutex
-	vpnAt   time.Time
-	vpn     VPNHealth
+	BaseDir           string
+	mu                sync.Mutex
+	prev              metricsSample
+	cacheMu           sync.Mutex
+	shell             shellCache
+	shellCh           chan struct{} // closed when in-flight ReadShellCached finishes
+	vpnMu             sync.Mutex
+	vpnAt             time.Time
+	vpn               VPNHealth
+	vpnEgressAt       time.Time
+	vpnEgressRelay    string
+	vpnEgressEndpoint string
+	vpnEgressOK       bool
+	vpnEgressServer   string
+	vpnEgressError    string
 }
 
 type metricsSample struct {
@@ -406,7 +417,7 @@ func wgUp(iface string) bool {
 func (r *Reader) readVPNHealth(iface string) VPNHealth {
 	r.vpnMu.Lock()
 	defer r.vpnMu.Unlock()
-	if !r.vpnAt.IsZero() && time.Since(r.vpnAt) < vpnProbeTTL {
+	if !r.vpnAt.IsZero() && time.Since(r.vpnAt) < vpnStatusTTL {
 		return r.vpn
 	}
 
@@ -417,6 +428,7 @@ func (r *Reader) readVPNHealth(iface string) VPNHealth {
 	h.CountryAllowed = strings.HasPrefix(h.Relay, "ro-")
 	if !h.InterfaceUp {
 		h.Error = "WireGuard interface is down"
+		r.vpnEgressAt = time.Time{}
 		r.vpn, r.vpnAt = h, now
 		return h
 	}
@@ -436,15 +448,34 @@ func (r *Reader) readVPNHealth(iface string) VPNHealth {
 	}
 
 	if h.HandshakeHealthy {
-		h.EgressOK, h.EgressServer, err = mullvadEgressOK(iface)
+		egressTTL := vpnEgressTTL
+		if !r.vpnEgressOK {
+			egressTTL = vpnEgressFailureTTL
+		}
+		needsEgressProbe := r.vpnEgressAt.IsZero() || time.Since(r.vpnEgressAt) >= egressTTL ||
+			r.vpnEgressRelay != h.Relay || r.vpnEgressEndpoint != h.Endpoint
+		if needsEgressProbe {
+			r.vpnEgressOK, r.vpnEgressServer, err = mullvadEgressOK(iface)
+			r.vpnEgressAt = now
+			r.vpnEgressRelay = h.Relay
+			r.vpnEgressEndpoint = h.Endpoint
+			r.vpnEgressError = ""
+			if err != nil {
+				r.vpnEgressError = err.Error()
+			}
+		}
+		h.EgressOK = r.vpnEgressOK
+		h.EgressServer = r.vpnEgressServer
+		h.EgressCheckedAt = r.vpnEgressAt.Format(time.RFC3339)
 		if h.EgressServer != "" {
 			h.CountryAllowed = h.CountryAllowed && strings.HasPrefix(h.EgressServer, "ro-")
 		}
-		if err != nil {
-			h.Error = err.Error()
+		if r.vpnEgressError != "" {
+			h.Error = r.vpnEgressError
 		}
 	} else if h.Error == "" {
 		h.Error = "WireGuard handshake is stale or missing"
+		r.vpnEgressAt = time.Time{}
 	}
 	r.vpn, r.vpnAt = h, now
 	return h
@@ -492,10 +523,10 @@ func mullvadEgressOK(iface string) (bool, string, error) {
 	if ip == "" {
 		return false, "", fmt.Errorf("upstream DNS returned no Mullvad status address")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "curl", "-4", "--interface", iface,
-		"--resolve", "am.i.mullvad.net:443:"+ip, "--connect-timeout", "2", "--max-time", "4",
+		"--resolve", "am.i.mullvad.net:443:"+ip, "--connect-timeout", "1", "--max-time", "2",
 		"-fsS", "https://am.i.mullvad.net/connected").Output()
 	if err != nil {
 		return false, "", fmt.Errorf("Mullvad egress check failed")

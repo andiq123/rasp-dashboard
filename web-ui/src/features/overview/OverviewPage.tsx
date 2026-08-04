@@ -423,7 +423,7 @@ export function OverviewPage() {
             <Activity className="h-3.5 w-3.5" aria-hidden /> System
           </span>
         }
-        hint={live ? 'Live' : 'Connecting…'}
+        hint={live ? 'Live · auto-updating' : 'Reconnecting · HTTP fallback active'}
       >
         <div className="grid grid-cols-2 gap-1.5">
           <Metric

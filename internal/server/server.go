@@ -217,7 +217,9 @@ func (s *Server) handleAPIEvents(w http.ResponseWriter, r *http.Request) {
 		sendStats(s.Deploy.StatsSnapshot())
 	}
 
-	tick := time.NewTicker(5 * time.Second)
+	// State probes are globally cached/singleflight by Reader, so every browser
+	// receives fast updates without multiplying WireGuard or egress checks.
+	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
 	keepAlive := time.NewTicker(20 * time.Second)
 	defer keepAlive.Stop()

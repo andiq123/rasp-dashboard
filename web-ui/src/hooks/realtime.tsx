@@ -29,6 +29,10 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let es: EventSource | null = null
+    let lastStateAt = 0
+    const watchdog = window.setInterval(() => {
+      if (lastStateAt > 0 && Date.now() - lastStateAt > 7000) setLive(false)
+    }, 2000)
     try {
       es = new EventSource('/api/events')
 
@@ -36,6 +40,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
         try {
           const data = JSON.parse((ev as MessageEvent).data) as AppState
           qc.setQueryData(queryKeys.state, data)
+          lastStateAt = Date.now()
           setLive(true)
         } catch {
           /* ignore bad payloads */
@@ -75,12 +80,17 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
         }
       })
 
-      es.onopen = () => setLive(true)
+      // EventSource reconnects automatically. Only a fresh state payload marks
+      // the UI live; the watchdog enables HTTP fallback if the stream stalls.
+      es.onopen = () => setLive(false)
       es.onerror = () => setLive(false)
     } catch {
       setLive(false)
     }
-    return () => es?.close()
+    return () => {
+      window.clearInterval(watchdog)
+      es?.close()
+    }
   }, [qc])
 
   return <RealtimeContext.Provider value={{ live }}>{children}</RealtimeContext.Provider>

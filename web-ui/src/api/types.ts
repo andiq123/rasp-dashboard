@@ -21,6 +21,7 @@ export type VPNHealth = {
   country_allowed?: boolean
   relay?: string
   egress_server?: string
+  egress_checked_at?: string
   endpoint?: string
   last_repair_error?: string
   checked_at?: string
