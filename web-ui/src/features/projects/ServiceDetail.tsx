@@ -473,24 +473,144 @@ func Open(ctx context.Context) (*redis.Client, error) {
 
 // Reuse this client and Close it during graceful shutdown.`
 
-function CopyCode({ value, label = 'Copy' }: { value: string; label?: string }) {
+function CopyCode({ value, label = 'Copy', prominent = false }: { value: string; label?: string; prominent?: boolean }) {
   const [copied, setCopied] = useState(false)
+  const { showToast } = useToast()
 
   async function copy() {
-    await navigator.clipboard.writeText(value)
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 1800)
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1800)
+    } catch {
+      showToast('Could not copy to clipboard', 'error')
+    }
   }
 
   return (
     <Button
-      variant="quiet"
+      variant={prominent ? 'default' : 'quiet'}
       icon={copied ? <Check className="h-3.5 w-3.5 text-success" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />}
       onClick={() => void copy()}
     >
       {copied ? 'Copied' : label}
     </Button>
   )
+}
+
+function fencedCode(language: string, value: string): string {
+  return ['```' + language, value.trim(), '```'].join('\n')
+}
+
+function appIntegrationGuide(svc: Service, siblings: Service[]): string {
+  const dependencies = [
+    {
+      title: 'Postgres',
+      slug: svc.linked_database,
+      keys: LINKED_DB_KEYS,
+      action: 'Select a database in the app Config tab, then save.',
+    },
+    {
+      title: 'Redis',
+      slug: svc.linked_redis,
+      keys: LINKED_REDIS_KEYS,
+      action: 'Select Redis in the app Config tab, then save.',
+    },
+    {
+      title: 'Bucket storage',
+      slug: svc.linked_bucket,
+      keys: LINKED_BUCKET_KEYS,
+      action: 'Select a bucket in the app Config tab, then save.',
+    },
+  ]
+  const sections = dependencies.map((dependency) => {
+    const linked = siblings.find((item) => item.slug === dependency.slug)
+    const status = linked
+      ? `Linked to **${linked.name || linked.slug}** (\`${linked.slug}\`).`
+      : `Not linked. ${dependency.action}`
+    return [
+      `## ${dependency.title}`,
+      status,
+      '',
+      'Runtime variables:',
+      ...dependency.keys.map((key) => `- \`${key}\``),
+    ].join('\n')
+  })
+
+  return [
+    `# Runtime integrations for ${svc.name || svc.slug}`,
+    '',
+    `Group: \`${svc.group}\``,
+    `Service: \`${svc.slug}\``,
+    '',
+    'Links are group-scoped. Credentials are injected when the container starts and must never be committed or printed in logs.',
+    '',
+    ...sections.flatMap((section) => [section, '']),
+    '## Application checklist',
+    '',
+    '- Validate required variables during startup and fail with a clear message.',
+    '- Reuse database pools, Redis clients, and S3 clients instead of creating one per request.',
+    '- Apply context timeouts to every network operation.',
+    '- Close shared clients during graceful shutdown.',
+    '- Never log passwords, secret keys, or full connection URLs.',
+  ].join('\n').trim()
+}
+
+function resourceIntegrationGuide({
+  svc,
+  resource,
+  selector,
+  keys,
+  install,
+  example,
+  exampleFile,
+  client,
+  checklist,
+}: {
+  svc: Service
+  resource: string
+  selector: string
+  keys: readonly string[]
+  install: string
+  example: string
+  exampleFile: string
+  client: string
+  checklist: string
+}): string {
+  return [
+    `# Connect ${svc.name || svc.slug} to a Go app`,
+    '',
+    `Group: \`${svc.group}\``,
+    `Service: \`${svc.slug}\` (${resource})`,
+    '',
+    '## Link the service',
+    '',
+    `1. Open the target Go app in the same \`${svc.group}\` group.`,
+    `2. Open **Config** and select **${svc.name || svc.slug}** under **${selector}**.`,
+    '3. Save. A running app is recreated with scoped runtime variables.',
+    '4. Read configuration from the environment; never hard-code credentials.',
+    `5. Create one ${client} at startup and reuse it.`,
+    '',
+    '## Injected variables',
+    '',
+    ...keys.map((key) => `- \`${key}\``),
+    '',
+    'Only explicitly linked apps in this group receive these values.',
+    '',
+    '## Install dependency',
+    '',
+    fencedCode('sh', install),
+    '',
+    `## ${exampleFile}`,
+    '',
+    fencedCode('go', example),
+    '',
+    '## Production checklist',
+    '',
+    checklist,
+    '',
+    'Do not commit generated credentials or print secret values and full connection URLs in logs.',
+  ].join('\n').trim()
 }
 
 function CodeGuide({ title, value }: { title: string; value: string }) {
@@ -515,12 +635,15 @@ function IntegrateTab({ svc, siblings }: { svc: Service; siblings: Service[] }) 
     const redis = siblings.find((item) => item.slug === svc.linked_redis)
     return (
       <div className="grid gap-4 max-w-3xl">
-        <div>
-          <span className="badge badge-primary badge-sm mb-2">Runtime integrations</span>
-          <h4 className="text-base font-bold m-0">Dependencies for {svc.name || svc.slug}</h4>
-          <p className={`text-xs mt-1 mb-0 ${muted}`}>
-            Links stay inside this group. Credentials are injected into this container at start and never committed to the repository.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <span className="badge badge-primary badge-sm mb-2">Runtime integrations</span>
+            <h4 className="text-base font-bold m-0">Dependencies for {svc.name || svc.slug}</h4>
+            <p className={`text-xs mt-1 mb-0 ${muted}`}>
+              Links stay inside this group. Credentials are injected into this container at start and never committed to the repository.
+            </p>
+          </div>
+          <CopyCode value={appIntegrationGuide(svc, siblings)} label="Copy all instructions" prominent />
         </div>
         <div className="grid gap-2 sm:grid-cols-3">
           <IntegrationState
@@ -557,22 +680,44 @@ function IntegrateTab({ svc, siblings }: { svc: Service; siblings: Service[] }) 
   const install = isBucket ? BUCKET_INSTALL : isRedis ? REDIS_INSTALL : POSTGRES_INSTALL
   const example = isBucket ? BUCKET_GO : isRedis ? REDIS_GO : POSTGRES_GO
   const title = isBucket ? 'Connect this bucket to a Go app' : isRedis ? 'Connect Redis to a Go app' : 'Connect this database to a Go app'
+  const selector = isBucket ? 'Bucket' : isRedis ? 'Redis' : 'Database'
+  const exampleFile = isBucket ? 'storage/client.go' : isRedis ? 'cache/redis.go' : 'data/postgres.go'
+  const client = isBucket ? 'S3 client' : isRedis ? 'Redis client' : 'connection pool'
+  const checklist = isBucket
+    ? 'Set upload size limits, validate object keys, use timeouts, and keep the bucket private. Stream large objects instead of buffering them in memory.'
+    : isRedis
+      ? 'Use key prefixes and expirations, bound queue lengths, avoid KEYS in production, use context timeouts, and close the shared client on graceful shutdown.'
+      : 'Use context timeouts, cap the pool size for this Pi, run migrations as a controlled deploy step, and close the pool on graceful shutdown.'
+  const allInstructions = resourceIntegrationGuide({
+    svc,
+    resource,
+    selector,
+    keys,
+    install,
+    example,
+    exampleFile,
+    client,
+    checklist,
+  })
 
   return (
     <div className="grid gap-4 max-w-3xl">
-      <div>
-        <span className="badge badge-primary badge-sm mb-2">Go integration</span>
-        <h4 className="text-base font-bold m-0">{title}</h4>
-        <p className={`text-xs mt-1 mb-0 ${muted}`}>
-          Open the app’s Config tab, select <strong>{svc.name || svc.slug}</strong> under {isBucket ? 'Bucket' : isRedis ? 'Redis' : 'Database'}, then save. A running app is recreated with the scoped variables.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <span className="badge badge-primary badge-sm mb-2">Go integration</span>
+          <h4 className="text-base font-bold m-0">{title}</h4>
+          <p className={`text-xs mt-1 mb-0 ${muted}`}>
+            Open the app’s Config tab, select <strong>{svc.name || svc.slug}</strong> under {selector}, then save. A running app is recreated with the scoped variables.
+          </p>
+        </div>
+        <CopyCode value={allInstructions} label="Copy all instructions" prominent />
       </div>
 
       <ol className="grid gap-2 list-none m-0 p-0 sm:grid-cols-3">
         {[
           ['1', 'Link', `Select this ${resource} in the Go app config.`],
           ['2', 'Read env', 'Use the injected variables—never hard-code credentials.'],
-          ['3', 'Reuse client', `Create one ${isBucket ? 'S3 client' : isRedis ? 'Redis client' : 'connection pool'} at startup.`],
+          ['3', 'Reuse client', `Create one ${client} at startup.`],
         ].map(([number, heading, body]) => (
           <li key={number} className={`${tile} p-3`}>
             <span className="badge badge-primary badge-sm mb-2">{number}</span>
@@ -596,18 +741,14 @@ function IntegrateTab({ svc, siblings }: { svc: Service; siblings: Service[] }) 
       </div>
 
       <CodeGuide title="Install dependency" value={install} />
-      <CodeGuide title={isBucket ? 'storage/client.go' : isRedis ? 'cache/redis.go' : 'data/postgres.go'} value={example} />
+      <CodeGuide title={exampleFile} value={example} />
 
       <div className="rounded-box border border-warning/25 bg-warning/5 p-3 flex gap-2.5">
         <ShieldNote />
         <div>
           <strong className="text-xs">Production checklist</strong>
           <p className={`text-[11px] m-0 mt-1 ${muted}`}>
-            {isBucket
-              ? 'Set upload size limits, validate object keys, use timeouts, and keep the bucket private. Stream large objects instead of buffering them in memory.'
-              : isRedis
-                ? 'Use key prefixes and expirations, bound queue lengths, avoid KEYS in production, use context timeouts, and close the shared client on graceful shutdown.'
-                : 'Use context timeouts, cap the pool size for this Pi, run migrations as a controlled deploy step, and close the pool on graceful shutdown.'}
+            {checklist}
           </p>
         </div>
       </div>

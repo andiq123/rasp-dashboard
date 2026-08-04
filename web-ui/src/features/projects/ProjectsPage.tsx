@@ -304,49 +304,43 @@ export function ProjectsPage() {
   })
 
   const pgMut = useMutation({
-    mutationFn: () => createPostgres(groupSlug, { type: 'postgres', name: pgName.trim(), version: 'latest' }),
+    mutationFn: (name: string) => createPostgres(groupSlug, { type: 'postgres', name, version: 'latest' }),
     onSuccess: async (svc) => {
       const queued = svc.status === 'queued'
       showToast(queued ? 'Postgres queued — it will start automatically' : 'Postgres ready', queued ? 'info' : 'success')
-      setWizard(null)
       setPgName('')
       await Promise.all([
         qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) }),
         qc.invalidateQueries({ queryKey: queryKeys.activity }),
       ])
-      if (!queued) navigate(`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`)
     },
     onError: (e: Error) => showToast(e.message, 'error'),
   })
 
   const bucketMut = useMutation({
-    mutationFn: () => createBucket(groupSlug, { type: 'bucket', name: bucketName.trim() }),
+    mutationFn: (name: string) => createBucket(groupSlug, { type: 'bucket', name }),
     onSuccess: async (svc) => {
       const queued = svc.status === 'queued'
       showToast(queued ? 'Bucket queued — it will start automatically' : 'Bucket ready', queued ? 'info' : 'success')
-      setWizard(null)
       setBucketName('')
       await Promise.all([
         qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) }),
         qc.invalidateQueries({ queryKey: queryKeys.activity }),
       ])
-      if (!queued) navigate(`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`)
     },
     onError: (e: Error) => showToast(e.message, 'error'),
   })
 
   const redisMut = useMutation({
-    mutationFn: () => createRedis(groupSlug, { name: redisName.trim() }),
+    mutationFn: (name: string) => createRedis(groupSlug, { name }),
     onSuccess: async (svc) => {
       const queued = svc.status === 'queued'
       showToast(queued ? 'Redis queued — it will start automatically' : 'Redis ready', queued ? 'info' : 'success')
-      setWizard(null)
       setRedisName('')
       await Promise.all([
         qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) }),
         qc.invalidateQueries({ queryKey: queryKeys.activity }),
       ])
-      if (!queued) navigate(`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`)
     },
     onError: (e: Error) => showToast(e.message, 'error'),
   })
@@ -729,20 +723,29 @@ export function ProjectsPage() {
             description="Private database with app-ready connection variables"
             tone="success"
             icon={<Database className="h-5 w-5" aria-hidden />}
-            onClick={() => setWizard('postgres')}
+            onClick={() => {
+              setPgName('')
+              setWizard('postgres')
+            }}
           />
           <Choice
             title="Bucket"
             description="S3-compatible object storage with scoped credentials"
             icon={<Archive className="h-5 w-5" aria-hidden />}
-            onClick={() => setWizard('bucket')}
+            onClick={() => {
+              setBucketName('')
+              setWizard('bucket')
+            }}
           />
           <Choice
             title="Redis"
             description="Private cache and queue with persistence and scoped credentials"
             tone="warning"
             icon={<MemoryStick className="h-5 w-5" aria-hidden />}
-            onClick={() => setWizard('redis')}
+            onClick={() => {
+              setRedisName('')
+              setWizard('redis')
+            }}
           />
           </div>
         </div>
@@ -992,7 +995,12 @@ export function ProjectsPage() {
               variant="primary"
               loading={pgMut.isPending}
               disabled={!pgServiceSlug || pgSlugTaken}
-              onClick={() => pgMut.mutate()}
+              onClick={() => {
+                const name = pgName.trim()
+                setWizard(null)
+                showToast('Creating Postgres — follow progress in the service pipeline', 'info')
+                pgMut.mutate(name)
+              }}
             >
               Create
             </Button>
@@ -1000,8 +1008,22 @@ export function ProjectsPage() {
         }
       >
         <div className="grid gap-3">
-        <Field label="Name" tip="The group prefix is added to the physical Postgres identifier." htmlFor="wiz-pg-name">
-          <Input id="wiz-pg-name" autoFocus maxLength={48} value={pgName} onChange={(e) => setPgName(e.target.value)} />
+        <Field
+          label="Name"
+          meta={`prefix ${postgresIdentPart(groupSlug)}__`}
+          tip="Enter only the service name. The prefix is applied automatically to the physical database."
+          htmlFor="wiz-pg-name"
+        >
+          <Input
+            id="wiz-pg-name"
+            name="new-postgres-service-name"
+            autoComplete="off"
+            autoFocus
+            maxLength={48}
+            value={pgName}
+            onChange={(e) => setPgName(e.target.value)}
+            placeholder="main"
+          />
         </Field>
         {pgServiceSlug ? (
           <NamingPreview
@@ -1038,7 +1060,12 @@ export function ProjectsPage() {
               variant="primary"
               loading={bucketMut.isPending}
               disabled={!bucketServiceSlug || bucketSlugTaken}
-              onClick={() => bucketMut.mutate()}
+              onClick={() => {
+                const name = bucketName.trim()
+                setWizard(null)
+                showToast('Creating Bucket — follow progress in the service pipeline', 'info')
+                bucketMut.mutate(name)
+              }}
             >
               Create
             </Button>
@@ -1046,9 +1073,16 @@ export function ProjectsPage() {
         }
       >
         <div className="grid gap-3">
-        <Field label="Name" tip="The group prefix is added to the physical bucket name." htmlFor="wiz-bucket-name">
+        <Field
+          label="Name"
+          meta={`prefix ${groupSlug}--`}
+          tip="Enter only the service name. The prefix is applied automatically to the physical bucket."
+          htmlFor="wiz-bucket-name"
+        >
           <Input
             id="wiz-bucket-name"
+            name="new-bucket-service-name"
+            autoComplete="off"
             autoFocus
             maxLength={48}
             value={bucketName}
@@ -1088,7 +1122,12 @@ export function ProjectsPage() {
               variant="primary"
               loading={redisMut.isPending}
               disabled={!redisServiceSlug || redisSlugTaken}
-              onClick={() => redisMut.mutate()}
+              onClick={() => {
+                const name = redisName.trim()
+                setWizard(null)
+                showToast('Creating Redis — follow progress in the service pipeline', 'info')
+                redisMut.mutate(name)
+              }}
             >
               Create
             </Button>
@@ -1096,9 +1135,16 @@ export function ProjectsPage() {
         }
       >
         <div className="grid gap-3">
-          <Field label="Name" tip="Used for the service, container, and private volume." htmlFor="wiz-redis-name">
+          <Field
+            label="Name"
+            meta={`prefix fw-${groupSlug}-`}
+            tip="Enter only the service name. The prefix is applied automatically to the container and volume."
+            htmlFor="wiz-redis-name"
+          >
             <Input
               id="wiz-redis-name"
+              name="new-redis-service-name"
+              autoComplete="off"
               autoFocus
               maxLength={48}
               value={redisName}

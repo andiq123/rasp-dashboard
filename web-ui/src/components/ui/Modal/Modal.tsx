@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useId, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { muted } from '@/lib/ui'
 
 type Props = {
@@ -15,7 +15,9 @@ export function Modal({ open, title, sub, onClose, children, footer, size = 'sm'
   const titleId = useId()
   const dialogRef = useRef<HTMLDialogElement>(null)
 
-  useEffect(() => {
+  // Keep the native dialog state in the same visual commit as React state.
+  // A passive effect leaves the old modal painted for a frame after Create.
+  useLayoutEffect(() => {
     const el = dialogRef.current
     if (!el) return
     if (open && !el.open) el.showModal()
