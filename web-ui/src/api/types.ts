@@ -93,7 +93,7 @@ export type RuntimeStats = {
 export type Service = {
   group?: string
   slug: string
-  type: 'go' | 'postgres' | 'bucket' | string
+  type: 'go' | 'postgres' | 'bucket' | 'redis' | string
   name: string
   repo?: string
   branch?: string
@@ -110,6 +110,7 @@ export type Service = {
   connection_url?: string
   linked_database?: string
   linked_bucket?: string
+  linked_redis?: string
   status?: string
   last_error?: string
   deployments?: Deployment[]
@@ -350,6 +351,7 @@ export type ServiceSettings = {
   cpus?: number
   linked_database?: string
   linked_bucket?: string
+  linked_redis?: string
   env?: string
   auto_deploy?: boolean
 }
@@ -370,6 +372,17 @@ export const LINKED_DB_KEYS = [
   'POSTGRES_PASSWORD',
 ] as const
 
+/** Env keys injected when a Redis service is linked. */
+export const LINKED_REDIS_KEYS = [
+  'REDIS_URL',
+  'REDIS_HOST',
+  'REDIS_PORT',
+  'REDIS_USERNAME',
+  'REDIS_PASSWORD',
+  'REDIS_DB',
+  'REDIS_TLS',
+] as const
+
 /** Env keys injected when a Bucket service is linked. */
 export const LINKED_BUCKET_KEYS = [
   'BUCKET',
@@ -378,4 +391,3 @@ export const LINKED_BUCKET_KEYS = [
   'SECRET_ACCESS_KEY',
   'FORCE_PATH_STYLE',
 ] as const
-

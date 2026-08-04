@@ -95,7 +95,7 @@ func (m *Manager) redeployReason(ctx context.Context, group, slug, reason string
 func redeployGoRequest(svc Service) CreateGoRequest {
 	return CreateGoRequest{
 		Repo: svc.Repo, Branch: svc.Branch, Name: svc.Name,
-		LinkedDatabase: svc.LinkedDatabase, LinkedBucket: svc.LinkedBucket,
+		LinkedDatabase: svc.LinkedDatabase, LinkedBucket: svc.LinkedBucket, LinkedRedis: svc.LinkedRedis,
 		RootDir: svc.RootDir, BuildCmd: svc.BuildCmd,
 		GoToolchain: svc.GoToolchain, MemoryMB: svc.MemoryMB, CPUs: svc.CPUs,
 	}

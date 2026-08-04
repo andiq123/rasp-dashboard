@@ -14,7 +14,7 @@ type linkedKeyCopy struct {
 	Fallback string
 }
 
-// linkedEnvSpec describes a group-scoped link (database, bucket, …).
+// linkedEnvSpec describes a group-scoped link (database, bucket, redis, …).
 // Inject always writes concrete values — never ${{service.KEY}} templates.
 type linkedEnvSpec struct {
 	Kind     string // "database" | "bucket" (logs)
@@ -86,6 +86,11 @@ func applyClearLinkedDatabase(svc Service, envBody string) (Service, string) {
 	return svc, removeLinkedDBEnv(envBody)
 }
 
+func applyClearLinkedRedis(svc Service, envBody string) (Service, string) {
+	svc.LinkedRedis = ""
+	return svc, removeLinkedRedisEnv(envBody)
+}
+
 // clearLinkedBucketFromService applies applyClearLinkedBucket to the on-disk env file.
 func (m *Manager) clearLinkedBucketFromService(svc Service) (Service, error) {
 	envPath := filepath.Join(m.serviceDir(svc.Group, svc.Slug), "env")
@@ -114,6 +119,22 @@ func (m *Manager) clearLinkedDatabaseFromService(svc Service) (Service, error) {
 		return svc, err
 	}
 	svc, body = applyClearLinkedDatabase(svc, body)
+	if err := os.WriteFile(envPath, []byte(normalizeEnv(body)), 0o600); err != nil {
+		return svc, err
+	}
+	return svc, nil
+}
+
+func (m *Manager) clearLinkedRedisFromService(svc Service) (Service, error) {
+	envPath := filepath.Join(m.serviceDir(svc.Group, svc.Slug), "env")
+	cur, err := os.ReadFile(envPath)
+	body := ""
+	if err == nil {
+		body = string(cur)
+	} else if !os.IsNotExist(err) {
+		return svc, err
+	}
+	svc, body = applyClearLinkedRedis(svc, body)
 	if err := os.WriteFile(envPath, []byte(normalizeEnv(body)), 0o600); err != nil {
 		return svc, err
 	}

@@ -9,7 +9,7 @@ import (
 
 // LinkedEnvBlock is a read-only preview of connection env copied from a sibling at runtime.
 type LinkedEnvBlock struct {
-	Kind    string `json:"kind"` // database | bucket
+	Kind    string `json:"kind"` // database | bucket | redis
 	Source  string `json:"source"`
 	Label   string `json:"label,omitempty"`
 	Env     string `json:"env"`
@@ -21,7 +21,7 @@ type ServiceEnvView struct {
 	Env     string           `json:"env"`
 	EnvJSON string           `json:"env_json,omitempty"`
 	Linked  []LinkedEnvBlock `json:"linked,omitempty"`
-	Kind    string           `json:"kind,omitempty"` // go | postgres | bucket
+	Kind    string           `json:"kind,omitempty"` // go | postgres | bucket | redis
 }
 
 // GetServiceEnv returns this service's own env file and, for Go apps, live link previews
@@ -86,6 +86,9 @@ func ownEnvBody(body string, svc Service) string {
 	if svc.LinkedBucket != "" {
 		body = removeLinkedBucketEnv(body)
 	}
+	if svc.LinkedRedis != "" {
+		body = removeLinkedRedisEnv(body)
+	}
 	return body
 }
 
@@ -113,6 +116,15 @@ func (m *Manager) linkedEnvBlocks(svc Service) []LinkedEnvBlock {
 				Label:   "Bucket · " + bucket,
 				Env:     preview,
 				EnvJSON: envToJSON(preview),
+			})
+		}
+	}
+	if redis := strings.TrimSpace(svc.LinkedRedis); redis != "" {
+		preview := normalizeEnv(m.injectLinkedRedis("", svc.Group, redis))
+		if strings.TrimSpace(preview) != "" {
+			out = append(out, LinkedEnvBlock{
+				Kind: "redis", Source: redis, Label: "Redis · " + redis,
+				Env: preview, EnvJSON: envToJSON(preview),
 			})
 		}
 	}

@@ -18,9 +18,10 @@ const (
 	TypeGo       = "go"
 	TypePostgres = "postgres"
 	TypeBucket   = "bucket"
+	TypeRedis    = "redis"
 
 	defaultMemoryMB = 512
-	defaultCPUs   = 1.0
+	defaultCPUs     = 1.0
 	defaultBranch   = "main"
 	portStart       = 5100
 	portEnd         = 5199
@@ -36,43 +37,44 @@ type Group struct {
 }
 
 type Service struct {
-	Group          string  `json:"group"`
-	Slug           string  `json:"slug"`
-	Type           string  `json:"type"`
-	Name           string  `json:"name"`
-	Repo           string  `json:"repo,omitempty"`
-	Branch         string  `json:"branch,omitempty"`
-	Port           int     `json:"port,omitempty"`
-	Cmd            string  `json:"cmd,omitempty"`
-	RootDir        string  `json:"root_dir,omitempty"`
-	BuildCmd       string  `json:"build_cmd,omitempty"`
-	GoToolchain    string  `json:"go_toolchain,omitempty"`
-	MemoryMB       int     `json:"memory_mb,omitempty"`
-	CPUs         float64 `json:"cpus,omitempty"`
-	Running        bool    `json:"running"`
-	URL            string  `json:"url,omitempty"`
-	PublicURL      string  `json:"public_url,omitempty"`
-	PublicPath     string  `json:"public_path,omitempty"` // best path to open (e.g. /health)
-	StaticHost     string  `json:"static_host,omitempty"`
-	TunnelActive   bool    `json:"tunnel_active,omitempty"`
-	ConnectionURL  string  `json:"connection_url,omitempty"`
-	Database       string  `json:"database,omitempty"`
-	Bucket         string  `json:"bucket,omitempty"`
-	Volume         string  `json:"volume,omitempty"`
-	VolumeSize     string  `json:"volume_size,omitempty"`
-	VolumeBytes    int64   `json:"volume_bytes,omitempty"`
-	EngineImage    string  `json:"engine_image,omitempty"`
-	LinkedDatabase string  `json:"linked_database,omitempty"`
-	LinkedBucket   string  `json:"linked_bucket,omitempty"`
-	Status         string  `json:"status,omitempty"`
-	LastError      string  `json:"last_error,omitempty"`
-	HasClone       bool    `json:"has_clone,omitempty"`
-	CloneBytes     int64   `json:"clone_bytes,omitempty"`
-	BinaryBytes    int64   `json:"binary_bytes,omitempty"`
-	DiskBytes      int64        `json:"disk_bytes,omitempty"`
-	ActiveDeployID string       `json:"active_deploy_id,omitempty"`
-	DeployID       string       `json:"deploy_id,omitempty"`
-	Deployments    []Deployment `json:"deployments,omitempty"`
+	Group          string        `json:"group"`
+	Slug           string        `json:"slug"`
+	Type           string        `json:"type"`
+	Name           string        `json:"name"`
+	Repo           string        `json:"repo,omitempty"`
+	Branch         string        `json:"branch,omitempty"`
+	Port           int           `json:"port,omitempty"`
+	Cmd            string        `json:"cmd,omitempty"`
+	RootDir        string        `json:"root_dir,omitempty"`
+	BuildCmd       string        `json:"build_cmd,omitempty"`
+	GoToolchain    string        `json:"go_toolchain,omitempty"`
+	MemoryMB       int           `json:"memory_mb,omitempty"`
+	CPUs           float64       `json:"cpus,omitempty"`
+	Running        bool          `json:"running"`
+	URL            string        `json:"url,omitempty"`
+	PublicURL      string        `json:"public_url,omitempty"`
+	PublicPath     string        `json:"public_path,omitempty"` // best path to open (e.g. /health)
+	StaticHost     string        `json:"static_host,omitempty"`
+	TunnelActive   bool          `json:"tunnel_active,omitempty"`
+	ConnectionURL  string        `json:"connection_url,omitempty"`
+	Database       string        `json:"database,omitempty"`
+	Bucket         string        `json:"bucket,omitempty"`
+	Volume         string        `json:"volume,omitempty"`
+	VolumeSize     string        `json:"volume_size,omitempty"`
+	VolumeBytes    int64         `json:"volume_bytes,omitempty"`
+	EngineImage    string        `json:"engine_image,omitempty"`
+	LinkedDatabase string        `json:"linked_database,omitempty"`
+	LinkedBucket   string        `json:"linked_bucket,omitempty"`
+	LinkedRedis    string        `json:"linked_redis,omitempty"`
+	Status         string        `json:"status,omitempty"`
+	LastError      string        `json:"last_error,omitempty"`
+	HasClone       bool          `json:"has_clone,omitempty"`
+	CloneBytes     int64         `json:"clone_bytes,omitempty"`
+	BinaryBytes    int64         `json:"binary_bytes,omitempty"`
+	DiskBytes      int64         `json:"disk_bytes,omitempty"`
+	ActiveDeployID string        `json:"active_deploy_id,omitempty"`
+	DeployID       string        `json:"deploy_id,omitempty"`
+	Deployments    []Deployment  `json:"deployments,omitempty"`
 	AutoDeploy     bool          `json:"auto_deploy,omitempty"`
 	AutoDeploySet  bool          `json:"auto_deploy_set,omitempty"`
 	DeploySHA      string        `json:"deploy_sha,omitempty"`
@@ -91,7 +93,7 @@ type Manifest struct {
 	RootDir  string  `json:"root_dir"`
 	BuildCmd string  `json:"build_cmd"`
 	MemoryMB int     `json:"memory_mb"`
-	CPUs   float64 `json:"cpus"`
+	CPUs     float64 `json:"cpus"`
 }
 
 type CreateGroupRequest struct {
@@ -104,11 +106,12 @@ type CreateGoRequest struct {
 	Name           string  `json:"name"`
 	LinkedDatabase string  `json:"linked_database"`
 	LinkedBucket   string  `json:"linked_bucket"`
+	LinkedRedis    string  `json:"linked_redis"`
 	RootDir        string  `json:"root_dir"`
 	BuildCmd       string  `json:"build_cmd"`
 	GoToolchain    string  `json:"go_toolchain"`
 	MemoryMB       int     `json:"memory_mb"`
-	CPUs         float64 `json:"cpus"`
+	CPUs           float64 `json:"cpus"`
 	Env            string  `json:"env"`
 }
 
@@ -116,7 +119,7 @@ type CreatePostgresRequest struct {
 	Name     string  `json:"name"`
 	Version  string  `json:"version"` // latest | 17 | 16 | 15 — applies engine image before create
 	MemoryMB int     `json:"memory_mb"`
-	CPUs   float64 `json:"cpus"`
+	CPUs     float64 `json:"cpus"`
 }
 
 type SettingsUpdate struct {
@@ -124,11 +127,12 @@ type SettingsUpdate struct {
 	Branch         *string  `json:"branch"`
 	LinkedDatabase *string  `json:"linked_database"`
 	LinkedBucket   *string  `json:"linked_bucket"`
+	LinkedRedis    *string  `json:"linked_redis"`
 	RootDir        *string  `json:"root_dir"`
 	Env            *string  `json:"env"`
 	BuildCmd       *string  `json:"build_cmd"`
 	MemoryMB       *int     `json:"memory_mb"`
-	CPUs         *float64 `json:"cpus"`
+	CPUs           *float64 `json:"cpus"`
 	AutoDeploy     *bool    `json:"auto_deploy"`
 }
 
@@ -241,7 +245,7 @@ func (m *Manager) loadRegistry() (registry, error) {
 				reg.Services[i].Name = reg.Services[i].Slug
 				changed = true
 			}
-			if reg.Services[i].Type == TypeGo {
+			if reg.Services[i].Type == TypeGo || reg.Services[i].Type == TypeRedis {
 				if reg.Services[i].MemoryMB <= 0 {
 					reg.Services[i].MemoryMB = defaultMemoryMB
 					changed = true
@@ -273,7 +277,7 @@ func (m *Manager) saveRegistry(reg registry) error {
 		safe.Services = []Service{}
 	}
 	for i := range safe.Services {
-		if safe.Services[i].Type == TypePostgres {
+		if safe.Services[i].Type == TypePostgres || safe.Services[i].Type == TypeRedis {
 			safe.Services[i].ConnectionURL = ""
 		}
 		safe.Services[i].Stats = nil
@@ -302,7 +306,7 @@ func (m *Manager) writeMeta(svc Service) error {
 		return err
 	}
 	safe := svc
-	if safe.Type == TypePostgres {
+	if safe.Type == TypePostgres || safe.Type == TypeRedis {
 		safe.ConnectionURL = ""
 	}
 	safe.Stats = nil

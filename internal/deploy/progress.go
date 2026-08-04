@@ -142,3 +142,13 @@ func CreateBucketSteps() []ProgressStep {
 		{ID: "register", Label: "Register service", Weight: 25, Status: "pending"},
 	}
 }
+
+func CreateRedisSteps() []ProgressStep {
+	return []ProgressStep{
+		{ID: "prepare", Label: "Validate", Weight: 15, Status: "pending"},
+		{ID: "volume", Label: "Create volume", Weight: 20, Status: "pending"},
+		{ID: "container", Label: "Start Redis", Weight: 35, Status: "pending"},
+		{ID: "health", Label: "Verify PING", Weight: 15, Status: "pending"},
+		{ID: "register", Label: "Register service", Weight: 15, Status: "pending"},
+	}
+}

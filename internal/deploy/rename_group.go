@@ -94,7 +94,7 @@ func (m *Manager) RenameGroup(ctx context.Context, oldSlug, newName string) (Gro
 	m.logf("info", "Stopping %d container(s)", len(svcs))
 	wasRunning := map[string]bool{}
 	for _, s := range svcs {
-		if s.Type != TypeGo {
+		if s.Type != TypeGo && s.Type != TypeRedis {
 			continue
 		}
 		name := containerName(oldSlug, s.Slug)
@@ -173,7 +173,7 @@ func (m *Manager) RenameGroup(ctx context.Context, oldSlug, newName string) (Gro
 	// Copy services for restart outside lock
 	var restart []Service
 	for _, s := range reg.Services {
-		if s.Group == newSlug && s.Type == TypeGo && wasRunning[s.Slug] {
+		if s.Group == newSlug && (s.Type == TypeGo || s.Type == TypeRedis) && wasRunning[s.Slug] {
 			restart = append(restart, s)
 		}
 	}
@@ -181,8 +181,14 @@ func (m *Manager) RenameGroup(ctx context.Context, oldSlug, newName string) (Gro
 
 	for _, s := range restart {
 		m.logf("info", "Restarting %s/%s under new name", newSlug, s.Slug)
-		if err := m.recreateGo(ctx, s); err != nil {
-			m.logf("warn", "Restart %s failed: %v", s.Slug, err)
+		var restartErr error
+		if s.Type == TypeRedis {
+			restartErr = m.runRedisContainer(ctx, s)
+		} else {
+			restartErr = m.recreateGo(ctx, s)
+		}
+		if restartErr != nil {
+			m.logf("warn", "Restart %s failed: %v", s.Slug, restartErr)
 		}
 	}
 

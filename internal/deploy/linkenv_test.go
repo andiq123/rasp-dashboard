@@ -5,7 +5,7 @@ import "testing"
 func TestRedeployGoRequestIncludesLinks(t *testing.T) {
 	svc := Service{
 		Repo: "acme/app", Branch: "main", Name: "App",
-		LinkedDatabase: "pg", LinkedBucket: "buchet",
+		LinkedDatabase: "pg", LinkedBucket: "buchet", LinkedRedis: "cache",
 		RootDir: "backend", BuildCmd: "make", GoToolchain: "1.22",
 		MemoryMB: 512, CPUs: 1,
 	}
@@ -16,8 +16,29 @@ func TestRedeployGoRequestIncludesLinks(t *testing.T) {
 	if got.LinkedDatabase != "pg" {
 		t.Fatalf("LinkedDatabase=%q want pg", got.LinkedDatabase)
 	}
+	if got.LinkedRedis != "cache" {
+		t.Fatalf("LinkedRedis=%q want cache", got.LinkedRedis)
+	}
 	if got.Repo != "acme/app" || got.RootDir != "backend" {
 		t.Fatalf("unexpected request: %+v", got)
+	}
+}
+
+func TestApplyClearLinkedRedisStripsKeys(t *testing.T) {
+	body := "FOO=bar\nREDIS_URL=redis://default:secret@127.0.0.1:5100/0\nREDIS_HOST=127.0.0.1\nREDIS_PASSWORD=secret\n"
+	svc := Service{Group: "g", Slug: "app", LinkedRedis: "cache", Type: TypeGo}
+	got, out := applyClearLinkedRedis(svc, body)
+	if got.LinkedRedis != "" {
+		t.Fatalf("LinkedRedis not cleared: %q", got.LinkedRedis)
+	}
+	mp := parseEnvMap(out)
+	if mp["FOO"] != "bar" {
+		t.Fatalf("custom key lost: %#v", mp)
+	}
+	for _, key := range linkedRedisKeys {
+		if mp[key] != "" {
+			t.Fatalf("%s still present", key)
+		}
 	}
 }
 

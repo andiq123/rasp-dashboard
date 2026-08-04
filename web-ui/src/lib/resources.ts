@@ -14,10 +14,10 @@ export const RESOURCE = {
 export type Reserved = {
   memory_mb: number
   cpus: number
-  go_services: number
+  dedicated_services: number
 }
 
-/** Sum Docker limits for Go services (postgres/bucket share the engine). */
+/** Sum dedicated Docker limits (Go and Redis; Postgres/bucket share engines). */
 export function reservedFromServices(
   services: Service[],
   opts?: {
@@ -27,23 +27,23 @@ export function reservedFromServices(
 ): Reserved {
   let memory_mb = 0
   let cpus = 0
-  let go_services = 0
+  let dedicated_services = 0
   for (const s of services) {
-    if (s.type !== 'go') continue
+    if (s.type !== 'go' && s.type !== 'redis') continue
     if (opts?.excludeSlug && s.slug === opts.excludeSlug) continue
     memory_mb += s.memory_mb && s.memory_mb > 0 ? s.memory_mb : RESOURCE.memDefault
     cpus += s.cpus && s.cpus > 0 ? s.cpus : RESOURCE.cpuDefault
-    go_services++
+    dedicated_services++
   }
   if (opts?.draft) {
     memory_mb += opts.draft.memory_mb
     cpus += opts.draft.cpus
-    go_services++
+    dedicated_services++
   }
   return {
     memory_mb,
     cpus: Math.round(cpus * 10) / 10,
-    go_services,
+    dedicated_services,
   }
 }
 

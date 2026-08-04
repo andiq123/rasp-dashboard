@@ -290,6 +290,7 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 				Branch         string  `json:"branch"`
 				LinkedDatabase string  `json:"linked_database"`
 				LinkedBucket   string  `json:"linked_bucket"`
+				LinkedRedis    string  `json:"linked_redis"`
 				RootDir        string  `json:"root_dir"`
 				BuildCmd       string  `json:"build_cmd"`
 				GoToolchain    string  `json:"go_toolchain"`
@@ -317,10 +318,17 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				jsonReply(w, svc)
+			case deploy.TypeRedis:
+				svc, err := s.Deploy.CreateRedis(r.Context(), group, body.Name)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				jsonReply(w, svc)
 			case deploy.TypeGo, "":
 				svc, err := s.Deploy.CreateGo(r.Context(), group, deploy.CreateGoRequest{
 					Repo: body.Repo, Branch: body.Branch, Name: body.Name,
-					LinkedDatabase: body.LinkedDatabase, LinkedBucket: body.LinkedBucket,
+					LinkedDatabase: body.LinkedDatabase, LinkedBucket: body.LinkedBucket, LinkedRedis: body.LinkedRedis,
 					RootDir: body.RootDir, BuildCmd: body.BuildCmd,
 					GoToolchain: body.GoToolchain, MemoryMB: body.MemoryMB, CPUs: body.CPUs,
 					Env: body.Env,
@@ -331,7 +339,7 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 				}
 				jsonReply(w, svc)
 			default:
-				http.Error(w, "type must be go, postgres, or bucket", http.StatusBadRequest)
+				http.Error(w, "type must be go, postgres, bucket, or redis", http.StatusBadRequest)
 			}
 		default:
 			methodNotAllowed(w)

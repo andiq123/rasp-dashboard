@@ -79,7 +79,7 @@ func (m *Manager) TailContainerLogs(ctx context.Context, group, slug string, lin
 	// docker logs prints on stderr; CombinedOutput captures both.
 	out, err := runCmd(ctx, "sudo", "-n", "docker", "logs", "--tail", fmt.Sprintf("%d", lines), name)
 	out = strings.TrimSpace(out)
-		if out == "" && err != nil {
+	if out == "" && err != nil {
 		msg := err.Error() + " " + out
 		if dockerAbsent(out, err) || strings.Contains(strings.ToLower(msg), "no such container") {
 			return "", nil

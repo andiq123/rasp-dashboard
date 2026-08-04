@@ -7,7 +7,7 @@ import (
 )
 
 func TestOwnEnvBodyStripsActiveLinksOnly(t *testing.T) {
-	body := "APP=1\nDATABASE_URL=postgres://x\nDB_HOST=h\nBUCKET=b\nENDPOINT=e\nFOO=bar\n"
+	body := "APP=1\nDATABASE_URL=postgres://x\nDB_HOST=h\nBUCKET=b\nENDPOINT=e\nREDIS_URL=redis://x\nREDIS_PASSWORD=s\nFOO=bar\n"
 	got := ownEnvBody(body, Service{LinkedDatabase: "pg"})
 	mp := parseEnvMap(got)
 	if mp["APP"] != "1" || mp["FOO"] != "bar" {
@@ -19,11 +19,17 @@ func TestOwnEnvBodyStripsActiveLinksOnly(t *testing.T) {
 	if mp["BUCKET"] == "" {
 		t.Fatal("bucket key should remain when bucket not linked")
 	}
+	if mp["REDIS_URL"] == "" {
+		t.Fatal("redis key should remain when Redis is not linked")
+	}
 
-	got = ownEnvBody(body, Service{LinkedDatabase: "pg", LinkedBucket: "min"})
+	got = ownEnvBody(body, Service{LinkedDatabase: "pg", LinkedBucket: "min", LinkedRedis: "cache"})
 	mp = parseEnvMap(got)
 	if mp["BUCKET"] != "" || mp["ENDPOINT"] != "" {
 		t.Fatalf("bucket keys should strip when linked: %#v", mp)
+	}
+	if mp["REDIS_URL"] != "" || mp["REDIS_PASSWORD"] != "" {
+		t.Fatalf("redis keys should strip when linked: %#v", mp)
 	}
 }
 
@@ -154,4 +160,3 @@ func TestGetServiceEnvPostgresStripsFrameworkPollution(t *testing.T) {
 		t.Fatal("disk should be migrated")
 	}
 }
-

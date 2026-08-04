@@ -726,6 +726,18 @@ func (m *Manager) createGo(ctx context.Context, group string, in CreateGoRequest
 			return Service{}, "", fmt.Errorf("linked bucket must be a bucket service in this group")
 		}
 	}
+	rlink := strings.TrimSpace(in.LinkedRedis)
+	if rlink != "" {
+		rSvc, ri := findService(reg, group, rlink)
+		if ri < 0 || rSvc.Type != TypeRedis {
+			m.mu.Unlock()
+			return Service{}, "", fmt.Errorf("linked redis must be a redis service in this group")
+		}
+		if strings.TrimSpace(m.readServiceREDISURL(group, rlink)) == "" {
+			m.mu.Unlock()
+			return Service{}, "", fmt.Errorf("linked redis has no REDIS_URL")
+		}
+	}
 
 	existing, existIdx := findService(reg, group, slug)
 	if existIdx >= 0 && !allowReplace {
@@ -897,6 +909,9 @@ func (m *Manager) createGo(ctx context.Context, group string, in CreateGoRequest
 	if blink != "" || (existIdx >= 0 && existing.LinkedBucket != "") {
 		envBody = removeLinkedBucketEnv(envBody)
 	}
+	if rlink != "" || (existIdx >= 0 && existing.LinkedRedis != "") {
+		envBody = removeLinkedRedisEnv(envBody)
+	}
 	hints := detectEnvStackHints(buildDir)
 	hints.Go = true
 	envBody = ensureProductionEnv(envBody, hints)
@@ -921,7 +936,7 @@ func (m *Manager) createGo(ctx context.Context, group string, in CreateGoRequest
 		Repo: repo, Branch: branch, Port: port, Cmd: cmdPath,
 		RootDir: rootDir, BuildCmd: buildCmd, MemoryMB: mem, CPUs: cpus,
 		GoToolchain:    strings.TrimSpace(in.GoToolchain),
-		LinkedDatabase: link, LinkedBucket: blink, URL: fmt.Sprintf("http://rasp.local:%d", port),
+		LinkedDatabase: link, LinkedBucket: blink, LinkedRedis: rlink, URL: fmt.Sprintf("http://rasp.local:%d", port),
 		Status: "building", UpdatedAt: time.Now().UTC().Format(time.RFC3339),
 		AutoDeploy: true, AutoDeploySet: true,
 	}
@@ -1128,6 +1143,33 @@ func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in Set
 		}
 		recreate = true
 	}
+	if in.LinkedRedis != nil && svc.Type == TypeGo {
+		link := strings.TrimSpace(*in.LinkedRedis)
+		if link != "" {
+			rSvc, ri := findService(reg, group, link)
+			if ri < 0 || rSvc.Type != TypeRedis {
+				m.mu.Unlock()
+				return Service{}, fmt.Errorf("redis must be in this group")
+			}
+			preview := m.injectLinkedRedis("", group, link)
+			if strings.TrimSpace(parseEnvMap(preview)["REDIS_URL"]) == "" {
+				m.mu.Unlock()
+				return Service{}, fmt.Errorf("linked redis has no credentials")
+			}
+			svc.LinkedRedis = link
+			envPath := filepath.Join(m.serviceDir(group, slug), "env")
+			cur, _ := os.ReadFile(envPath)
+			_ = os.WriteFile(envPath, []byte(normalizeEnv(removeLinkedRedisEnv(string(cur)))), 0o600)
+		} else {
+			cleared, err := m.clearLinkedRedisFromService(svc)
+			if err != nil {
+				m.mu.Unlock()
+				return Service{}, err
+			}
+			svc = cleared
+		}
+		recreate = true
+	}
 	if in.Env != nil {
 		path := filepath.Join(m.serviceDir(group, slug), "env")
 		body := normalizeEnv(*in.Env)
@@ -1141,6 +1183,15 @@ func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in Set
 		} else {
 			if svc.Type == TypeGo {
 				body = ownEnvBody(body, svc)
+			} else if svc.Type == TypeRedis {
+				// Connection identity is provisioned, not user-editable. Preserve it
+				// while still allowing additional Redis-side metadata variables.
+				password := envGet(parseEnvMap(curNorm), "REDIS_PASSWORD")
+				if password == "" {
+					m.mu.Unlock()
+					return Service{}, fmt.Errorf("redis credentials missing")
+				}
+				body = mergeEnvFiles(body, redisServiceEnv("127.0.0.1", svc.Port, password))
 			}
 			hints := envStackHints{}
 			if svc.Type == TypeGo {
@@ -1186,6 +1237,15 @@ func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in Set
 			}
 			m.releaseJob(true, "Container restarted")
 		}
+	} else if svc.Type == TypeRedis && recreate {
+		if err := m.acquireJob("Restart Redis · "+slug, group+"/"+slug); err != nil {
+			return m.refreshStatus(ctx, svc), err
+		}
+		if err := m.runRedisContainer(ctx, svc); err != nil {
+			m.releaseJob(false, err.Error())
+			return m.refreshStatus(ctx, svc), err
+		}
+		m.releaseJob(true, "Redis restarted")
 	}
 	return m.refreshStatus(ctx, svc), nil
 }
@@ -1253,6 +1313,9 @@ func (m *Manager) Start(ctx context.Context, group, slug string) error {
 			m.logf("step", "Starting shared MinIO engine")
 			runErr = m.MinIO.Start(ctx)
 		}
+	} else if svc.Type == TypeRedis {
+		m.logf("step", "Starting private Redis container")
+		runErr = m.runRedisContainer(ctx, svc)
 	} else {
 		m.logf("step", "Starting container")
 		runErr = m.recreateGo(ctx, svc)
@@ -1301,8 +1364,12 @@ func (m *Manager) Start(ctx context.Context, group, slug string) error {
 	svc.UpdatedAt = now
 	m.persistService(svc)
 	m.stepProgress("health")
-	m.logf("ok", "Running · %s", svc.URL)
-	m.releaseJob(true, "Started · "+svc.URL)
+	endpoint := svc.URL
+	if svc.Type == TypeRedis {
+		endpoint = fmt.Sprintf("127.0.0.1:%d", svc.Port)
+	}
+	m.logf("ok", "Running · %s", endpoint)
+	m.releaseJob(true, "Started · "+endpoint)
 	return nil
 }
 
@@ -1388,7 +1455,11 @@ func (m *Manager) Stop(ctx context.Context, group, slug string) error {
 	svc.Status = "stopped"
 	svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	m.persistService(svc)
-	m.logf("ok", "Stopped · binary kept — Start without rebuild")
+	if svc.Type == TypeRedis {
+		m.logf("ok", "Stopped · data volume kept — Start without reprovisioning")
+	} else {
+		m.logf("ok", "Stopped · binary kept — Start without rebuild")
+	}
 	m.releaseJob(true, "Stopped")
 	return nil
 }
@@ -1428,6 +1499,9 @@ func (m *Manager) Restart(ctx context.Context, group, slug string) error {
 			m.logf("step", "Restarting shared MinIO engine")
 			runErr = m.MinIO.Restart(ctx)
 		}
+	} else if svc.Type == TypeRedis {
+		m.logf("step", "Restarting private Redis container")
+		runErr = m.runRedisContainer(ctx, svc)
 	} else {
 		m.logf("step", "Restarting container")
 		runErr = m.restartGo(ctx, svc)
@@ -1469,7 +1543,11 @@ func (m *Manager) Restart(ctx context.Context, group, slug string) error {
 	svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	m.persistService(svc)
 	m.stepProgress("health")
-	m.logf("ok", "Restarted · %s", svc.URL)
+	endpoint := svc.URL
+	if svc.Type == TypeRedis {
+		endpoint = fmt.Sprintf("127.0.0.1:%d", svc.Port)
+	}
+	m.logf("ok", "Restarted · %s", endpoint)
 	m.releaseJob(true, "Restarted")
 	return nil
 }
@@ -1537,8 +1615,8 @@ func (m *Manager) Delete(ctx context.Context, group, slug string) error {
 	if m.jobBusyScoped(group, slug) {
 		wasBuilding = true
 		m.stopBuildForDelete(ctx, group, slug)
-	} else if svcType == TypeGo {
-		// Orphan build/runtime containers from a crashed Go deploy.
+	} else if svcType == TypeGo || svcType == TypeRedis {
+		// Orphan build/runtime containers from a crashed deploy.
 		stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		m.removeServiceContainers(stopCtx, group, slug)
 		cancel()
@@ -1617,6 +1695,17 @@ func (m *Manager) Delete(ctx context.Context, group, slug string) error {
 			_ = m.writeMeta(reg.Services[i])
 			changed = true
 		}
+		if reg.Services[i].LinkedRedis == slug {
+			cleared, err := m.clearLinkedRedisFromService(reg.Services[i])
+			if err != nil {
+				m.logf("warn", "unlink redis env on %s: %v", reg.Services[i].Slug, err)
+				reg.Services[i].LinkedRedis = ""
+			} else {
+				reg.Services[i] = cleared
+			}
+			_ = m.writeMeta(reg.Services[i])
+			changed = true
+		}
 		if changed && reg.Services[i].Type == TypeGo {
 			recreateDeps = append(recreateDeps, reg.Services[i])
 		}
@@ -1652,10 +1741,20 @@ func (m *Manager) Delete(ctx context.Context, group, slug string) error {
 func (m *Manager) deleteServiceResources(ctx context.Context, svc Service) error {
 	if svc.Type == TypeGo {
 		m.stopTunnelProcesses(svc.Group, svc.Slug)
+	}
+	if svc.Type == TypeGo || svc.Type == TypeRedis {
 		m.logf("info", "Stopping containers for %s/%s (runtime + build)", svc.Group, svc.Slug)
 		stopCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 		m.removeServiceContainers(stopCtx, svc.Group, svc.Slug)
 		cancel()
+	}
+	if svc.Type == TypeRedis {
+		volume := strings.TrimSpace(svc.Volume)
+		if volume == "" {
+			volume = redisVolumeName(svc.Group, svc.Slug)
+		}
+		m.logf("info", "Deleting Redis volume %s", volume)
+		_, _ = m.dockerQuiet(ctx, "volume", "rm", volume)
 	}
 	if svc.Type == TypePostgres && m.Postgres != nil && svc.Database != "" {
 		m.logf("info", "Dropping database %s", svc.Database)
@@ -1782,6 +1881,26 @@ func (m *Manager) refreshStatus(ctx context.Context, svc Service) Service {
 		}
 		if svc.Running {
 			svc.Status = "running"
+		} else {
+			svc.Status = "stopped"
+		}
+	case TypeRedis:
+		name := containerName(svc.Group, svc.Slug)
+		st := m.inspectContainer(ctx, name)
+		svc.Running = st.Running && st.Status == "running" && !st.Restarting
+		svc.EngineImage = redisImage
+		if svc.Volume == "" {
+			svc.Volume = redisVolumeName(svc.Group, svc.Slug)
+		}
+		svc.ConnectionURL = m.readServiceREDISURL(svc.Group, svc.Slug)
+		if svc.Running {
+			svc.Status = "running"
+			svc.LastError = ""
+		} else if st.Status == "restarting" || st.Status == "exited" || st.Status == "dead" {
+			svc.Status = "failed"
+			if svc.LastError == "" {
+				svc.LastError = "Redis container stopped unexpectedly — open Console"
+			}
 		} else {
 			svc.Status = "stopped"
 		}

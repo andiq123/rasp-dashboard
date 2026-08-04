@@ -44,7 +44,7 @@ function Bar({
   )
 }
 
-/** Reserved Go-service Docker limits vs Pi host capacity (OS overhead not included). */
+/** Reserved dedicated-container limits vs Pi host capacity (OS overhead not included). */
 export function ResourceBudget({ host, reserved, draftLabel, compact }: Props) {
   const memLeft = host.total_mb > 0 ? host.total_mb - reserved.memory_mb : null
   const cpuLeft = host.cores > 0 ? Math.round((host.cores - reserved.cpus) * 10) / 10 : null
@@ -55,7 +55,7 @@ export function ResourceBudget({ host, reserved, draftLabel, compact }: Props) {
         <div className="flex items-baseline justify-between gap-2">
           <strong className="text-xs m-0">Pi capacity</strong>
           <span className={`text-[11px] ${muted}`}>
-            {reserved.go_services} Go service{reserved.go_services === 1 ? '' : 's'}
+            {reserved.dedicated_services} dedicated service{reserved.dedicated_services === 1 ? '' : 's'}
             {draftLabel ? ` · ${draftLabel}` : ''}
           </span>
         </div>

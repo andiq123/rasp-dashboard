@@ -168,7 +168,7 @@ func ensureProductionEnv(body string, h envStackHints) string {
 // sanitizeServiceEnv removes framework keys that do not belong on this service type.
 func sanitizeServiceEnv(body string, svcType string, hints envStackHints) string {
 	switch svcType {
-	case TypePostgres, TypeBucket:
+	case TypePostgres, TypeBucket, TypeRedis:
 		return clearEnvKeys(body, frameworkEnvKeys...)
 	case TypeGo:
 		hints.Go = true

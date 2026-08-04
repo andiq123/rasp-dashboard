@@ -88,6 +88,8 @@ func (m *Manager) ManageOverview(ctx context.Context) (ManageOverview, error) {
 		if s.Type == TypePostgres {
 			pp.Port = 5432
 			pp.URL = ""
+		} else if s.Type == TypeRedis {
+			pp.URL = ""
 		}
 		out.Published = append(out.Published, pp)
 	}

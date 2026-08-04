@@ -147,7 +147,7 @@ func (m *Manager) sampleAllStats(ctx context.Context) {
 	m.mu.Unlock()
 	if err == nil {
 		for _, svc := range reg.Services {
-			if svc.Type == TypeGo && svc.Status != "building" {
+			if (svc.Type == TypeGo && svc.Status != "building") || svc.Type == TypeRedis {
 				name := containerName(svc.Group, svc.Slug)
 				seen[name] = target{name: name, limitMB: svc.MemoryMB, limitCPU: svc.CPUs}
 			}
@@ -251,7 +251,7 @@ func (m *Manager) statsForService(svc Service) *RuntimeStats {
 	}
 	name := ""
 	switch svc.Type {
-	case TypeGo:
+	case TypeGo, TypeRedis:
 		name = containerName(svc.Group, svc.Slug)
 	case TypePostgres:
 		name = postgresContainer
@@ -265,7 +265,7 @@ func (m *Manager) statsForService(svc Service) *RuntimeStats {
 		return nil
 	}
 	out := st
-	if svc.Type == TypeGo {
+	if svc.Type == TypeGo || svc.Type == TypeRedis {
 		out.LimitMB = svc.MemoryMB
 		out.LimitCPUs = svc.CPUs
 		out.Shared = false

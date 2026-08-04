@@ -144,7 +144,8 @@ func (m *Manager) mergedEnv(group, slug string) (string, error) {
 }
 
 // ensureServiceLayout creates the canonical on-disk shape for a service:
-//   deployments/groups/<group>/<slug>/{env,meta.json,runtime.env,out/app,repo?/}
+//
+//	deployments/groups/<group>/<slug>/{env,meta.json,runtime.env,out/app,repo?/}
 func (m *Manager) ensureServiceLayout(group, slug string) error {
 	dir := m.serviceDir(group, slug)
 	if err := os.MkdirAll(filepath.Join(dir, "out"), 0o755); err != nil {
@@ -521,7 +522,6 @@ func hasGoMain(dir string) bool {
 	return false
 }
 
-
 func normalizeRootDir(root string) (string, error) {
 	root = strings.TrimSpace(root)
 	root = strings.ReplaceAll(root, "\\", "/")
@@ -773,7 +773,6 @@ func (m *Manager) buildGo(ctx context.Context, svc Service, repoDir, outDir stri
 	return nil
 }
 
-
 // cgroupMemorySupported reports whether Docker can enforce --memory on this host.
 // Raspberry Pi images often run cgroup v2 without the memory controller enabled.
 func cgroupMemorySupported() bool {
@@ -836,6 +835,17 @@ func (m *Manager) runGoContainer(ctx context.Context, svc Service) error {
 			m.logf("warn", "Linked bucket %s has no connection env", svc.LinkedBucket)
 		} else {
 			m.logf("warn", "Linked bucket %s missing BUCKET", svc.LinkedBucket)
+		}
+	}
+	if svc.LinkedRedis != "" {
+		beforeR := merged
+		merged = m.injectLinkedRedis(merged, svc.Group, svc.LinkedRedis)
+		if strings.TrimSpace(parseEnvMap(merged)["REDIS_URL"]) != "" {
+			m.logf("info", "Copied Redis env from %s · group-scoped", svc.LinkedRedis)
+		} else if beforeR == merged {
+			m.logf("warn", "Linked Redis %s has no connection env", svc.LinkedRedis)
+		} else {
+			m.logf("warn", "Linked Redis %s missing REDIS_URL", svc.LinkedRedis)
 		}
 	}
 	envMap := parseEnvMap(merged)

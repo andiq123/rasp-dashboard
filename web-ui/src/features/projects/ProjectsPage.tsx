@@ -10,6 +10,7 @@ import {
   FolderGit2,
   Layers3,
   Loader2,
+  MemoryStick,
   Plus,
   ShieldCheck,
   Trash2,
@@ -18,6 +19,7 @@ import {
   createBucket,
   createGroup,
   createPostgres,
+  createRedis,
   deleteGroup,
   deployGo,
   fetchBranches,
@@ -31,7 +33,7 @@ import {
   serviceAction,
 } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
-import { LINKED_BUCKET_KEYS, LINKED_DB_KEYS } from '@/api/types'
+import { LINKED_BUCKET_KEYS, LINKED_DB_KEYS, LINKED_REDIS_KEYS } from '@/api/types'
 import { Button } from '@/components/ui/Button/Button'
 import { Choice } from '@/components/ui/Choice/Choice'
 import { useConfirm } from '@/components/ui/Confirm/Confirm'
@@ -63,7 +65,7 @@ import {
 import { activityMatchesGroup, useActivity } from '@/hooks/useActivity'
 import { useLiveState } from '@/hooks/useLiveState'
 
-type WizardStep = 'type' | 'github' | 'group' | 'go' | 'postgres' | 'bucket' | null
+type WizardStep = 'type' | 'github' | 'group' | 'go' | 'postgres' | 'bucket' | 'redis' | null
 
 export function ProjectsPage() {
   const { '*': splat } = useParams()
@@ -88,6 +90,7 @@ export function ProjectsPage() {
     root_dir: '',
     linked_database: '',
     linked_bucket: '',
+    linked_redis: '',
     env: '',
     memory_mb: 512,
     cpus: 1,
@@ -95,6 +98,7 @@ export function ProjectsPage() {
   })
   const [pgName, setPgName] = useState('')
   const [bucketName, setBucketName] = useState('')
+  const [redisName, setRedisName] = useState('')
 
   const groupsQ = useQuery({
     queryKey: queryKeys.groups,
@@ -208,6 +212,7 @@ export function ProjectsPage() {
         name,
         linked_database: goForm.linked_database,
         linked_bucket: goForm.linked_bucket,
+        linked_redis: goForm.linked_redis,
         root_dir: goForm.root_dir,
         memory_mb: goForm.memory_mb,
         cpus: goForm.cpus,
@@ -242,6 +247,18 @@ export function ProjectsPage() {
       showToast('Bucket creating…', 'info')
       setWizard(null)
       setBucketName('')
+      await qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) })
+      navigate(`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`)
+    },
+    onError: (e: Error) => showToast(e.message, 'error'),
+  })
+
+  const redisMut = useMutation({
+    mutationFn: () => createRedis(groupSlug, { name: redisName.trim() }),
+    onSuccess: async (svc) => {
+      showToast('Redis creating…', 'info')
+      setWizard(null)
+      setRedisName('')
       await qc.invalidateQueries({ queryKey: queryKeys.services(groupSlug) })
       navigate(`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`)
     },
@@ -286,6 +303,7 @@ export function ProjectsPage() {
 
   const dbs = services.filter((s) => s.type === 'postgres')
   const buckets = services.filter((s) => s.type === 'bucket')
+  const redises = services.filter((s) => s.type === 'redis')
 
   function openAddService() {
     if (!groupSlug) {
@@ -306,6 +324,7 @@ export function ProjectsPage() {
       root_dir: '',
       linked_database: dbs.length === 1 ? dbs[0].slug : '',
       linked_bucket: buckets.length === 1 ? buckets[0].slug : '',
+      linked_redis: redises.length === 1 ? redises[0].slug : '',
       env: '',
       memory_mb: 512,
       cpus: 1,
@@ -432,7 +451,7 @@ export function ProjectsPage() {
                 <h3 className="text-base font-bold m-0 text-base-content">
                   {(groupsQ.data || []).length ? 'Select a group' : 'Create a group'}
                 </h3>
-                <p className={`text-sm ${muted} m-0`}>Groups hold databases and Go apps on this Pi.</p>
+                <p className={`text-sm ${muted} m-0`}>Groups hold apps, databases, buckets, and Redis on this Pi.</p>
                 {!(groupsQ.data || []).length ? (
                   <Button
                     variant="primary"
@@ -512,7 +531,7 @@ export function ProjectsPage() {
                 ) : !services.length ? (
                   <Empty
                     title="Nothing here yet"
-                    body="Add a Go app, Postgres, or Bucket."
+                    body="Add a Go app, Postgres, Bucket, or Redis."
                     action={
                       <Button
                         variant="primary"
@@ -559,7 +578,7 @@ export function ProjectsPage() {
       <Modal
         open={wizard === 'group'}
         title="New group"
-        sub="Boundary for databases and Go apps."
+        sub="A private boundary for apps and their data services."
         onClose={() => setWizard(null)}
         footer={
           <>
@@ -631,6 +650,13 @@ export function ProjectsPage() {
             description="S3-compatible object storage with scoped credentials"
             icon={<Archive className="h-5 w-5" aria-hidden />}
             onClick={() => setWizard('bucket')}
+          />
+          <Choice
+            title="Redis"
+            description="Private cache and queue with persistence and scoped credentials"
+            tone="warning"
+            icon={<MemoryStick className="h-5 w-5" aria-hidden />}
+            onClick={() => setWizard('redis')}
           />
           </div>
         </div>
@@ -781,6 +807,27 @@ export function ProjectsPage() {
           </Select>
         </Field>
         <Field
+          label="Redis"
+          meta="link"
+          tip={
+            goForm.linked_redis
+              ? `Runtime injects ${LINKED_REDIS_KEYS.slice(0, 4).join(', ')}… from Redis`
+              : 'Optional Redis cache or queue already in this group.'
+          }
+        >
+          <Select
+            value={goForm.linked_redis}
+            onChange={(e) => setGoForm((f) => ({ ...f, linked_redis: e.target.value }))}
+          >
+            <option value="">No Redis</option>
+            {redises.map((redis) => (
+              <option key={redis.slug} value={redis.slug}>
+                {redis.name || redis.slug}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field
           label="Port"
           meta={portsQ.data?.free != null ? `${portsQ.data.free} free` : 'auto'}
           tip="Assigned automatically from the free pool on this Pi."
@@ -827,7 +874,7 @@ export function ProjectsPage() {
           />
         </div>
 
-        <Field label="Environment" meta="optional" tip="One KEY=value per line. Linked DB/bucket keys are added later.">
+        <Field label="Environment" meta="optional" tip="One KEY=value per line. Linked DB, bucket, and Redis keys are injected at runtime.">
           <TextArea
             value={goForm.env}
             onChange={(e) => setGoForm((f) => ({ ...f, env: e.target.value }))}
@@ -908,6 +955,44 @@ export function ProjectsPage() {
             bucket name, access key, secret, and path-style setting.
           </p>
         </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={wizard === 'redis'}
+        title="Add Redis"
+        sub="Create a private persistent Redis instance, then link it to an app in this group."
+        onClose={() => setWizard(null)}
+        footer={
+          <>
+            <Button variant="quiet" onClick={() => setWizard('type')}>Back</Button>
+            <Button
+              variant="primary"
+              loading={redisMut.isPending}
+              disabled={!redisName.trim()}
+              onClick={() => redisMut.mutate()}
+            >
+              Create
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-3">
+          <Field label="Name" tip="Used for the service, container, and private volume." htmlFor="wiz-redis-name">
+            <Input
+              id="wiz-redis-name"
+              autoFocus
+              value={redisName}
+              onChange={(e) => setRedisName(e.target.value)}
+              placeholder="cache"
+            />
+          </Field>
+          <div className={`${tile} p-3 grid gap-1.5`}>
+            <strong className="text-xs">Safe defaults for a small server</strong>
+            <p className={`text-[11px] m-0 ${muted}`}>
+              Password authentication, AOF persistence, a private named volume, memory limits, and a loopback-only port are configured automatically. Linked apps receive <span className="font-mono">REDIS_URL</span> and individual connection variables.
+            </p>
+          </div>
         </div>
       </Modal>
     </div>

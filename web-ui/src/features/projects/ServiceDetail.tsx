@@ -30,7 +30,7 @@ import {
 } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import type { ActivityLine, ActivitySnapshot, Deployment, Progress, Service } from '@/api/types'
-import { LINKED_BUCKET_KEYS, LINKED_DB_KEYS } from '@/api/types'
+import { LINKED_BUCKET_KEYS, LINKED_DB_KEYS, LINKED_REDIS_KEYS } from '@/api/types'
 import { Button } from '@/components/ui/Button/Button'
 import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { Empty } from '@/components/ui/Empty/Empty'
@@ -179,7 +179,10 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
   async function onDelete() {
     const ok = await confirm({
       title: `Delete ${slug}?`,
-      body: 'Containers, deployments, and env for this service will be removed.',
+      body:
+        svc?.type === 'redis'
+          ? 'The Redis container, credentials, and persistent data volume will be permanently removed.'
+          : 'Containers, deployments, and env for this service will be removed.',
       confirmLabel: 'Delete',
       danger: true,
     })
@@ -253,7 +256,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
         </div>
 
         <div className="flex flex-wrap items-center gap-1">
-          {svc.type === 'go' && !building && !queued ? (
+          {(svc.type === 'go' || svc.type === 'redis') && !building && !queued ? (
             <>
               {svc.running ? (
                 <Button
@@ -278,9 +281,9 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
                 variant="warningSoft"
                 icon={<RotateCw className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />}
                 loading={act.isPending}
-                onClick={() => void onAct('redeploy')}
+                onClick={() => void onAct(svc.type === 'redis' ? 'restart' : 'redeploy')}
               >
-                Redeploy
+                {svc.type === 'redis' ? 'Restart' : 'Redeploy'}
               </Button>
             </>
           ) : null}
@@ -441,6 +444,35 @@ func Open(ctx context.Context) (*s3.Client, error) {
 
 // Use os.Getenv("BUCKET") for PutObject/GetObject calls.`
 
+const REDIS_INSTALL = 'go get github.com/redis/go-redis/v9'
+const REDIS_GO = `package cache
+
+import (
+  "context"
+  "fmt"
+  "os"
+  "time"
+
+  "github.com/redis/go-redis/v9"
+)
+
+func Open(ctx context.Context) (*redis.Client, error) {
+  // REDIS_URL is injected only when this Redis service is linked.
+  opts, err := redis.ParseURL(os.Getenv("REDIS_URL"))
+  if err != nil { return nil, fmt.Errorf("parse REDIS_URL: %w", err) }
+
+  client := redis.NewClient(opts)
+  pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+  defer cancel()
+  if err := client.Ping(pingCtx).Err(); err != nil {
+    _ = client.Close()
+    return nil, fmt.Errorf("connect redis: %w", err)
+  }
+  return client, nil
+}
+
+// Reuse this client and Close it during graceful shutdown.`
+
 function CopyCode({ value, label = 'Copy' }: { value: string; label?: string }) {
   const [copied, setCopied] = useState(false)
 
@@ -475,10 +507,12 @@ function CodeGuide({ title, value }: { title: string; value: string }) {
 
 function IntegrateTab({ svc, siblings }: { svc: Service; siblings: Service[] }) {
   const isBucket = svc.type === 'bucket'
+  const isRedis = svc.type === 'redis'
 
   if (svc.type === 'go') {
     const db = siblings.find((item) => item.slug === svc.linked_database)
     const bucket = siblings.find((item) => item.slug === svc.linked_bucket)
+    const redis = siblings.find((item) => item.slug === svc.linked_redis)
     return (
       <div className="grid gap-4 max-w-3xl">
         <div>
@@ -488,12 +522,18 @@ function IntegrateTab({ svc, siblings }: { svc: Service; siblings: Service[] }) 
             Links stay inside this group. Credentials are injected into this container at start and never committed to the repository.
           </p>
         </div>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2 sm:grid-cols-3">
           <IntegrationState
             title="Postgres"
             linked={db?.name || db?.slug}
             keys={LINKED_DB_KEYS.slice(0, 4)}
             empty="Link a database in Config to receive DATABASE_URL."
+          />
+          <IntegrationState
+            title="Redis"
+            linked={redis?.name || redis?.slug}
+            keys={LINKED_REDIS_KEYS.slice(0, 4)}
+            empty="Link Redis in Config to receive REDIS_URL."
           />
           <IntegrationState
             title="Bucket storage"
@@ -512,10 +552,11 @@ function IntegrateTab({ svc, siblings }: { svc: Service; siblings: Service[] }) 
     )
   }
 
-  const keys = isBucket ? LINKED_BUCKET_KEYS : LINKED_DB_KEYS
-  const install = isBucket ? BUCKET_INSTALL : POSTGRES_INSTALL
-  const example = isBucket ? BUCKET_GO : POSTGRES_GO
-  const title = isBucket ? 'Connect this bucket to a Go app' : 'Connect this database to a Go app'
+  const resource = isBucket ? 'bucket' : isRedis ? 'Redis service' : 'database'
+  const keys = isBucket ? LINKED_BUCKET_KEYS : isRedis ? LINKED_REDIS_KEYS : LINKED_DB_KEYS
+  const install = isBucket ? BUCKET_INSTALL : isRedis ? REDIS_INSTALL : POSTGRES_INSTALL
+  const example = isBucket ? BUCKET_GO : isRedis ? REDIS_GO : POSTGRES_GO
+  const title = isBucket ? 'Connect this bucket to a Go app' : isRedis ? 'Connect Redis to a Go app' : 'Connect this database to a Go app'
 
   return (
     <div className="grid gap-4 max-w-3xl">
@@ -523,15 +564,15 @@ function IntegrateTab({ svc, siblings }: { svc: Service; siblings: Service[] }) 
         <span className="badge badge-primary badge-sm mb-2">Go integration</span>
         <h4 className="text-base font-bold m-0">{title}</h4>
         <p className={`text-xs mt-1 mb-0 ${muted}`}>
-          Open the app’s Config tab, select <strong>{svc.name || svc.slug}</strong> under {isBucket ? 'Bucket' : 'Database'}, then save and redeploy.
+          Open the app’s Config tab, select <strong>{svc.name || svc.slug}</strong> under {isBucket ? 'Bucket' : isRedis ? 'Redis' : 'Database'}, then save. A running app is recreated with the scoped variables.
         </p>
       </div>
 
       <ol className="grid gap-2 list-none m-0 p-0 sm:grid-cols-3">
         {[
-          ['1', 'Link', `Select this ${isBucket ? 'bucket' : 'database'} in the Go app config.`],
+          ['1', 'Link', `Select this ${resource} in the Go app config.`],
           ['2', 'Read env', 'Use the injected variables—never hard-code credentials.'],
-          ['3', 'Reuse client', `Create one ${isBucket ? 'S3 client' : 'connection pool'} at startup.`],
+          ['3', 'Reuse client', `Create one ${isBucket ? 'S3 client' : isRedis ? 'Redis client' : 'connection pool'} at startup.`],
         ].map(([number, heading, body]) => (
           <li key={number} className={`${tile} p-3`}>
             <span className="badge badge-primary badge-sm mb-2">{number}</span>
@@ -555,7 +596,7 @@ function IntegrateTab({ svc, siblings }: { svc: Service; siblings: Service[] }) 
       </div>
 
       <CodeGuide title="Install dependency" value={install} />
-      <CodeGuide title={isBucket ? 'storage/client.go' : 'data/postgres.go'} value={example} />
+      <CodeGuide title={isBucket ? 'storage/client.go' : isRedis ? 'cache/redis.go' : 'data/postgres.go'} value={example} />
 
       <div className="rounded-box border border-warning/25 bg-warning/5 p-3 flex gap-2.5">
         <ShieldNote />
@@ -564,7 +605,9 @@ function IntegrateTab({ svc, siblings }: { svc: Service; siblings: Service[] }) 
           <p className={`text-[11px] m-0 mt-1 ${muted}`}>
             {isBucket
               ? 'Set upload size limits, validate object keys, use timeouts, and keep the bucket private. Stream large objects instead of buffering them in memory.'
-              : 'Use context timeouts, cap the pool size for this Pi, run migrations as a controlled deploy step, and close the pool on graceful shutdown.'}
+              : isRedis
+                ? 'Use key prefixes and expirations, bound queue lengths, avoid KEYS in production, use context timeouts, and close the shared client on graceful shutdown.'
+                : 'Use context timeouts, cap the pool size for this Pi, run migrations as a controlled deploy step, and close the pool on graceful shutdown.'}
           </p>
         </div>
       </div>
@@ -644,6 +687,7 @@ function ConfigTab({
   const { live } = useRealtime()
   const dbs = siblings.filter((s) => s.type === 'postgres')
   const buckets = siblings.filter((s) => s.type === 'bucket')
+  const redises = siblings.filter((s) => s.type === 'redis')
   const [name, setName] = useState(svc.name || '')
   const [branch, setBranch] = useState(svc.branch || '')
   const [root, setRoot] = useState(svc.root_dir || '')
@@ -652,6 +696,7 @@ function ConfigTab({
   const [cpus, setCpus] = useState(svc.cpus || 1)
   const [db, setDb] = useState(svc.linked_database || '')
   const [bucket, setBucket] = useState(svc.linked_bucket || '')
+  const [redis, setRedis] = useState(svc.linked_redis || '')
   const [autoDeploy, setAutoDeploy] = useState(!!svc.auto_deploy)
 
   useEffect(() => {
@@ -663,6 +708,7 @@ function ConfigTab({
     setCpus(svc.cpus || 1)
     setDb(svc.linked_database || '')
     setBucket(svc.linked_bucket || '')
+    setRedis(svc.linked_redis || '')
     setAutoDeploy(!!svc.auto_deploy)
   }, [svc])
 
@@ -671,7 +717,7 @@ function ConfigTab({
   const host = hostCapacity(state.device_metrics)
   const reserved = reservedFromServices(siblings, {
     excludeSlug: svc.slug,
-    draft: svc.type === 'go' ? { memory_mb: mem, cpus: cpu } : undefined,
+    draft: svc.type === 'go' || svc.type === 'redis' ? { memory_mb: mem, cpus: cpu } : undefined,
   })
 
   const save = useMutation({
@@ -685,6 +731,7 @@ function ConfigTab({
               build_cmd: buildCmd.trim(),
               linked_database: db,
               linked_bucket: bucket,
+              linked_redis: redis,
               auto_deploy: autoDeploy,
             }
           : {}),
@@ -763,9 +810,9 @@ function ConfigTab({
           <div className={`${tile} p-2.5 grid gap-2`}>
             <strong className="text-xs">Linked resources</strong>
             <p className={`text-[11px] m-0 ${muted}`}>
-              Same-group database or bucket — connection env is injected at start (see Variables).
+              Same-group database, bucket, or Redis — connection env is injected at start (see Variables).
             </p>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-3">
               <Field
                 label="Database"
                 tip={
@@ -779,6 +826,23 @@ function ConfigTab({
                   {dbs.map((d) => (
                     <option key={d.slug} value={d.slug}>
                       {d.name || d.slug}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field
+                label="Redis"
+                tip={
+                  redis
+                    ? `Runtime injects ${LINKED_REDIS_KEYS.slice(0, 4).join(', ')}… from ${redis}`
+                    : 'Optional private cache or queue in this group.'
+                }
+              >
+                <Select value={redis} onChange={(e) => setRedis(e.target.value)}>
+                  <option value="">No Redis</option>
+                  {redises.map((item) => (
+                    <option key={item.slug} value={item.slug}>
+                      {item.name || item.slug}
                     </option>
                   ))}
                 </Select>
@@ -805,7 +869,7 @@ function ConfigTab({
         </>
       ) : null}
 
-      {svc.type === 'go' || svc.type === 'postgres' ? (
+      {svc.type === 'go' || svc.type === 'postgres' || svc.type === 'redis' ? (
         <div className="grid gap-3">
           {svc.running && svc.stats ? (
             <ServiceUsage
@@ -815,12 +879,12 @@ function ConfigTab({
               live={live}
             />
           ) : null}
-          {svc.type === 'go' ? (
+          {svc.type === 'go' || svc.type === 'redis' ? (
             <>
               <ResourceBudget
                 host={host}
                 reserved={reserved}
-                draftLabel="including this service"
+                draftLabel={`including this ${svc.type} service`}
               />
               <div className="grid gap-3 sm:grid-cols-2">
                 <ResourceSlider
@@ -834,7 +898,7 @@ function ConfigTab({
                   onChange={setMemory}
                   meta={`${mem}MB`}
                   liveValue={svc.running ? svc.stats?.memory_mb : null}
-                  tip="Docker memory limit for this container (64–3072MB)."
+                  tip={svc.type === 'redis' ? 'Docker limit; Redis uses up to 75% for data and leaves headroom for overhead.' : 'Docker memory limit for this container (64–3072MB).'}
                 />
                 <ResourceSlider
                   id="svc-cpu"
@@ -945,7 +1009,7 @@ function VariablesTab({ group, slug, svc }: { group: string; slug: string; svc: 
   const linked = envQ.data?.linked || []
   const kind = envQ.data?.kind || svc.type
   const isGo = kind === 'go'
-  const isConn = kind === 'postgres' || kind === 'bucket'
+  const isConn = kind === 'postgres' || kind === 'bucket' || kind === 'redis'
 
   return (
     <div className="grid gap-3 max-w-2xl">
@@ -955,7 +1019,7 @@ function VariablesTab({ group, slug, svc }: { group: string; slug: string; svc: 
           isConn
             ? 'Credentials for apps in this group. Each service owns its own env file.'
             : isGo
-              ? 'This app’s own KEY=value pairs. Linked database/bucket values appear below (injected at start).'
+              ? 'This app’s own KEY=value pairs. Linked database, bucket, and Redis values appear below (injected at start).'
               : 'One KEY=value per line. Secrets stay on this Pi.'
         }
       >
@@ -982,9 +1046,9 @@ function VariablesTab({ group, slug, svc }: { group: string; slug: string; svc: 
             </Field>
           ))}
         </div>
-      ) : isGo && (svc.linked_database || svc.linked_bucket) ? (
+      ) : isGo && (svc.linked_database || svc.linked_bucket || svc.linked_redis) ? (
         <p className={`text-xs m-0 ${muted}`}>
-          Linked resource has no connection env yet — open the database/bucket Variables tab.
+          Linked resource has no connection env yet — open its Variables tab.
         </p>
       ) : null}
 

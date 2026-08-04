@@ -45,7 +45,7 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
         : st.text
   const tone = statusTone(svc, { busy, waiting })
   const locked = busy || waiting
-  const go = svc.type === 'go'
+  const managed = svc.type === 'go' || svc.type === 'redis'
   const showUsage = svc.running && !!svc.stats
   const badge = busy ? 'badge-info' : waiting ? 'badge-warning' : st.badge
 
@@ -99,7 +99,7 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
           />
         ) : null}
 
-        {go ? (
+        {managed ? (
           <div
             className="flex flex-wrap gap-1 min-h-8 items-center pointer-events-auto"
             onClick={(e) => e.stopPropagation()}
@@ -131,9 +131,9 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
               icon={<RotateCw className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />}
               loading={actPending}
               disabled={locked}
-              aria-label={`Redeploy ${svc.slug}`}
-              title={waiting ? 'Already queued' : busy ? 'Deploy in progress' : 'Redeploy'}
-              onClick={() => onAction(svc.slug, 'redeploy')}
+              aria-label={`${svc.type === 'redis' ? 'Restart' : 'Redeploy'} ${svc.slug}`}
+              title={svc.type === 'redis' ? 'Restart' : waiting ? 'Already queued' : busy ? 'Deploy in progress' : 'Redeploy'}
+              onClick={() => onAction(svc.slug, svc.type === 'redis' ? 'restart' : 'redeploy')}
             />
           </div>
         ) : null}

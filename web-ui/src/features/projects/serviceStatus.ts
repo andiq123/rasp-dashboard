@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Archive, Box, Database } from 'lucide-react'
+import { Archive, Box, Database, MemoryStick } from 'lucide-react'
 import type { Service } from '@/api/types'
 import type { IconWellTone } from '@/lib/ui'
 
@@ -8,14 +8,14 @@ export function isQueued(svc: Service): boolean {
 }
 
 export function isBuilding(svc: Service): boolean {
-  if (svc.type === 'postgres' || svc.type === 'bucket') return false
+  if (svc.type === 'postgres' || svc.type === 'bucket' || svc.type === 'redis') return false
   if (svc.status === 'queued') return false
   if (svc.status === 'building') return true
   return !!(svc.deployments || []).some((d) => d.status === 'building')
 }
 
 export function statusLabel(svc: Service): { text: string; badge: string } {
-  if (svc.type === 'postgres' || svc.type === 'bucket') {
+  if (svc.type === 'postgres' || svc.type === 'bucket' || svc.type === 'redis') {
     return svc.running
       ? { text: 'Ready', badge: 'badge-success' }
       : { text: 'Offline', badge: 'badge-ghost' }
@@ -34,7 +34,7 @@ export function statusTone(
 ): IconWellTone {
   if (opts?.busy) return 'info'
   if (opts?.waiting || isQueued(svc)) return 'warning'
-  if (svc.type === 'postgres' || svc.type === 'bucket') {
+  if (svc.type === 'postgres' || svc.type === 'bucket' || svc.type === 'redis') {
     return svc.running ? 'success' : 'primary'
   }
   if (isBuilding(svc)) return 'info'
@@ -92,6 +92,8 @@ export function serviceTypeIcon(type: string): LucideIcon {
       return Database
     case 'bucket':
       return Archive
+    case 'redis':
+      return MemoryStick
     default:
       return Box
   }

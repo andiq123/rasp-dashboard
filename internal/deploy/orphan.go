@@ -67,12 +67,30 @@ func (m *Manager) adoptOrphansLocked(reg *registry) bool {
 					if meta.CPUs > 0 {
 						svc.CPUs = meta.CPUs
 					}
+					if meta.Volume != "" {
+						svc.Volume = meta.Volume
+					}
+					if meta.EngineImage != "" {
+						svc.EngineImage = meta.EngineImage
+					}
 					if meta.LinkedDatabase != "" {
 						svc.LinkedDatabase = meta.LinkedDatabase
+					}
+					if meta.LinkedBucket != "" {
+						svc.LinkedBucket = meta.LinkedBucket
+					}
+					if meta.LinkedRedis != "" {
+						svc.LinkedRedis = meta.LinkedRedis
 					}
 					if meta.Type == TypePostgres {
 						svc.Type = TypePostgres
 						svc.Database = meta.Database
+						svc.Status = "stopped"
+						svc.LastError = ""
+					}
+					if meta.Type == TypeRedis {
+						svc.Type = TypeRedis
+						svc.Port = meta.Port
 						svc.Status = "stopped"
 						svc.LastError = ""
 					}

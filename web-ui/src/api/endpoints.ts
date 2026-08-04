@@ -127,6 +127,12 @@ export const createBucket = (group: string, body: Record<string, unknown>) =>
     body: { ...body, type: 'bucket' },
   })
 
+export const createRedis = (group: string, body: Record<string, unknown>) =>
+  api<Service>(`/api/groups/${encodeURIComponent(group)}/services`, {
+    method: 'POST',
+    body: { ...body, type: 'redis' },
+  })
+
 export const serviceAction = (group: string, slug: string, action: string) =>
   api<Service>(`/api/groups/${encodeURIComponent(group)}/services/${encodeURIComponent(slug)}/${action}`, {
     method: 'POST',
