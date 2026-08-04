@@ -9,13 +9,13 @@ import (
 	"time"
 )
 
-// EnsureTunnel restores or keeps a quick tunnel after deploy/reboot.
+// EnsureTunnel restores or keeps a managed or quick tunnel after deploy/reboot.
 //
-// Policy (trycloudflare):
-//  1. Prefer reuse — never restart cloudflared when process + origin port match.
-//  2. Restore PublicURL from the on-disk url file / cloudflared log.
-//  3. Restart only when the process is dead or the unit origin port drifted
-//     (restart yields a new random hostname — unavoidable for quick tunnels).
+// Policy:
+//  1. Prefer reuse — never restart cloudflared when its process is healthy.
+//  2. Restore PublicURL from the on-disk URL file / cloudflared log.
+//  3. Restart only when the process is dead or a quick-tunnel origin moved.
+//     Managed tunnels retain their configured hostname and saved token.
 func (m *Manager) EnsureTunnel(ctx context.Context, group, slug string) (Service, error) {
 	svc, err := m.loadGoService(group, slug)
 	if err != nil {
@@ -153,6 +153,13 @@ func (m *Manager) recreateTunnel(ctx context.Context, group, slug string, prev S
 		_, _ = m.StopTunnel(ctx, group, slug)
 	}
 	m.writeTunnelWanted(group, slug, true)
+	if prev.TunnelMode == "managed" {
+		out, err := m.StartManagedTunnel(ctx, group, slug, "", prev.TunnelHostname)
+		if err != nil {
+			return prev, err
+		}
+		return out, nil
+	}
 	out, err := m.StartTunnel(ctx, group, slug)
 	if err != nil {
 		return prev, err

@@ -15,21 +15,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 )
 
 const (
-	autoDeployInterval = 60 * time.Second
+	autoDeployInitial  = 5 * time.Second
+	autoDeployInterval = 30 * time.Second
 	deployTokenBytes   = 32
 )
 
 // ErrUnauthorized is returned when a deploy hook token/signature is invalid.
 var ErrUnauthorized = errors.New("unauthorized")
-
-var (
-	autoDeployOnce sync.Once
-)
 
 func (m *Manager) deployTokenPath() string {
 	return filepath.Join(m.DeployDir, "config", "deploy.token")
@@ -92,7 +88,7 @@ func (m *Manager) ValidateDeployToken(r *http.Request) error {
 
 // BootstrapAutoDeploy enables defaults, backfills push webhooks, and starts the commit watcher.
 func (m *Manager) BootstrapAutoDeploy() {
-	autoDeployOnce.Do(func() {
+	m.autoDeployOnce.Do(func() {
 		if _, err := m.EnsureDeployToken(); err != nil {
 			m.logf("warn", "Auto-deploy token: %v", err)
 		}
@@ -157,7 +153,7 @@ func (m *Manager) enableAutoDeployDefaults() {
 }
 
 func (m *Manager) autoDeployLoop() {
-	timer := time.NewTimer(20 * time.Second)
+	timer := time.NewTimer(autoDeployInitial)
 	defer timer.Stop()
 	for {
 		select {
@@ -185,23 +181,61 @@ func (m *Manager) pollAutoDeploys() {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
+	type target struct {
+		repo     string
+		branch   string
+		services []Service
+	}
+	targets := make([]target, 0)
+	targetIndex := make(map[string]int)
 	for _, svc := range reg.Services {
 		if !m.shouldPollService(svc) {
 			continue
 		}
-		sha, err := m.githubBranchSHA(ctx, token, normalizeRepo(svc.Repo), strings.TrimSpace(svc.Branch))
+		repo := normalizeRepo(svc.Repo)
+		branch := strings.TrimSpace(svc.Branch)
+		key := repo + "\x00" + branch
+		idx, ok := targetIndex[key]
+		if !ok {
+			idx = len(targets)
+			targetIndex[key] = idx
+			targets = append(targets, target{repo: repo, branch: branch})
+		}
+		targets[idx].services = append(targets[idx].services, svc)
+	}
+
+	// Services sharing a repository and branch share one GitHub request.
+	for _, target := range targets {
+		sha, err := m.githubBranchSHA(ctx, token, target.repo, target.branch)
 		if err != nil || sha == "" {
 			continue
 		}
-		if svc.DeploySHA == "" {
-			m.setDeploySHA(svc.Group, svc.Slug, sha)
-			continue
+		for _, svc := range target.services {
+			knownSHA := strings.TrimSpace(svc.DeploySHA)
+			if knownSHA == "" {
+				// Older/failed deploys may not have deploy_sha yet. The retained clone
+				// is still authoritative enough to detect the next pushed commit.
+				knownSHA = gitHeadCommit(filepath.Join(m.serviceDir(svc.Group, svc.Slug), "repo"))
+			}
+			if knownSHA == "" {
+				m.setDeploySHA(svc.Group, svc.Slug, sha)
+				continue
+			}
+			if sameCommit(knownSHA, sha) {
+				if svc.DeploySHA == "" {
+					m.setDeploySHA(svc.Group, svc.Slug, sha)
+				}
+				continue
+			}
+			m.logf("info", "Auto-deploy %s/%s · new commit %s", svc.Group, svc.Slug, shortSHA(sha))
+			if _, err := m.scheduleRedeploy(svc.Group, svc.Slug, "auto"); err != nil {
+				m.logf("warn", "Auto-deploy %s/%s failed · %s", svc.Group, svc.Slug, err.Error())
+			} else {
+				// Record an accepted attempt so a broken commit does not rebuild every
+				// poll. A later push has a new SHA and will schedule normally.
+				m.setDeploySHA(svc.Group, svc.Slug, sha)
+			}
 		}
-		if sameCommit(svc.DeploySHA, sha) {
-			continue
-		}
-		m.logf("info", "Auto-deploy %s/%s · new commit %s", svc.Group, svc.Slug, shortSHA(sha))
-		go m.triggerAutoRedeploy(svc.Group, svc.Slug, sha)
 	}
 }
 
@@ -214,17 +248,6 @@ func (m *Manager) shouldPollService(svc Service) bool {
 	}
 	// Allow queueing while another service builds; skip mid-build (queued still polls to coalesce new SHAs).
 	return svc.Status != "building"
-}
-
-func (m *Manager) triggerAutoRedeploy(group, slug, sha string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
-	defer cancel()
-	if _, err := m.redeployReason(ctx, group, slug, "auto"); err != nil {
-		m.logf("warn", "Auto-deploy %s/%s failed · %s", group, slug, err.Error())
-		return
-	}
-	// Stamp immediately so the poller does not queue another redeploy mid-build.
-	m.setDeploySHA(group, slug, sha)
 }
 
 func (m *Manager) setDeploySHA(group, slug, sha string) {
@@ -369,7 +392,7 @@ type githubPushHook struct {
 
 // HandleGitHubPush matches push events to registry services and redeploys.
 // Webhook secret must equal the FireWifi deploy token (HMAC SHA-256).
-func (m *Manager) HandleGitHubPush(ctx context.Context, body []byte, signature string) ([]Service, error) {
+func (m *Manager) HandleGitHubPush(_ context.Context, body []byte, signature string) ([]Service, error) {
 	want, err := m.readDeployToken()
 	if err != nil {
 		return nil, err
@@ -395,7 +418,7 @@ func (m *Manager) HandleGitHubPush(ctx context.Context, body []byte, signature s
 		if !svc.AutoDeploy {
 			continue
 		}
-		s, err := m.Redeploy(ctx, svc.Group, svc.Slug)
+		s, err := m.scheduleRedeploy(svc.Group, svc.Slug, "webhook")
 		if err != nil {
 			return out, err
 		}

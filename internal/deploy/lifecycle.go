@@ -64,32 +64,73 @@ func (m *Manager) Redeploy(ctx context.Context, group, slug string) (Service, er
 }
 
 func (m *Manager) redeployReason(ctx context.Context, group, slug, reason string) (Service, error) {
-	if err := requireSlug(group, "group"); err != nil {
+	plan, _, err := m.redeployPlan(group, slug)
+	if err != nil {
 		return Service{}, err
 	}
+	return m.runGoDeployReason(ctx, plan, reason)
+}
+
+func (m *Manager) redeployPlan(group, slug string) (goDeployPlan, Service, error) {
+	if err := requireSlug(group, "group"); err != nil {
+		return goDeployPlan{}, Service{}, err
+	}
 	if err := requireSlug(slug, "service"); err != nil {
-		return Service{}, err
+		return goDeployPlan{}, Service{}, err
 	}
 	m.mu.Lock()
 	reg, err := m.loadRegistry()
 	if err != nil {
 		m.mu.Unlock()
-		return Service{}, err
+		return goDeployPlan{}, Service{}, err
 	}
 	svc, idx := findService(reg, group, slug)
 	m.mu.Unlock()
 	if idx < 0 {
-		return Service{}, fmt.Errorf("service not found")
+		return goDeployPlan{}, Service{}, fmt.Errorf("service not found")
 	}
 	if svc.Type != TypeGo {
-		return Service{}, fmt.Errorf("only go services redeploy")
+		return goDeployPlan{}, Service{}, fmt.Errorf("only go services redeploy")
 	}
 	plan, err := m.planGoDeploy(group, redeployGoRequest(svc), slug)
 	if err != nil {
-		return Service{}, err
+		return goDeployPlan{}, Service{}, err
 	}
 	plan.Reuse = true
-	return m.runGoDeployReason(ctx, plan, reason)
+	return plan, svc, nil
+}
+
+// scheduleRedeploy reserves/queues immediately and performs slow source work
+// in the background. Push hooks can acknowledge before GitHub times out.
+func (m *Manager) scheduleRedeploy(group, slug, reason string) (Service, error) {
+	plan, svc, err := m.redeployPlan(group, slug)
+	if err != nil {
+		return Service{}, err
+	}
+	started, queued, err := m.reserveOrEnqueue(plan, reason)
+	if err != nil {
+		return Service{}, err
+	}
+	if !started {
+		m.attachDeployments(&queued)
+		return queued, nil
+	}
+
+	svc.Status = "building"
+	svc.LastError = ""
+	svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	m.markBuilding(plan.Group, plan.Slug, plan.Name)
+	m.attachDeployments(&svc)
+	go func() {
+		parent := context.Background()
+		if m.bgCtx != nil {
+			parent = m.bgCtx
+		}
+		deployCtx, cancel := context.WithTimeout(parent, 25*time.Minute)
+		defer cancel()
+		_, _ = m.executeGoDeploy(deployCtx, plan)
+	}()
+	return svc, nil
 }
 
 func redeployGoRequest(svc Service) CreateGoRequest {

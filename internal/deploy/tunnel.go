@@ -18,6 +18,7 @@ import (
 )
 
 var tryCloudflareURL = regexp.MustCompile(`https://[a-z0-9-]+\.trycloudflare\.com`)
+var tunnelHostnamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,62})(?:\.[a-z0-9](?:[a-z0-9-]{0,62}))*$`)
 
 type tunnelProc struct {
 	cmd *exec.Cmd
@@ -48,12 +49,24 @@ func (m *Manager) cloudflaredPath() string {
 
 // EnsureCloudflared installs a local cloudflared binary if missing.
 func (m *Manager) EnsureCloudflared(ctx context.Context) (string, error) {
+	return m.ensureCloudflared(ctx, true)
+}
+
+// ensureManagedCloudflared uses the dashboard-managed current binary. Managed
+// tunnels rely on --token-file, so an arbitrarily old system binary is unsafe.
+func (m *Manager) ensureManagedCloudflared(ctx context.Context) (string, error) {
+	return m.ensureCloudflared(ctx, false)
+}
+
+func (m *Manager) ensureCloudflared(ctx context.Context, allowSystem bool) (string, error) {
 	bin := m.cloudflaredPath()
 	if st, err := os.Stat(bin); err == nil && !st.IsDir() {
 		return bin, nil
 	}
-	if p, err := exec.LookPath("cloudflared"); err == nil {
-		return p, nil
+	if allowSystem {
+		if p, err := exec.LookPath("cloudflared"); err == nil {
+			return p, nil
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
 		return "", err
@@ -126,6 +139,41 @@ func (m *Manager) writeTunnelWanted(group, slug string, on bool) {
 		return
 	}
 	_ = os.Remove(path)
+}
+
+func (m *Manager) managedTunnelTokenPath(group, slug string) string {
+	return filepath.Join(m.tunnelDir(group, slug), "managed.token")
+}
+
+func (m *Manager) writeManagedTunnelToken(group, slug, token string) error {
+	token = strings.TrimSpace(token)
+	if len(token) < 32 || strings.ContainsAny(token, "\r\n\x00") {
+		return fmt.Errorf("valid Cloudflare tunnel token required")
+	}
+	dir := m.tunnelDir(group, slug)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(m.managedTunnelTokenPath(group, slug), []byte(token+"\n"), 0o600)
+}
+
+func (m *Manager) hasManagedTunnelToken(group, slug string) bool {
+	b, err := os.ReadFile(m.managedTunnelTokenPath(group, slug))
+	return err == nil && len(strings.TrimSpace(string(b))) >= 32
+}
+
+func normalizeTunnelHostname(value string) (string, error) {
+	host := strings.ToLower(strings.TrimSpace(value))
+	host = strings.TrimPrefix(host, "https://")
+	host = strings.TrimPrefix(host, "http://")
+	host = strings.TrimSuffix(host, "/")
+	if strings.ContainsAny(host, "/:@") || !tunnelHostnamePattern.MatchString(host) || !strings.Contains(host, ".") {
+		return "", fmt.Errorf("valid public hostname required, for example app.example.com")
+	}
+	return host, nil
 }
 
 func (m *Manager) tunnelWanted(group, slug string) bool {
@@ -283,6 +331,51 @@ WantedBy=default.target
 	return 0, fmt.Errorf("quick tunnel started but no MainPID yet")
 }
 
+func (m *Manager) startManagedTunnel(bin, logPath, tokenPath, group, slug string) (int, error) {
+	_ = os.WriteFile(logPath, nil, 0o600)
+	m.stopSystemdTunnel(group, slug)
+
+	unitPath := m.tunnelUnitPath(group, slug)
+	if err := os.MkdirAll(filepath.Dir(unitPath), 0o755); err != nil {
+		return 0, err
+	}
+	body := fmt.Sprintf(`[Unit]
+Description=FireWifi managed Cloudflare tunnel %s/%s
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%s tunnel --no-autoupdate --loglevel info run --token-file %s
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+Environment=NO_AUTOUPDATE=1
+StandardOutput=append:%s
+StandardError=append:%s
+
+[Install]
+WantedBy=default.target
+`, group, slug, bin, tokenPath, logPath, logPath)
+	if err := os.WriteFile(unitPath, []byte(body), 0o600); err != nil {
+		return 0, err
+	}
+	unit := tunnelUnit(group, slug) + ".service"
+	_ = exec.Command("systemctl", "--user", "daemon-reload").Run()
+	if err := exec.Command("systemctl", "--user", "enable", "--now", unit).Run(); err != nil {
+		return 0, fmt.Errorf("start %s: %w", unit, err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		pid := m.systemdTunnelPID(group, slug)
+		if pidAlive(pid) {
+			return pid, nil
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	return 0, fmt.Errorf("managed tunnel started but no MainPID yet")
+}
+
 // StartTunnel exposes a running Go app on a random trycloudflare.com URL.
 func (m *Manager) StartTunnel(ctx context.Context, group, slug string) (Service, error) {
 	if err := requireSlug(group, "group"); err != nil {
@@ -364,12 +457,16 @@ func (m *Manager) StartTunnel(ctx context.Context, group, slug string) (Service,
 
 	svc.PublicURL = public
 	svc.TunnelActive = true
+	svc.TunnelMode = "quick"
+	svc.TunnelHostname = ""
 	svc.StaticHost = ""
 	m.applyOriginProbe(&svc)
 	open := publicOpenURL(public, svc.PublicPath)
 	if err := verifyPublicURL(ctx, public, svc.PublicPath); err != nil {
+		svc.TunnelVerified = false
 		m.logf("warn", "Tunnel published but public check failed for %s/%s: %v", group, slug, err)
 	} else {
+		svc.TunnelVerified = true
 		m.logf("ok", "Public check OK %s/%s → %s", group, slug, open)
 	}
 	svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
@@ -378,7 +475,86 @@ func (m *Manager) StartTunnel(ctx context.Context, group, slug string) (Service,
 	return svc, nil
 }
 
-// StopTunnel tears down the quick tunnel for a service.
+// StartManagedTunnel runs a remotely-managed Cloudflare tunnel. Its public
+// hostname is stable across dashboard upgrades, process restarts, and reboots.
+// The connector token is stored only in an owner-private service file.
+func (m *Manager) StartManagedTunnel(ctx context.Context, group, slug, token, hostname string) (Service, error) {
+	if err := requireSlug(group, "group"); err != nil {
+		return Service{}, err
+	}
+	if err := requireSlug(slug, "service"); err != nil {
+		return Service{}, err
+	}
+	m.mu.Lock()
+	reg, err := m.loadRegistry()
+	m.mu.Unlock()
+	if err != nil {
+		return Service{}, err
+	}
+	svc, idx := findService(reg, group, slug)
+	if idx < 0 || svc.Type != TypeGo {
+		return Service{}, fmt.Errorf("go service not found")
+	}
+	svc = m.refreshStatus(ctx, svc)
+	if !svc.Running || svc.Port <= 0 {
+		return Service{}, fmt.Errorf("start the app before exposing it")
+	}
+	if strings.TrimSpace(hostname) == "" {
+		hostname = svc.TunnelHostname
+	}
+	hostname, err = normalizeTunnelHostname(hostname)
+	if err != nil {
+		return Service{}, err
+	}
+	if strings.TrimSpace(token) != "" {
+		if err := m.writeManagedTunnelToken(group, slug, token); err != nil {
+			return Service{}, err
+		}
+	} else if !m.hasManagedTunnelToken(group, slug) {
+		return Service{}, fmt.Errorf("Cloudflare tunnel token required")
+	}
+
+	bin, err := m.ensureManagedCloudflared(ctx)
+	if err != nil {
+		return Service{}, fmt.Errorf("cloudflared: %w", err)
+	}
+	dir := m.tunnelDir(group, slug)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return Service{}, err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return Service{}, err
+	}
+	logPath := filepath.Join(dir, "cloudflared.log")
+	pid, err := m.startManagedTunnel(bin, logPath, m.managedTunnelTokenPath(group, slug), group, slug)
+	if err != nil {
+		return Service{}, fmt.Errorf("start managed cloudflared: %w", err)
+	}
+	m.writeTunnelPID(group, slug, pid)
+	m.writeTunnelWanted(group, slug, true)
+	public := "https://" + hostname
+	m.writeTunnelURL(group, slug, public)
+
+	svc.PublicURL = public
+	svc.TunnelActive = true
+	svc.TunnelConfigured = true
+	svc.TunnelMode = "managed"
+	svc.TunnelHostname = hostname
+	svc.StaticHost = hostname
+	m.applyOriginProbe(&svc)
+	if err := verifyPublicURL(ctx, public, svc.PublicPath); err != nil {
+		svc.TunnelVerified = false
+		m.logf("warn", "Managed tunnel connected; hostname check pending for %s/%s: %v", group, slug, err)
+	} else {
+		svc.TunnelVerified = true
+		m.logf("ok", "Managed tunnel verified %s/%s → %s", group, slug, publicOpenURL(public, svc.PublicPath))
+	}
+	svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	m.persistService(svc)
+	return svc, nil
+}
+
+// StopTunnel tears down the quick or managed tunnel for a service.
 // stopTunnelProcesses kills local/systemd tunnel processes without touching the registry.
 // Safe to call while holding other locks (does not take m.mu).
 func (m *Manager) stopTunnelProcesses(group, slug string) {
@@ -428,6 +604,7 @@ func (m *Manager) StopTunnel(ctx context.Context, group, slug string) (Service, 
 	svc.PublicURL = ""
 	svc.PublicPath = ""
 	svc.TunnelActive = false
+	svc.TunnelVerified = false
 	m.writeTunnelOpenPath(group, slug, "")
 	svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	m.persistService(svc)
@@ -435,7 +612,8 @@ func (m *Manager) StopTunnel(ctx context.Context, group, slug string) (Service, 
 	return svc, nil
 }
 
-// BootstrapQuickTunnels re-exposes apps marked wanted after reboot (new random URL).
+// BootstrapQuickTunnels restores quick and managed tunnels marked wanted after reboot.
+// The historical name is retained for compatibility with existing startup code.
 func (m *Manager) BootstrapQuickTunnels() {
 	m.mu.Lock()
 	reg, err := m.loadRegistry()
@@ -457,6 +635,7 @@ func (m *Manager) BootstrapQuickTunnels() {
 		default:
 		}
 		group, slug := svc.Group, svc.Slug
+		mode, hostname := svc.TunnelMode, svc.TunnelHostname
 		if m.tunnelAlive(svc.Group, svc.Slug) {
 			m.startBackground(func() {
 				ctx, cancel := context.WithTimeout(parent, 30*time.Second)
@@ -470,7 +649,13 @@ func (m *Manager) BootstrapQuickTunnels() {
 		m.startBackground(func() {
 			ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 			defer cancel()
-			if _, err := m.StartTunnel(ctx, group, slug); err != nil {
+			var err error
+			if mode == "managed" {
+				_, err = m.StartManagedTunnel(ctx, group, slug, "", hostname)
+			} else {
+				_, err = m.StartTunnel(ctx, group, slug)
+			}
+			if err != nil {
 				m.logf("warn", "auto-expose %s/%s: %v", group, slug, err)
 			}
 		})

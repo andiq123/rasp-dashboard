@@ -21,6 +21,18 @@ func mergeServicePreserve(prev, next Service) Service {
 	if next.StaticHost == "" {
 		next.StaticHost = prev.StaticHost
 	}
+	if next.TunnelMode == "" {
+		next.TunnelMode = prev.TunnelMode
+	}
+	if next.TunnelHostname == "" {
+		next.TunnelHostname = prev.TunnelHostname
+	}
+	if next.PublicURL != "" && !next.TunnelVerified {
+		next.TunnelVerified = prev.TunnelVerified
+	}
+	if !next.TunnelConfigured {
+		next.TunnelConfigured = prev.TunnelConfigured
+	}
 	return next
 }
 

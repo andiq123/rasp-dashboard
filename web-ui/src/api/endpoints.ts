@@ -138,6 +138,21 @@ export const serviceAction = (group: string, slug: string, action: string) =>
     method: 'POST',
   })
 
+export const exposeService = (
+  group: string,
+  slug: string,
+  body?: { mode: 'quick' | 'managed'; token?: string; hostname?: string },
+) =>
+  api<Service>(`/api/groups/${encodeURIComponent(group)}/services/${encodeURIComponent(slug)}/tunnel`, {
+    method: 'POST',
+    body,
+  })
+
+export const unexposeService = (group: string, slug: string) =>
+  api<Service>(`/api/groups/${encodeURIComponent(group)}/services/${encodeURIComponent(slug)}/tunnel`, {
+    method: 'DELETE',
+  })
+
 export const deleteService = (group: string, slug: string) =>
   api(`/api/groups/${encodeURIComponent(group)}/services/${encodeURIComponent(slug)}`, {
     method: 'DELETE',

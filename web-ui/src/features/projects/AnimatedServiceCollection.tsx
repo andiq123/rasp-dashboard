@@ -9,6 +9,7 @@ import {
 import type { Service } from '@/api/types'
 
 const EXIT_MS = 420
+const ENTER_MS = 520
 const MOVE_MS = 560
 const moveEase = 'cubic-bezier(0.22, 1, 0.36, 1)'
 
@@ -38,16 +39,23 @@ export function AnimatedServiceCollection({
 }: Props) {
   const [items, setItems] = useState<Service[]>(services)
   const [exiting, setExiting] = useState<Set<string>>(() => new Set())
+  const [entering, setEntering] = useState<Set<string>>(() => new Set())
+  const [animateEmpty, setAnimateEmpty] = useState(false)
   const itemsRef = useRef(items)
   const timers = useRef(new Map<string, number>())
+  const enterTimers = useRef(new Map<string, number>())
   const nodes = useRef(new Map<string, HTMLDivElement>())
   const previousRects = useRef(new Map<string, DOMRect>())
   const animations = useRef(new Map<string, Animation>())
   const Tag = as as ElementType
+  const layoutSignature = `${items.map((item) => item.slug).join('\u0000')}|${[...exiting].sort().join('\u0000')}`
+  const measuredSignature = useRef('')
 
   useEffect(() => {
-    const nextBySlug = new Map(services.map((service) => [service.slug, service]))
-    const nextSlugs = new Set(nextBySlug.keys())
+    const nextSlugs = new Set(services.map((service) => service.slug))
+    const current = itemsRef.current
+    const currentSlugs = new Set(current.map((service) => service.slug))
+    const added = services.filter((service) => !currentSlugs.has(service.slug))
 
     for (const slug of nextSlugs) {
       const timer = timers.current.get(slug)
@@ -56,7 +64,29 @@ export function AnimatedServiceCollection({
         timers.current.delete(slug)
       }
     }
-    const current = itemsRef.current
+
+    if (services.length > 0) setAnimateEmpty(false)
+    if (added.length > 0) {
+      setEntering((value) => {
+        const updated = new Set(value)
+        for (const service of added) updated.add(service.slug)
+        return updated
+      })
+      for (const service of added) {
+        const previous = enterTimers.current.get(service.slug)
+        if (previous != null) window.clearTimeout(previous)
+        const timer = window.setTimeout(() => {
+          enterTimers.current.delete(service.slug)
+          setEntering((value) => {
+            const updated = new Set(value)
+            updated.delete(service.slug)
+            return updated
+          })
+        }, ENTER_MS)
+        enterTimers.current.set(service.slug, timer)
+      }
+    }
+
     const removed = current.filter((service) => !nextSlugs.has(service.slug))
     const next = [...services]
     const nextExiting = new Set(removed.map((service) => service.slug))
@@ -71,6 +101,7 @@ export function AnimatedServiceCollection({
           setItems((value) => {
             const updated = value.filter((item) => item.slug !== service.slug)
             itemsRef.current = updated
+            if (updated.length === 0) setAnimateEmpty(true)
             return updated
           })
           setExiting((value) => {
@@ -89,10 +120,15 @@ export function AnimatedServiceCollection({
 
   useEffect(() => () => {
     for (const timer of timers.current.values()) window.clearTimeout(timer)
+    for (const timer of enterTimers.current.values()) window.clearTimeout(timer)
     for (const animation of animations.current.values()) animation.cancel()
   }, [])
 
   useLayoutEffect(() => {
+    // Status/stat refreshes replace service objects frequently but do not move
+    // cards. Avoid forced layout reads unless membership/order actually changed.
+    if (measuredSignature.current === layoutSignature) return
+    measuredSignature.current = layoutSignature
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     const nextRects = new Map<string, DOMRect>()
     for (const item of items) {
@@ -121,14 +157,15 @@ export function AnimatedServiceCollection({
       }
     }
     previousRects.current = nextRects
-  }, [items, exiting])
+  }, [items, exiting, layoutSignature])
 
   return (
     <Tag className={className} aria-label={ariaLabel}>
       {items.length === 0 && empty ? (
-        <div className="service-empty-enter col-span-full">{empty}</div>
+        <div className={`${animateEmpty ? 'service-empty-enter' : ''} col-span-full`}>{empty}</div>
       ) : items.map((service) => {
         const leaving = exiting.has(service.slug)
+        const arriving = entering.has(service.slug)
         return (
           <div
             key={service.slug}
@@ -136,7 +173,7 @@ export function AnimatedServiceCollection({
               if (node) nodes.current.set(service.slug, node)
               else nodes.current.delete(service.slug)
             }}
-            className={`service-motion-item service-motion-enter ${leaving ? 'service-motion-exit' : ''} ${itemClassName}`}
+            className={`service-motion-item ${arriving ? 'service-motion-enter' : ''} ${leaving ? 'service-motion-exit' : ''} ${itemClassName}`}
             aria-hidden={leaving || undefined}
             inert={leaving || undefined}
           >

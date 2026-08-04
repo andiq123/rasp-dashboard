@@ -19,27 +19,28 @@ import (
 )
 
 type Manager struct {
-	BaseDir      string
-	DeployDir    string
-	TokenPath    string
-	Postgres     *infra.Postgres
-	MinIO        *infra.MinIO
-	Activity     *ActivityHub
-	Registry     *registryHub
-	Cache        *cache.Store
-	mu           sync.Mutex
-	jobMu        sync.Mutex
-	jobBusy      bool
-	jobScope     string // group/slug or group while a job runs
-	jobStartedAt time.Time
-	jobCancel    context.CancelFunc
-	deployQueue  []queuedDeploy
-	deletedMu    sync.Mutex
-	deleting     map[string]struct{} // group/slug being removed — ignore late build completion
-	stats        *statsHub
-	bgCtx        context.Context
-	bgCancel     context.CancelFunc
-	bgWG         sync.WaitGroup
+	BaseDir        string
+	DeployDir      string
+	TokenPath      string
+	Postgres       *infra.Postgres
+	MinIO          *infra.MinIO
+	Activity       *ActivityHub
+	Registry       *registryHub
+	Cache          *cache.Store
+	mu             sync.Mutex
+	jobMu          sync.Mutex
+	jobBusy        bool
+	jobScope       string // group/slug or group while a job runs
+	jobStartedAt   time.Time
+	jobCancel      context.CancelFunc
+	deployQueue    []queuedDeploy
+	deletedMu      sync.Mutex
+	deleting       map[string]struct{} // group/slug being removed — ignore late build completion
+	stats          *statsHub
+	bgCtx          context.Context
+	bgCancel       context.CancelFunc
+	bgWG           sync.WaitGroup
+	autoDeployOnce sync.Once
 }
 
 func NewManager(baseDir, homeDir string, pg *infra.Postgres, mn *infra.MinIO) *Manager {
@@ -970,6 +971,10 @@ func (m *Manager) createGo(ctx context.Context, group string, in CreateGoRequest
 			svc.PublicURL = prev.PublicURL
 			svc.StaticHost = prev.StaticHost
 			svc.TunnelActive = prev.TunnelActive
+			svc.TunnelVerified = prev.TunnelVerified
+			svc.TunnelConfigured = prev.TunnelConfigured
+			svc.TunnelMode = prev.TunnelMode
+			svc.TunnelHostname = prev.TunnelHostname
 			if !svc.AutoDeploySet {
 				svc.AutoDeploy = true
 				svc.AutoDeploySet = true
@@ -2052,6 +2057,7 @@ func (m *Manager) AuditPorts(ctx context.Context) (PortAudit, error) {
 }
 
 func (m *Manager) cloneOrPull(ctx context.Context, repoDir, repo, branch, token string) error {
+	const gitNetworkTimeout = 40 * time.Second
 	publicURL := "https://github.com/" + repo + ".git"
 	// Fine-grained PATs fail with Authorization: Bearer for git HTTPS;
 	// GitHub expects Basic with username x-access-token.
@@ -2063,10 +2069,18 @@ func (m *Manager) cloneOrPull(ctx context.Context, repoDir, repo, branch, token 
 	)
 	run := func(label string, args ...string) error {
 		m.logf("cmd", "$ git %s", label)
-		cmd := exec.CommandContext(ctx, "git", args...)
-		cmd.Env = append(env, "GIT_CONFIG_COUNT=1",
+		commandCtx, cancel := context.WithTimeout(ctx, gitNetworkTimeout)
+		defer cancel()
+		cmd := exec.CommandContext(commandCtx, "git", args...)
+		cmd.Env = append(env, "GIT_CONFIG_COUNT=4",
 			"GIT_CONFIG_KEY_0=http.https://github.com/.extraheader",
 			"GIT_CONFIG_VALUE_0="+authHeader,
+			"GIT_CONFIG_KEY_1=http.lowSpeedLimit",
+			"GIT_CONFIG_VALUE_1=1024",
+			"GIT_CONFIG_KEY_2=http.lowSpeedTime",
+			"GIT_CONFIG_VALUE_2=15",
+			"GIT_CONFIG_KEY_3=http.maxRequests",
+			"GIT_CONFIG_VALUE_3=2",
 		)
 		out, err := cmd.CombinedOutput()
 		msg := strings.TrimSpace(string(out))
@@ -2080,8 +2094,9 @@ func (m *Manager) cloneOrPull(ctx context.Context, repoDir, repo, branch, token 
 			}
 		}
 		if err != nil {
-			m.logf("err", "git failed: %s", msg)
-			return fmt.Errorf("git: %s", msg)
+			friendly := friendlyGitFailure(msg, commandCtx.Err())
+			m.logf("err", "%s", friendly)
+			return friendly
 		}
 		return nil
 	}
@@ -2101,12 +2116,38 @@ func (m *Manager) cloneOrPull(ctx context.Context, repoDir, repo, branch, token 
 		return nil
 	}
 	m.logf("info", "Fresh shallow clone")
-	_ = os.RemoveAll(repoDir)
-	if err := run("clone", "clone", "--branch", branch, "--single-branch", "--depth", "1", publicURL, repoDir); err != nil {
+	cloneDir, err := os.MkdirTemp(filepath.Dir(repoDir), ".repo-clone-")
+	if err != nil {
 		return err
+	}
+	defer os.RemoveAll(cloneDir)
+	if err := run("clone", "clone", "--branch", branch, "--single-branch", "--depth", "1", publicURL, cloneDir); err != nil {
+		return err
+	}
+	// Only replace the workspace after a complete clone; failed network attempts
+	// never leave a half-written checkout behind.
+	_ = os.RemoveAll(repoDir)
+	if err := os.Rename(cloneDir, repoDir); err != nil {
+		return fmt.Errorf("activate cloned source: %w", err)
 	}
 	m.logf("ok", "Clone on disk · %s", fmtBytes(dirSize(repoDir)))
 	return nil
+}
+
+func friendlyGitFailure(message string, commandErr error) error {
+	message = strings.TrimSpace(message)
+	lower := strings.ToLower(message)
+	if commandErr == context.DeadlineExceeded ||
+		strings.Contains(lower, "failed to connect") ||
+		strings.Contains(lower, "could not resolve host") ||
+		strings.Contains(lower, "connection timed out") ||
+		strings.Contains(lower, "network is unreachable") {
+		return fmt.Errorf("GitHub is unreachable from this Pi — check its internet, DNS, or VPN route, then Redeploy")
+	}
+	if message == "" {
+		return fmt.Errorf("git command failed")
+	}
+	return fmt.Errorf("git: %s", message)
 }
 
 func readManifestJSON(repoDir string) (Manifest, error) {

@@ -404,7 +404,29 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 		}
 		okReply(w)
 	case action == "tunnel" && r.Method == http.MethodPost:
-		svc, err := s.Deploy.StartTunnel(r.Context(), group, slug)
+		var body struct {
+			Mode     string `json:"mode"`
+			Token    string `json:"token"`
+			Hostname string `json:"hostname"`
+		}
+		if r.ContentLength != 0 {
+			if err := decodeJSONBody(r, &body); err != nil {
+				http.Error(w, "bad json", http.StatusBadRequest)
+				return
+			}
+		}
+		var svc deploy.Service
+		var err error
+		mode := strings.ToLower(strings.TrimSpace(body.Mode))
+		switch mode {
+		case "managed":
+			svc, err = s.Deploy.StartManagedTunnel(r.Context(), group, slug, body.Token, body.Hostname)
+		case "", "quick":
+			svc, err = s.Deploy.StartTunnel(r.Context(), group, slug)
+		default:
+			http.Error(w, "tunnel mode must be managed or quick", http.StatusBadRequest)
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return

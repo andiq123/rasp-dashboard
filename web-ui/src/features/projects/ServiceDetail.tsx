@@ -5,6 +5,8 @@ import {
   Braces,
   Check,
   CircleStop,
+  Cloud,
+  CloudOff,
   Copy,
   ExternalLink,
   History,
@@ -19,6 +21,7 @@ import {
 } from 'lucide-react'
 import {
   deleteService,
+  exposeService,
   fetchDeployLogs,
   fetchDeployments,
   fetchGroupStats,
@@ -26,6 +29,7 @@ import {
   fetchServiceEnv,
   fetchServiceLogs,
   serviceAction,
+  unexposeService,
   updateServiceSettings,
 } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
@@ -35,6 +39,7 @@ import { Button } from '@/components/ui/Button/Button'
 import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { Empty } from '@/components/ui/Empty/Empty'
 import { Field, Input, Select, TextArea } from '@/components/ui/Field/Field'
+import { Modal } from '@/components/ui/Modal/Modal'
 import { RepoRootPicker } from '@/components/RepoRootPicker/RepoRootPicker'
 import { ResourceBudget } from '@/components/ui/ResourceBudget/ResourceBudget'
 import { clampCpu, clampMem, ResourceSlider } from '@/components/ui/ResourceSlider/ResourceSlider'
@@ -61,6 +66,9 @@ import {
 } from './serviceStatus'
 
 type Tab = 'config' | 'integrate' | 'variables' | 'console' | 'deploys'
+type TunnelAction =
+  | { kind: 'expose'; mode: 'quick' | 'managed'; token?: string; hostname?: string }
+  | { kind: 'unexpose' }
 
 type Props = {
   group: string
@@ -85,6 +93,10 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
   const { activity, live } = useActivity()
   const [tab, setTab] = useState<Tab>('config')
   const [deployId, setDeployId] = useState<string | null>(null)
+  const [exposeOpen, setExposeOpen] = useState(false)
+  const [exposeMode, setExposeMode] = useState<'quick' | 'managed'>('managed')
+  const [tunnelHostname, setTunnelHostname] = useState('')
+  const [tunnelToken, setTunnelToken] = useState('')
 
   const svcQ = useQuery({
     queryKey: queryKeys.service(group, slug),
@@ -160,6 +172,36 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
     onError: (e: Error) => showToast(e.message, 'error'),
   })
 
+  const tunnel = useMutation({
+    mutationFn: (action: TunnelAction) =>
+      action.kind === 'expose'
+        ? exposeService(group, slug, {
+            mode: action.mode,
+            token: action.token,
+            hostname: action.hostname,
+          })
+        : unexposeService(group, slug),
+    onSuccess: async (updated, action) => {
+      if (action.kind === 'unexpose') {
+        showToast('Cloudflare URL removed')
+      } else if (updated.tunnel_verified) {
+        showToast(action.mode === 'managed' ? 'Stable Cloudflare URL verified' : 'Preview URL verified')
+      } else {
+        showToast('Connector is running; the public hostname is still becoming reachable', 'info')
+      }
+      if (action.kind === 'expose') {
+        setExposeOpen(false)
+        setTunnelToken('')
+      }
+      qc.setQueryData(queryKeys.service(group, slug), updated)
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: queryKeys.service(group, slug) }),
+        qc.invalidateQueries({ queryKey: queryKeys.services(group) }),
+      ])
+    },
+    onError: (e: Error) => showToast(e.message, 'error'),
+  })
+
   async function onAct(action: string) {
     if (action === 'stop' || action === 'redeploy') {
       const ok = await confirm({
@@ -204,6 +246,18 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
   const st = statusLabel(svc)
   const TypeIcon = serviceTypeIcon(svc.type)
   const publicUrl = svc.public_url || svc.url || ''
+  const tunnelExposed =
+    !!svc.tunnel_active ||
+    (!!svc.public_url && (svc.tunnel_mode === 'managed' || svc.public_url.includes('.trycloudflare.com')))
+  const savedManagedTunnel = !!svc.tunnel_configured
+  const normalizedTunnelHostname = tunnelHostname
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/$/, '')
+  const managedInputReady =
+    normalizedTunnelHostname.includes('.') && !normalizedTunnelHostname.includes('/') &&
+    (!!tunnelToken.trim() || savedManagedTunnel)
   const queued = isQueued(svc)
   const busy = building || deployingHere
   const waiting = queued && !busy
@@ -241,16 +295,30 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
               {svc.branch ? `@${svc.branch}` : ''}
             </p>
             {publicUrl ? (
-              <a
-                className="link link-primary text-xs inline-flex items-center gap-1 w-fit max-w-full"
-                href={publicUrl}
-                target="_blank"
-                rel="noreferrer"
-                title={publicUrl}
-              >
-                <span className="truncate max-w-[min(100%,28rem)]">{publicUrl.replace(/^https?:\/\//, '')}</span>
-                <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
-              </a>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <a
+                  className="link link-primary text-xs inline-flex items-center gap-1 w-fit max-w-full"
+                  href={publicUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={publicUrl}
+                >
+                  <span className="truncate max-w-[min(100%,28rem)]">{publicUrl.replace(/^https?:\/\//, '')}</span>
+                  <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
+                </a>
+                {svc.tunnel_mode === 'managed' ? (
+                  <span
+                    className={`badge badge-xs ${svc.tunnel_verified ? 'badge-success' : 'badge-warning'}`}
+                    title={
+                      svc.tunnel_verified
+                        ? 'The Pi reached this hostname through Cloudflare'
+                        : 'Connector started; the public hostname did not answer the first verification yet'
+                    }
+                  >
+                    {svc.tunnel_verified ? 'Verified' : 'Route pending'}
+                  </span>
+                ) : null}
+              </div>
             ) : null}
           </div>
         </div>
@@ -286,6 +354,39 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
                 {svc.type === 'redis' ? 'Restart' : 'Redeploy'}
               </Button>
             </>
+          ) : null}
+          {svc.type === 'go' ? (
+            <Button
+              variant={tunnelExposed ? 'default' : 'infoSoft'}
+              icon={
+                tunnelExposed ? (
+                  <CloudOff className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+                ) : (
+                  <Cloud className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+                )
+              }
+              loading={tunnel.isPending}
+              disabled={!tunnelExposed && (!svc.running || busy || waiting)}
+              onClick={() => {
+                if (tunnelExposed) {
+                  tunnel.mutate({ kind: 'unexpose' })
+                  return
+                }
+                setExposeMode('managed')
+                setTunnelHostname(svc.tunnel_hostname || '')
+                setTunnelToken('')
+                setExposeOpen(true)
+              }}
+              title={
+                tunnelExposed
+                  ? 'Stop exposing this app through Cloudflare'
+                  : !svc.running
+                    ? 'Start the service before exposing it'
+                    : 'Expose with a stable hostname or temporary preview link'
+              }
+            >
+              {tunnelExposed ? 'Unexpose' : 'Expose'}
+            </Button>
           ) : null}
           <Button
             variant="dangerSoft"
@@ -395,6 +496,145 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
           ) : null}
         </div>
       </div>
+
+      <Modal
+        open={exposeOpen}
+        title="Expose with Cloudflare"
+        sub="Use a stable hostname for real traffic, or create a temporary preview link."
+        onClose={() => {
+          if (!tunnel.isPending) setExposeOpen(false)
+        }}
+        size="md"
+        footer={
+          <>
+            <Button variant="quiet" disabled={tunnel.isPending} onClick={() => setExposeOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="info"
+              loading={tunnel.isPending}
+              disabled={exposeMode === 'managed' && !managedInputReady}
+              onClick={() =>
+                tunnel.mutate(
+                  exposeMode === 'managed'
+                    ? {
+                        kind: 'expose',
+                        mode: 'managed',
+                        hostname: normalizedTunnelHostname,
+                        token: tunnelToken.trim() || undefined,
+                      }
+                    : { kind: 'expose', mode: 'quick' },
+                )
+              }
+            >
+              {exposeMode === 'managed' ? 'Expose persistently' : 'Create preview link'}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid sm:grid-cols-2 gap-2" role="radiogroup" aria-label="Cloudflare exposure type">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={exposeMode === 'managed'}
+            className={`rounded-box border p-3 text-left transition-colors ${
+              exposeMode === 'managed'
+                ? 'border-info bg-info/10 ring-1 ring-info/25'
+                : 'border-base-300 bg-base-100 hover:bg-base-200/60'
+            }`}
+            onClick={() => setExposeMode('managed')}
+          >
+            <span className="flex items-center justify-between gap-2 text-sm font-bold">
+              Stable hostname
+              <span className="badge badge-info badge-sm">Recommended</span>
+            </span>
+            <span className={`block text-xs mt-1 ${muted}`}>
+              Your own domain, restored automatically after dashboard updates and Pi reboots.
+            </span>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={exposeMode === 'quick'}
+            className={`rounded-box border p-3 text-left transition-colors ${
+              exposeMode === 'quick'
+                ? 'border-info bg-info/10 ring-1 ring-info/25'
+                : 'border-base-300 bg-base-100 hover:bg-base-200/60'
+            }`}
+            onClick={() => setExposeMode('quick')}
+          >
+            <span className="text-sm font-bold">Temporary preview</span>
+            <span className={`block text-xs mt-1 ${muted}`}>
+              Random trycloudflare.com link for testing. The address can change after a restart.
+            </span>
+          </button>
+        </div>
+
+        {exposeMode === 'managed' ? (
+          <>
+            <div className="rounded-box border border-info/20 bg-info/5 p-3 text-xs grid gap-1.5">
+              <p className="font-bold m-0">Prepare the tunnel in Cloudflare</p>
+              <ol className={`m-0 pl-5 grid gap-1 list-decimal ${muted}`}>
+                <li>Create or select a remotely managed tunnel in Cloudflare Zero Trust.</li>
+                <li>
+                  Add a public hostname whose service is{' '}
+                  <code className="font-mono text-base-content">http://127.0.0.1:{svc.port}</code>.
+                </li>
+                <li>Add a connector and copy only its tunnel token (the long <code>eyJ…</code> value).</li>
+              </ol>
+              <a
+                href="https://one.dash.cloudflare.com/"
+                target="_blank"
+                rel="noreferrer"
+                className="link link-info inline-flex items-center gap-1 w-fit mt-1"
+              >
+                Open Cloudflare Zero Trust <ExternalLink className="h-3 w-3" aria-hidden />
+              </a>
+            </div>
+            <Field
+              label="Public hostname"
+              htmlFor="tunnel-hostname"
+              tip="Enter only the hostname. HTTPS is handled by Cloudflare."
+            >
+              <Input
+                id="tunnel-hostname"
+                autoFocus
+                inputMode="url"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                placeholder="app.example.com"
+                value={tunnelHostname}
+                onChange={(event) => setTunnelHostname(event.target.value)}
+              />
+            </Field>
+            <Field
+              label="Tunnel token"
+              meta={savedManagedTunnel ? 'Optional — saved on this Pi' : 'Required once'}
+              htmlFor="tunnel-token"
+              tip="Stored owner-only on the Pi and never returned to the browser. Rotate it in Cloudflare if exposed."
+            >
+              <Input
+                id="tunnel-token"
+                type="password"
+                autoComplete="new-password"
+                spellCheck={false}
+                placeholder={savedManagedTunnel ? 'Leave blank to reuse saved token' : 'eyJ…'}
+                value={tunnelToken}
+                onChange={(event) => setTunnelToken(event.target.value)}
+              />
+            </Field>
+          </>
+        ) : (
+          <div className="rounded-box border border-warning/25 bg-warning/5 p-3 text-xs">
+            <p className="font-bold m-0">Testing only</p>
+            <p className={`m-0 mt-1 ${muted}`}>
+              No Cloudflare account is needed. This link is not a persistent production address and should not be
+              placed in permanent integrations.
+            </p>
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }
@@ -1337,6 +1577,7 @@ function deployBadge(status: string, live: boolean): { label: string; className:
 
 function deployTitle(d: Deployment): string {
   if (d.commit) return d.commit.slice(0, 7)
+  if (d.id.startsWith('live_')) return 'Current'
   if (d.id) return d.id.replace(/^dpl_/, '').slice(0, 8)
   return 'Deploy'
 }
@@ -1356,15 +1597,30 @@ function DeploysTab({
   deploying: boolean
   activity: ActivitySnapshot
 }) {
-  const liveId = deploying ? activity.deployment_id || null : null
+  const { live: realtimeLive } = useRealtime()
+  const liveId = deploying
+    ? activity.deployment_id || `live_${activity.started_at || activity.scope || `${group}_${slug}`}`
+    : null
 
   const listQ = useQuery({
     queryKey: queryKeys.deployments(group, slug),
     queryFn: () => fetchDeployments(group, slug),
-    refetchInterval: deploying ? 2000 : 8000,
+    refetchInterval: realtimeLive ? false : deploying ? 2000 : 8000,
   })
 
-  const items = useMemo(() => listQ.data || [], [listQ.data])
+  const items = useMemo(() => {
+    const stored = listQ.data || []
+    if (!liveId || stored.some((deployment) => deployment.id === liveId)) return stored
+    const liveDeployment: Deployment = {
+      id: liveId,
+      group,
+      slug,
+      status: 'building',
+      message: activity.title || 'Deployment in progress',
+      created_at: activity.started_at,
+    }
+    return [liveDeployment, ...stored]
+  }, [listQ.data, liveId, group, slug, activity.title, activity.started_at])
   const selected = items.find((d) => d.id === deployId) || null
   const selectedLive =
     !!selected &&
@@ -1396,8 +1652,8 @@ function DeploysTab({
     return activityToLogLines(logsQ.data || [], 'store')
   }, [selectedLive, activity.lines, logsQ.data])
 
-  if (listQ.isLoading) return <Spinner compact label="Loading deploys…" />
-  if (listQ.isError) {
+  if (listQ.isLoading && !items.length) return <Spinner compact label="Loading deploys…" />
+  if (listQ.isError && !items.length) {
     return <Empty compact title="Could not load deploys" body={(listQ.error as Error).message} />
   }
   if (!items.length) {

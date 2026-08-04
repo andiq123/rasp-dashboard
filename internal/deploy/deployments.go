@@ -252,8 +252,13 @@ func (m *Manager) attachDeployments(svc *Service) {
 }
 
 func gitHeadCommit(repoDir string) string {
-	commit, _ := gitHeadMeta(repoDir)
-	return commit
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", "-C", repoDir, "rev-parse", "--short", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func gitHeadMeta(repoDir string) (commit, message string) {

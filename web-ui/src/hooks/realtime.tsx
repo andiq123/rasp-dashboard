@@ -25,7 +25,11 @@ const RealtimeContext = createContext<RealtimeValue>({ live: false })
 export function RealtimeProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient()
   const [live, setLive] = useState(false)
-  const prevActivity = useRef<{ active: boolean; scope: string }>({ active: false, scope: '' })
+  const prevActivity = useRef<{ active: boolean; scope: string; deploymentId: string }>({
+    active: false,
+    scope: '',
+    deploymentId: '',
+  })
 
   useEffect(() => {
     let es: EventSource | null = null
@@ -57,8 +61,12 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
           setLive(true)
           const prev = prevActivity.current
           const scope = data.scope || ''
-          const phaseChanged = data.active !== prev.active || scope !== prev.scope
-          prevActivity.current = { active: data.active, scope }
+          const deploymentId = data.deployment_id || ''
+          const phaseChanged =
+            data.active !== prev.active ||
+            scope !== prev.scope ||
+            deploymentId !== prev.deploymentId
+          prevActivity.current = { active: data.active, scope, deploymentId }
           if (phaseChanged) invalidateServiceCaches(qc)
         } catch {
           /* ignore */

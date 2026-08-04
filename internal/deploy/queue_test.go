@@ -87,6 +87,39 @@ func TestReleaseJobFIFOOrder(t *testing.T) {
 	}
 }
 
+func TestScheduleRedeployQueuesWithoutSlowSourceWork(t *testing.T) {
+	dir := t.TempDir()
+	m := &Manager{DeployDir: dir, Activity: newActivityHub()}
+	if err := m.saveRegistry(registry{
+		Groups: []Group{{Slug: "g", Name: "G"}},
+		Services: []Service{{
+			Group: "g", Slug: "api", Name: "API", Type: TypeGo,
+			Repo: "owner/api", Branch: "main", AutoDeploy: true, AutoDeploySet: true,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Another service owns the slot, so scheduling must return immediately and
+	// leave source/network work to the FIFO runner.
+	m.jobBusy = true
+	m.jobScope = "g/other"
+	queued, err := m.scheduleRedeploy("g", "api", "webhook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queued.Status != "queued" {
+		t.Fatalf("status=%q want queued", queued.Status)
+	}
+	if len(m.deployQueue) != 1 || m.deployQueue[0].reason != "webhook" {
+		t.Fatalf("queue=%+v", m.deployQueue)
+	}
+	snap := m.Activity.Snapshot()
+	if len(snap.Queue) != 1 || snap.Queue[0].Slug != "api" {
+		t.Fatalf("activity queue=%+v", snap.Queue)
+	}
+}
+
 func TestMixedServiceQueuePreservesFIFOAndCoalescesCreates(t *testing.T) {
 	dir := t.TempDir()
 	m := &Manager{DeployDir: dir, Activity: newActivityHub()}
