@@ -83,8 +83,10 @@ export function MonitorHistory({
   const latest = points.at(-1)
   const cpuPeak = peak(points, 'cpu_percent')
   const memoryPeak = peak(points, kind === 'system' ? 'memory_percent' : 'memory_mb')
+  const temperaturePeak = kind === 'system' ? peak(points, 'temperature_c') : 0
   const cpuCeiling = kind === 'system' ? 100 : Math.max(100, Math.ceil(cpuPeak / 25) * 25)
   const memoryCeiling = kind === 'system' ? 100 : Math.max(64, Math.ceil(memoryPeak / 64) * 64)
+  const temperatureCeiling = Math.max(100, Math.ceil(temperaturePeak / 10) * 10)
   const uptime = points.length ? (points.filter((point) => point.running).length / points.length) * 100 : 0
 
   return (
@@ -169,24 +171,64 @@ export function MonitorHistory({
           <div className={`${tile} p-2.5 overflow-hidden`}>
             <div className="flex flex-wrap justify-between gap-2 mb-1 text-[10px]">
               <span className="inline-flex items-center gap-3">
-                <span className="inline-flex items-center gap-1 text-info"><i className="w-2 h-0.5 bg-info" /> CPU</span>
-                <span className="inline-flex items-center gap-1 text-primary"><i className="w-2 h-0.5 bg-primary" /> Memory</span>
+                <span className="inline-flex items-center gap-1 text-sky-500">
+                  <i className="w-3 h-0.5 rounded-full bg-sky-500" /> CPU
+                </span>
+                <span className="inline-flex items-center gap-1 text-violet-500">
+                  <i className="w-3 h-0.5 rounded-full bg-violet-500" /> Memory
+                </span>
+                {kind === 'system' && temperaturePeak > 0 ? (
+                  <span className="inline-flex items-center gap-1 text-amber-500">
+                    <i className="w-3 border-t-2 border-dashed border-amber-500" /> Temperature
+                  </span>
+                ) : null}
               </span>
               <span className={muted}>{formatTime(points[0]?.at)} — {formatTime(latest?.at)}</span>
             </div>
-            <svg viewBox="0 0 640 132" className={`w-full ${compact ? 'h-32' : 'h-40'} overflow-visible`} role="img" aria-label="CPU and memory history chart" preserveAspectRatio="none">
+            <svg
+              viewBox="0 0 640 132"
+              className={`w-full ${compact ? 'h-32' : 'h-40'} overflow-visible`}
+              role="img"
+              aria-label={kind === 'system' ? 'CPU, memory, and temperature history chart' : 'CPU and memory history chart'}
+              preserveAspectRatio="none"
+            >
               {[0, 33, 66, 99, 132].map((y) => (
-                <line key={y} x1="0" y1={y} x2="640" y2={y} className="stroke-base-300" strokeWidth="1" />
+                <line key={y} x1="0" y1={y} x2="640" y2={y} className="stroke-base-300/80" strokeWidth="1" />
               ))}
-              <g className="text-primary">
-                <path d={linePath(points, kind === 'system' ? 'memory_percent' : 'memory_mb', memoryCeiling)} fill="none" stroke="currentColor" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
-              </g>
-              <g className="text-info">
-                <path d={linePath(points, 'cpu_percent', cpuCeiling)} fill="none" stroke="currentColor" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
-              </g>
+              <path
+                d={linePath(points, kind === 'system' ? 'memory_percent' : 'memory_mb', memoryCeiling)}
+                fill="none"
+                stroke="#8b5cf6"
+                strokeWidth="2.25"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+              />
+              {kind === 'system' && temperaturePeak > 0 ? (
+                <path
+                  d={linePath(points, 'temperature_c', temperatureCeiling)}
+                  fill="none"
+                  stroke="#f59e0b"
+                  strokeWidth="2"
+                  strokeDasharray="5 4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
+                />
+              ) : null}
+              <path
+                d={linePath(points, 'cpu_percent', cpuCeiling)}
+                fill="none"
+                stroke="#0ea5e9"
+                strokeWidth="2.25"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+              />
             </svg>
             <p className={`text-[10px] m-0 mt-1 ${muted}`}>
-              CPU scale 0–{cpuCeiling}% · Memory scale 0–{memoryCeiling}{kind === 'system' ? '%' : 'MB'} · Charts are downsampled on the Pi.
+              CPU 0–{cpuCeiling}% · Memory 0–{memoryCeiling}{kind === 'system' ? '%' : 'MB'}
+              {kind === 'system' && temperaturePeak > 0 ? ` · Temperature 0–${temperatureCeiling}°C` : ''} · Downsampled on the Pi.
             </p>
           </div>
         </>
