@@ -54,6 +54,7 @@ func NewManager(baseDir, homeDir string, pg *infra.Postgres, mn *infra.MinIO) *M
 		Activity:  newActivityHub(),
 		Registry:  newRegistryHub(),
 		Cache:     cache.New(deployDir),
+		stats:     newStatsHub(),
 		bgCtx:     bgCtx,
 		bgCancel:  bgCancel,
 	}
@@ -487,6 +488,12 @@ func (m *Manager) ListServices(ctx context.Context, group string) ([]Service, er
 		m.mu.Unlock()
 		return nil, err
 	}
+	if m.pruneMissingRedisRecordsLocked(&reg) {
+		if err := m.saveRegistry(reg); err != nil {
+			m.mu.Unlock()
+			return nil, err
+		}
+	}
 	_ = m.adoptOrphansLocked(&reg)
 	snap := make([]Service, 0, len(reg.Services))
 	for _, s := range reg.Services {
@@ -511,6 +518,12 @@ func (m *Manager) Get(group, slug string) (Service, error) {
 	if err != nil {
 		m.mu.Unlock()
 		return Service{}, err
+	}
+	if m.pruneMissingRedisRecordsLocked(&reg) {
+		if err := m.saveRegistry(reg); err != nil {
+			m.mu.Unlock()
+			return Service{}, err
+		}
 	}
 	svc, idx := findService(reg, group, slug)
 	if idx < 0 {

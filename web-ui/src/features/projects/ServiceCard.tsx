@@ -52,7 +52,7 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
   return (
     <article
       className={[
-        'group relative isolate rounded-box border bg-base-100 shadow-sm',
+        'group relative isolate h-full rounded-box border bg-base-100 shadow-sm',
         'transition-[border-color,background-color,box-shadow,transform] duration-200',
         'motion-safe:hover:-translate-y-px hover:border-primary/50 hover:bg-primary/[0.03] hover:shadow-md',
         'has-[a:focus-visible]:border-primary/50 has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-primary/15',

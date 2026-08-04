@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -131,5 +132,103 @@ func TestMixedServiceQueuePreservesFIFOAndCoalescesCreates(t *testing.T) {
 	}
 	if len(reg.Services) != 0 {
 		t.Fatalf("queued create must not leave a phantom registry service: %+v", reg.Services)
+	}
+}
+
+func TestOrphanRecoveryDoesNotAdoptActiveRedisCreate(t *testing.T) {
+	dir := t.TempDir()
+	m := &Manager{DeployDir: dir, Activity: newActivityHub()}
+	if err := m.saveRegistry(registry{Groups: []Group{{Slug: "g", Name: "G"}}}); err != nil {
+		t.Fatal(err)
+	}
+	svc := Service{
+		Group: "g", Slug: "cache", Name: "Cache", Type: TypeRedis,
+		Status: "creating", Port: 5100, UpdatedAt: "2026-08-04T10:00:00Z",
+	}
+	if err := m.writeMeta(svc); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(m.serviceDir("g", "cache"), "env"), []byte("REDIS_PASSWORD=test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m.jobMu.Lock()
+	m.jobBusy = true
+	m.jobScope = "g/cache"
+	m.jobMu.Unlock()
+	reg, err := m.loadRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed := m.adoptOrphansLocked(&reg); changed {
+		t.Fatal("active Redis create was incorrectly adopted as an orphan")
+	}
+	if len(reg.Services) != 0 {
+		t.Fatalf("active create leaked into registry: %+v", reg.Services)
+	}
+
+	// The same metadata after a process interruption remains recoverable and
+	// visible to the user instead of becoming an invisible stale directory.
+	m.jobMu.Lock()
+	m.jobBusy = false
+	m.jobScope = ""
+	m.jobMu.Unlock()
+	if changed := m.adoptOrphansLocked(&reg); !changed {
+		t.Fatal("interrupted Redis create should be adopted for cleanup")
+	}
+	if len(reg.Services) != 1 || reg.Services[0].Type != TypeRedis || reg.Services[0].Status != "failed" {
+		t.Fatalf("unexpected recovered service: %+v", reg.Services)
+	}
+}
+
+func TestRedisCreatePrunesLegacyRegistryEntryWithNoFiles(t *testing.T) {
+	dir := t.TempDir()
+	m := &Manager{DeployDir: dir, Activity: newActivityHub()}
+	stale := Service{Group: "g", Slug: "cache", Name: "Cache", Type: TypeRedis, Status: "stopped"}
+	if err := m.saveRegistry(registry{
+		Groups:   []Group{{Slug: "g", Name: "G"}},
+		Services: []Service{stale},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	started, _, next, err := m.reserveOrEnqueueCreate(TypeRedis, "g", "Cache", "")
+	if err != nil || !started || next.slug != "cache" {
+		t.Fatalf("Redis recreate should reclaim stale entry: started=%v next=%+v err=%v", started, next, err)
+	}
+	reg, err := m.loadRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Services) != 0 {
+		t.Fatalf("stale registry entry remains: %+v", reg.Services)
+	}
+}
+
+func TestListServicesPrunesLegacyRedisPhantom(t *testing.T) {
+	dir := t.TempDir()
+	m := &Manager{DeployDir: dir, Activity: newActivityHub()}
+	if err := m.saveRegistry(registry{
+		Groups: []Group{{Slug: "g", Name: "G"}},
+		Services: []Service{
+			{Group: "g", Slug: "cache", Name: "Cache", Type: TypeRedis, Status: "stopped", Port: 5102},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	services, err := m.ListServices(context.Background(), "g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(services) != 0 {
+		t.Fatalf("phantom Redis service still listed: %+v", services)
+	}
+	reg, err := m.loadRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Services) != 0 {
+		t.Fatalf("phantom Redis registry row still persisted: %+v", reg.Services)
 	}
 }

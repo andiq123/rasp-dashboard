@@ -7,6 +7,32 @@ import (
 	"time"
 )
 
+// pruneMissingRedisRecordsLocked removes legacy phantom Redis rows left by the
+// pre-fix create/adopt race. A managed Redis service cannot be recovered or
+// restarted without its private service directory and credential env file.
+// Caller must hold m.mu.
+func (m *Manager) pruneMissingRedisRecordsLocked(reg *registry) bool {
+	if reg == nil || len(reg.Services) == 0 {
+		return false
+	}
+	out := reg.Services[:0]
+	changed := false
+	for _, svc := range reg.Services {
+		if svc.Type == TypeRedis && !m.isServiceProvisionPending(svc.Group, svc.Slug) {
+			if _, err := os.Stat(m.serviceDir(svc.Group, svc.Slug)); os.IsNotExist(err) {
+				changed = true
+				m.logf("warn", "Removed stale Redis registry entry · %s/%s · credentials already gone", svc.Group, svc.Slug)
+				continue
+			}
+		}
+		out = append(out, svc)
+	}
+	if changed {
+		reg.Services = out
+	}
+	return changed
+}
+
 // adoptOrphansLocked registers on-disk service folders that never made it into
 // the registry (typical after a failed first deploy). Caller must hold m.mu.
 func (m *Manager) adoptOrphansLocked(reg *registry) bool {
@@ -40,6 +66,12 @@ func (m *Manager) adoptOrphansLocked(reg *registry) bool {
 			if b, err := os.ReadFile(filepath.Join(dir, "meta.json")); err == nil {
 				var meta Service
 				if json.Unmarshal(b, &meta) == nil {
+					// Redis writes recovery metadata before Docker work begins. A live
+					// services refresh must not adopt that temporary directory into the
+					// registry or final registration will collide with its own entry.
+					if meta.Status == "creating" && m.isServiceProvisionPending(g.Slug, slug) {
+						continue
+					}
 					if meta.Name != "" {
 						svc.Name = meta.Name
 					}
@@ -91,8 +123,13 @@ func (m *Manager) adoptOrphansLocked(reg *registry) bool {
 					if meta.Type == TypeRedis {
 						svc.Type = TypeRedis
 						svc.Port = meta.Port
-						svc.Status = "stopped"
-						svc.LastError = ""
+						if meta.Status == "creating" {
+							svc.Status = "failed"
+							svc.LastError = "Redis creation was interrupted — delete it or retry with a new name"
+						} else {
+							svc.Status = "stopped"
+							svc.LastError = ""
+						}
 					}
 				}
 			}

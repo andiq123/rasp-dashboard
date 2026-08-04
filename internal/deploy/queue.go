@@ -3,6 +3,7 @@ package deploy
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 )
@@ -181,8 +182,23 @@ func (m *Manager) reserveOrEnqueueCreate(kind, group, name, version string) (boo
 	if err == nil {
 		if _, idx := findGroup(reg, group); idx < 0 {
 			err = fmt.Errorf("group not found — create a group first")
-		} else if _, idx := findService(reg, group, slug); idx >= 0 {
-			err = fmt.Errorf("service already exists in group")
+		} else if existing, idx := findService(reg, group, slug); idx >= 0 {
+			// Older builds could adopt Redis recovery metadata during creation,
+			// then remove its files on failure while leaving the adopted registry
+			// row behind. Reconcile that exact impossible state automatically.
+			_, statErr := os.Stat(m.serviceDir(group, slug))
+			staleRedis := kind == TypeRedis && existing.Type == TypeRedis && os.IsNotExist(statErr) &&
+				!m.isServiceProvisionPending(group, slug)
+			if staleRedis {
+				reg.Services = append(reg.Services[:idx], reg.Services[idx+1:]...)
+				if saveErr := m.saveRegistry(reg); saveErr != nil {
+					err = saveErr
+				} else {
+					m.logf("warn", "Cleared stale Redis registry entry · %s/%s", group, slug)
+				}
+			} else {
+				err = fmt.Errorf("service already exists in group")
+			}
 		}
 	}
 	m.mu.Unlock()
@@ -373,6 +389,27 @@ func (m *Manager) isDeployQueued(group, slug string) bool {
 	defer m.jobMu.Unlock()
 	for _, q := range m.deployQueue {
 		if q.scope() == serviceKey(group, slug) {
+			return true
+		}
+	}
+	return false
+}
+
+// isServiceProvisionPending reports whether a service is actively provisioning
+// or waiting in the FIFO queue. Orphan recovery uses this to avoid adopting the
+// recovery metadata written by an in-flight Redis create.
+func (m *Manager) isServiceProvisionPending(group, slug string) bool {
+	if m == nil {
+		return false
+	}
+	want := serviceKey(group, slug)
+	m.jobMu.Lock()
+	defer m.jobMu.Unlock()
+	if m.jobBusy && strings.TrimSpace(m.jobScope) == want {
+		return true
+	}
+	for _, q := range m.deployQueue {
+		if q.scope() == want {
 			return true
 		}
 	}

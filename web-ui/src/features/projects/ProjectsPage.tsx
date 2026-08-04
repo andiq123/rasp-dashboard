@@ -53,6 +53,7 @@ import { usePendingAddGo } from './pendingAddGo'
 import { ServiceCard } from './ServiceCard'
 import { ServiceDetail } from './ServiceDetail'
 import { DeployQueue } from './DeployQueue'
+import { AnimatedServiceCollection } from './AnimatedServiceCollection'
 import {
   isBuilding,
   isQueued,
@@ -482,9 +483,16 @@ export function ProjectsPage() {
                 </div>
                 {servicesQ.isLoading ? (
                   <Spinner compact label="Loading services…" />
-                ) : services.length ? (
-                  <nav className="grid gap-1" aria-label="Services in selected group">
-                    {services.map((svc) => {
+                ) : (
+                  <AnimatedServiceCollection
+                    key={`nav-${groupSlug}`}
+                    as="nav"
+                    services={services}
+                    className="grid gap-1"
+                    ariaLabel="Services in selected group"
+                    empty={<p className={`text-[11px] m-0 px-1 ${muted}`}>No services in this group yet.</p>}
+                  >
+                    {(svc) => {
                       const Icon = serviceTypeIcon(svc.type)
                       const busy = isBuilding(svc) || (activity.active && activity.scope?.startsWith(`${groupSlug}/${svc.slug}`))
                       const waiting = isQueued(svc) && !busy
@@ -492,7 +500,6 @@ export function ProjectsPage() {
                       const label = statusLabel(svc)
                       return (
                         <Link
-                          key={svc.slug}
                           to={`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`}
                           className={[
                             'group flex items-center gap-2 rounded-box border px-2.5 py-2 transition-all duration-200',
@@ -512,10 +519,8 @@ export function ProjectsPage() {
                           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin text-info" aria-hidden /> : null}
                         </Link>
                       )
-                    })}
-                  </nav>
-                ) : (
-                  <p className={`text-[11px] m-0 px-1 ${muted}`}>No services in this group yet.</p>
+                    }}
+                  </AnimatedServiceCollection>
                 )}
               </div>
             ) : null}
@@ -608,23 +613,29 @@ export function ProjectsPage() {
                   <Spinner compact label="Loading services…" />
                 ) : servicesQ.isError ? (
                   <Empty compact title="Could not load services" body={(servicesQ.error as Error).message} />
-                ) : !services.length ? (
-                  <Empty
-                    title="Nothing here yet"
-                    body="Add a Go app, Postgres, Bucket, or Redis."
-                    action={
-                      <Button
-                        variant="primary"
-                        icon={<Plus className="h-4 w-4" aria-hidden />}
-                        onClick={openAddService}
-                      >
-                        Add service
-                      </Button>
-                    }
-                  />
                 ) : (
-                  <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2.5">
-                    {services.map((svc) => (
+                  <AnimatedServiceCollection
+                    key={`grid-${groupSlug}`}
+                    services={services}
+                    className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2.5"
+                    itemClassName="min-w-0"
+                    empty={
+                      <Empty
+                        title="Nothing here yet"
+                        body="Add a Go app, Postgres, Bucket, or Redis."
+                        action={
+                          <Button
+                            variant="primary"
+                            icon={<Plus className="h-4 w-4" aria-hidden />}
+                            onClick={openAddService}
+                          >
+                            Add service
+                          </Button>
+                        }
+                      />
+                    }
+                  >
+                    {(svc) => (
                       <ServiceCard
                         key={svc.slug}
                         group={groupSlug}
@@ -635,8 +646,8 @@ export function ProjectsPage() {
                         actPending={svcAct.isPending && svcAct.variables?.slug === svc.slug}
                         onAction={(slug, action) => void onServiceAction(slug, action)}
                       />
-                    ))}
-                  </div>
+                    )}
+                  </AnimatedServiceCollection>
                 )}
 
                 {selected ? (
