@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { LucideIcon } from 'lucide-react'
 import {
@@ -14,6 +15,8 @@ import {
   Thermometer,
   TriangleAlert,
   Wrench,
+  CheckCircle2,
+  Loader2,
 } from 'lucide-react'
 import {
   fetchConfig,
@@ -25,7 +28,7 @@ import {
   syncroxAction,
 } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
-import type { Service } from '@/api/types'
+import type { Service, VPNRepair } from '@/api/types'
 import { Button } from '@/components/ui/Button/Button'
 import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { Empty } from '@/components/ui/Empty/Empty'
@@ -67,6 +70,110 @@ function Metric({
   )
 }
 
+const VPN_REPAIR_STEPS = ['Detect', 'Relay list', 'Select relay', 'Restart', 'Verify']
+
+function repairStep(phase = ''): number {
+  if (phase === 'scheduled') return 0
+  if (phase === 'preparing') return 0
+  if (phase === 'fetching') return 1
+  if (phase === 'selected' || phase === 'rotating') return 2
+  if (phase === 'restarting' || phase === 'repairing') return 3
+  if (phase === 'verified' || phase === 'failed') return 4
+  if (phase === 'cancelled') return 0
+  return 0
+}
+
+function VPNRepairFlow({ repair }: { repair: VPNRepair }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!repair.active && repair.phase !== 'scheduled') return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [repair.active, repair.phase])
+
+  const step = repairStep(repair.phase)
+  const failed = repair.phase === 'failed'
+  const verified = repair.phase === 'verified' && !repair.active
+  const cancelled = repair.phase === 'cancelled'
+  const started = repair.started_at ? Date.parse(repair.started_at) : 0
+  const elapsed = started ? Math.max(0, Math.floor((now - started) / 1000)) : 0
+  const retryAt = repair.next_retry_at ? Date.parse(repair.next_retry_at) : 0
+  const retrySeconds = retryAt ? Math.max(0, Math.ceil((retryAt - now) / 1000)) : 0
+  const progress = failed ? 100 : verified ? 100 : Math.max(8, (step / (VPN_REPAIR_STEPS.length - 1)) * 100)
+
+  return (
+    <div
+      className={`rounded-box border px-3 py-2.5 grid gap-2 overflow-hidden ${
+        failed
+          ? 'border-error/30 bg-error/5'
+          : verified
+            ? 'border-success/30 bg-success/5'
+            : 'border-info/30 bg-info/5'
+      }`}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-2 min-w-0">
+          {failed ? (
+            <TriangleAlert className="h-4 w-4 text-error shrink-0 mt-0.5" aria-hidden />
+          ) : verified ? (
+            <CheckCircle2 className="h-4 w-4 text-success shrink-0 mt-0.5" aria-hidden />
+          ) : cancelled ? (
+            <CircleStop className="h-4 w-4 text-base-content/60 shrink-0 mt-0.5" aria-hidden />
+          ) : (
+            <Loader2 className="h-4 w-4 text-info shrink-0 mt-0.5 animate-spin" aria-hidden />
+          )}
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <strong className="text-xs">
+                {failed ? 'VPN recovery paused' : verified ? 'VPN recovery complete' : cancelled ? 'VPN recovery stopped' : 'Recovering Mullvad'}
+              </strong>
+              <span className={`badge badge-xs ${repair.automatic ? 'badge-info' : 'badge-ghost'}`}>
+                {repair.automatic ? 'Auto repair' : 'Manual repair'}
+              </span>
+              {repair.attempt ? <span className={`text-[10px] ${muted}`}>Attempt {repair.attempt}</span> : null}
+            </div>
+            <p className={`text-[11px] leading-snug m-0 mt-0.5 ${failed ? 'text-error' : muted}`}>
+              {repair.error || repair.message || 'Preparing recovery'}
+            </p>
+          </div>
+        </div>
+        <span className={`text-[10px] font-mono shrink-0 ${muted}`}>
+          {repair.active && started ? `${elapsed}s` : failed && retryAt ? `retry ${Math.ceil(retrySeconds / 60)}m` : ''}
+        </span>
+      </div>
+
+      <div className="h-1.5 rounded-full bg-base-300 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-[width] duration-700 ease-out ${
+            failed ? 'bg-error' : verified ? 'bg-success' : 'bg-info'
+          }`}
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+
+      <div className="flex gap-1 overflow-x-auto pb-0.5" aria-label="VPN recovery stages">
+        {VPN_REPAIR_STEPS.map((label, index) => {
+          const done = index < step || verified
+          const active = index === step && !verified && !failed
+          return (
+            <span
+              key={label}
+              className={`badge badge-xs whitespace-nowrap transition-colors duration-300 ${
+                done ? 'badge-success' : active ? 'badge-info' : 'badge-ghost'
+              }`}
+            >
+              {done ? <CheckCircle2 className="h-2.5 w-2.5" aria-hidden /> : null}
+              {label}
+            </span>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function OverviewPage() {
   const { state, live } = useLiveState()
   const { showToast } = useToast()
@@ -95,7 +202,10 @@ export function OverviewPage() {
   const net = d.network || {}
   const temp = Number(thermal.temperature_celsius || 0)
   const vpn = state.vpn_health || {}
+  const vpnRepair = state.vpn_repair
   const issues = state.issues || []
+  const recoveringVPN = !!vpnRepair?.active
+  const visibleIssues = recoveringVPN ? issues.filter((issue) => issue.action !== 'repair-vpn') : issues
   const vpnHealthy = state.vpn_health
     ? !!(vpn.country_allowed && vpn.interface_up && vpn.handshake_healthy && vpn.egress_ok)
     : !!state.wg_up
@@ -113,11 +223,20 @@ export function OverviewPage() {
   const hs = useMutation({
     mutationFn: (a: 'start' | 'stop' | 'restart' | 'repair-vpn') => hotspotAction(a),
     onSuccess: async (_, a) => {
-      showToast(a === 'repair-vpn' ? 'VPN repaired and verified' : `Hotspot ${actionDoneLabel(a).toLowerCase()}`)
+      showToast(a === 'repair-vpn' ? 'VPN repair started — live progress is shown on Overview' : `Hotspot ${actionDoneLabel(a).toLowerCase()}`, a === 'repair-vpn' ? 'info' : 'success')
       await qc.invalidateQueries({ queryKey: queryKeys.state })
     },
     onError: (e: Error) => showToast(e.message, 'error'),
   })
+
+  const previousRepairActive = useRef(false)
+  useEffect(() => {
+    if (previousRepairActive.current && !vpnRepair?.active) {
+      if (vpnRepair?.phase === 'verified') showToast('Romanian Mullvad connection verified')
+      if (vpnRepair?.phase === 'failed') showToast(vpnRepair.error || 'VPN recovery paused', 'error')
+    }
+    previousRepairActive.current = !!vpnRepair?.active
+  }, [vpnRepair?.active, vpnRepair?.phase, vpnRepair?.error, showToast])
 
   const sx = useMutation({
     mutationFn: (a: 'start' | 'stop') => syncroxAction(a),
@@ -173,7 +292,7 @@ export function OverviewPage() {
   async function onRepairVPN() {
     const ok = await confirm({
       title: 'Repair Mullvad VPN?',
-      body: 'The Pi will refresh the saved relay, restart only WireGuard, and verify a fresh handshake. Wi‑Fi clients may briefly lose internet.',
+      body: 'The Pi will refresh the saved relay, restart only WireGuard, and verify Romanian egress. If the relay handshakes without internet, one alternate Romanian relay is tried automatically. Wi‑Fi clients may briefly lose internet.',
       confirmLabel: 'Repair VPN',
     })
     if (ok) hs.mutate('repair-vpn')
@@ -194,7 +313,7 @@ export function OverviewPage() {
   }
 
   const c = configQ.data || {}
-  const busy = modeMut.isPending || hs.isPending || sx.isPending || save.isPending
+  const busy = modeMut.isPending || hs.isPending || sx.isPending || save.isPending || !!vpnRepair?.active
 
   return (
     <div className="grid gap-3 lg:grid-cols-2 items-start">
@@ -212,15 +331,21 @@ export function OverviewPage() {
           <p className={`text-xs m-0 ${muted}`}>
             {mode === 'residential' ? 'SOCKS via hotspot' : 'WG via hotspot'}
           </p>
-          <div className={`badge badge-sm gap-1.5 ${healthy ? 'badge-success' : 'badge-error'}`}>
-            <span className={`status ${healthy ? 'status-success' : 'status-error'}`} />
-            {healthy ? 'Online' : 'Offline'}
+          <div className={`badge badge-sm gap-1.5 ${recoveringVPN ? 'badge-info' : healthy ? 'badge-success' : 'badge-error'}`}>
+            {recoveringVPN ? (
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+            ) : (
+              <span className={`status ${healthy ? 'status-success' : 'status-error'}`} />
+            )}
+            {recoveringVPN ? 'Recovering' : healthy ? 'Online' : 'Offline'}
           </div>
         </div>
 
-        {issues.length > 0 ? (
+        {vpnRepair ? <VPNRepairFlow repair={vpnRepair} /> : null}
+
+        {visibleIssues.length > 0 ? (
           <div className="grid gap-1.5" aria-label="Detected issues">
-            {issues.map((issue) => (
+            {visibleIssues.map((issue) => (
               <div
                 key={issue.code}
                 className={`rounded-lg border px-2.5 py-2 ${
@@ -241,7 +366,8 @@ export function OverviewPage() {
                     <Button
                       variant="warningSoft"
                       icon={<Wrench className="h-3.5 w-3.5" aria-hidden />}
-                      loading={hs.isPending && hs.variables === 'repair-vpn'}
+                      loading={(hs.isPending && hs.variables === 'repair-vpn') || recoveringVPN}
+                      disabled={!!vpnRepair?.active}
                       onClick={() => void onRepairVPN()}
                     >
                       Repair VPN
@@ -259,11 +385,11 @@ export function OverviewPage() {
               </div>
             ))}
           </div>
-        ) : (
+        ) : !recoveringVPN && issues.length === 0 ? (
           <div className="rounded-lg border border-success/25 bg-success/10 px-2.5 py-2 text-xs">
             No active hotspot or route issues detected.
           </div>
-        )}
+        ) : null}
 
         <div className="join w-full">
           <Button
@@ -309,6 +435,7 @@ export function OverviewPage() {
             variant="warningSoft"
             icon={<RotateCw className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />}
             loading={hs.isPending && hs.variables === 'restart'}
+            disabled={!!vpnRepair?.active}
             onClick={() => void onHotspot('restart')}
           >
             Restart

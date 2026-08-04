@@ -28,6 +28,19 @@ export type VPNHealth = {
   error?: string
 }
 
+export type VPNRepair = {
+  active?: boolean
+  automatic?: boolean
+  phase?: string
+  message?: string
+  attempt?: number
+  started_at?: string
+  updated_at?: string
+  finished_at?: string
+  next_retry_at?: string
+  error?: string
+}
+
 export type HealthIssue = {
   code: string
   severity: 'warning' | 'critical' | string
@@ -45,6 +58,7 @@ export type AppState = {
   dhcp_end?: string
   wg_up?: boolean
   vpn_health?: VPNHealth
+  vpn_repair?: VPNRepair
   issues?: HealthIssue[]
   proxy_running?: boolean
   syncrox_running?: boolean

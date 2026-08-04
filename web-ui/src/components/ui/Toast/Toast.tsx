@@ -30,6 +30,11 @@ function resolveToastHost(): Element | null {
   return dialogs.item(dialogs.length - 1) || document.body
 }
 
+function compactToastMessage(message: string): string {
+  const compact = String(message || 'Something went wrong').replace(/\s+/g, ' ').trim()
+  return compact.length > 280 ? `${compact.slice(0, 277)}…` : compact
+}
+
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null)
   const [portalHost, setPortalHost] = useState<Element | null>(null)
@@ -62,7 +67,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const showToast = useCallback((message: string, tone: ToastTone = 'success') => {
     if (timerRef.current) clearTimeout(timerRef.current)
     setPortalHost(resolveToastHost())
-    setToast({ message, tone })
+    setToast({ message: compactToastMessage(message), tone })
     timerRef.current = setTimeout(() => setToast(null), tone === 'error' ? 4200 : 2800)
   }, [])
 
@@ -72,9 +77,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <Ctx.Provider value={value}>
       {children}
       {toast && portalHost ? createPortal(
-        <div className="toast toast-bottom toast-center z-[300] pointer-events-none">
+        <div className="toast toast-bottom toast-center z-[300] pointer-events-none px-2">
           <div
-            className={`alert ${alertClass[toast.tone]} shadow-lg text-sm pointer-events-auto`}
+            className={`alert ${alertClass[toast.tone]} shadow-lg text-sm pointer-events-auto max-w-[min(34rem,calc(100vw-1rem))] whitespace-normal break-words`}
             role={toast.tone === 'error' ? 'alert' : 'status'}
             aria-live={toast.tone === 'error' ? 'assertive' : 'polite'}
           >

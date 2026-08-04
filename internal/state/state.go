@@ -22,8 +22,8 @@ const (
 
 	portCheckTimeout    = 2 * time.Second
 	vpnStatusTTL        = 2 * time.Second
-	vpnEgressTTL        = 10 * time.Second
-	vpnEgressFailureTTL = 3 * time.Second
+	vpnEgressTTL        = 30 * time.Second
+	vpnEgressFailureTTL = 10 * time.Second
 	// WireGuard can legitimately keep using a session for roughly two minutes;
 	// real egress catches outages sooner, so this threshold avoids false alarms.
 	maxHandshakeAge = 3 * time.Minute
@@ -43,12 +43,26 @@ type State struct {
 	DHCPEnd        string        `json:"dhcp_end"`
 	WGUp           bool          `json:"wg_up"`
 	VPNHealth      VPNHealth     `json:"vpn_health"`
+	VPNRepair      *VPNRepair    `json:"vpn_repair,omitempty"`
 	Issues         []HealthIssue `json:"issues"`
 	ProxyRunning   bool          `json:"proxy_running"`
 	SyncroxRunning bool          `json:"syncrox_running"`
 	DeviceMetrics  DeviceMetrics `json:"device_metrics"`
 	FilesRoot      string        `json:"files_root,omitempty"`
 	GeneratedAt    string        `json:"generated_at"`
+}
+
+type VPNRepair struct {
+	Active      bool   `json:"active"`
+	Automatic   bool   `json:"automatic"`
+	Phase       string `json:"phase"`
+	Message     string `json:"message"`
+	Attempt     int    `json:"attempt"`
+	StartedAt   string `json:"started_at,omitempty"`
+	UpdatedAt   string `json:"updated_at,omitempty"`
+	FinishedAt  string `json:"finished_at,omitempty"`
+	NextRetryAt string `json:"next_retry_at,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 type DeviceMetrics struct {
@@ -515,7 +529,9 @@ func mullvadEgressOK(iface string) (bool, string, error) {
 		return false, "", fmt.Errorf("could not find upstream DNS gateway")
 	}
 	dns := strings.TrimSpace(string(gatewayOut))
-	lookup, err := exec.Command("busybox", "nslookup", "am.i.mullvad.net", dns).CombinedOutput()
+	dnsCtx, cancelDNS := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelDNS()
+	lookup, err := exec.CommandContext(dnsCtx, "busybox", "nslookup", "am.i.mullvad.net", dns).CombinedOutput()
 	if err != nil {
 		return false, "", fmt.Errorf("could not resolve Mullvad status through upstream DNS")
 	}
@@ -523,10 +539,10 @@ func mullvadEgressOK(iface string) (bool, string, error) {
 	if ip == "" {
 		return false, "", fmt.Errorf("upstream DNS returned no Mullvad status address")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "curl", "-4", "--interface", iface,
-		"--resolve", "am.i.mullvad.net:443:"+ip, "--connect-timeout", "1", "--max-time", "2",
+		"--resolve", "am.i.mullvad.net:443:"+ip, "--connect-timeout", "3", "--max-time", "6",
 		"-fsS", "https://am.i.mullvad.net/connected").Output()
 	if err != nil {
 		return false, "", fmt.Errorf("Mullvad egress check failed")

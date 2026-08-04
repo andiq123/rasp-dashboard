@@ -44,13 +44,14 @@ type ConfigProvider interface {
 }
 
 type Server struct {
-	State    StateReader
-	Switcher ModeSwitcher
-	Hotspot  HotspotController
-	Syncrox  AppController
-	Config   ConfigProvider
-	Deploy   *deploy.Manager
-	Postgres *infra.Postgres
+	State     StateReader
+	Switcher  ModeSwitcher
+	Hotspot   HotspotController
+	Syncrox   AppController
+	Config    ConfigProvider
+	Deploy    *deploy.Manager
+	Postgres  *infra.Postgres
+	vpnRepair *vpnRepairCoordinator
 }
 
 func New(
@@ -62,7 +63,7 @@ func New(
 	dep *deploy.Manager,
 	pg *infra.Postgres,
 ) *Server {
-	return &Server{
+	s := &Server{
 		State:    st,
 		Switcher: switcher,
 		Hotspot:  hotspot,
@@ -70,6 +71,15 @@ func New(
 		Config:   cfg,
 		Deploy:   dep,
 		Postgres: pg,
+	}
+	s.vpnRepair = newVPNRepairCoordinator(st, hotspot)
+	return s
+}
+
+// StartBackground runs bounded host recovery jobs for the lifetime of ctx.
+func (s *Server) StartBackground(ctx context.Context) {
+	if s != nil && s.vpnRepair != nil {
+		s.vpnRepair.start(ctx)
 	}
 }
 
@@ -192,6 +202,12 @@ func (s *Server) handleAPIEvents(w http.ResponseWriter, r *http.Request) {
 	var unsubReg func()
 	var statsCh <-chan deploy.StatsSnapshot
 	var unsubStats func()
+	var vpnRepairCh <-chan struct{}
+	var unsubVPNRepair func()
+	if s.vpnRepair != nil {
+		vpnRepairCh, unsubVPNRepair = s.vpnRepair.subscribe()
+		defer unsubVPNRepair()
+	}
 	if s.Deploy != nil {
 		actCh, unsubAct = s.Deploy.SubscribeActivity()
 		defer unsubAct()
@@ -246,6 +262,12 @@ func (s *Server) handleAPIEvents(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			sendStats(snap)
+		case _, ok := <-vpnRepairCh:
+			if !ok {
+				vpnRepairCh = nil
+				continue
+			}
+			sendState()
 		case <-tick.C:
 			sendState()
 		case <-keepAlive.C:
@@ -347,6 +369,9 @@ func (s *Server) handleAPIMode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "mode must be mullvad or residential", http.StatusBadRequest)
 		return
 	}
+	if s.vpnRepair != nil {
+		s.vpnRepair.cancel("VPN recovery stopped because the route mode changed")
+	}
 	if err := s.Switcher.SwitchMode(r.Context(), body.Mode); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -364,10 +389,18 @@ func (s *Server) handleHotspot(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(r.URL.Path, "/start"):
 		err = s.Hotspot.Start(r.Context())
 	case strings.HasSuffix(r.URL.Path, "/stop"):
+		if s.vpnRepair != nil {
+			s.vpnRepair.cancel("VPN recovery stopped because the hotspot was stopped")
+		}
 		err = s.Hotspot.Stop(r.Context())
 	case strings.HasSuffix(r.URL.Path, "/restart"):
 		err = s.Hotspot.Restart(r.Context())
 	case strings.HasSuffix(r.URL.Path, "/repair-vpn"):
+		if s.vpnRepair != nil {
+			status, _ := s.vpnRepair.trigger(false)
+			jsonReply(w, status)
+			return
+		}
 		err = s.Hotspot.RepairVPN(r.Context())
 	default:
 		http.NotFound(w, r)
@@ -441,10 +474,17 @@ func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) readShellState() (State, error) {
+	var st State
+	var err error
 	if cr, ok := s.State.(interface{ ReadShellCached() (State, error) }); ok {
-		return cr.ReadShellCached()
+		st, err = cr.ReadShellCached()
+	} else {
+		st, err = s.State.Read()
 	}
-	return s.State.Read()
+	if err == nil && s.vpnRepair != nil {
+		st.VPNRepair = s.vpnRepair.snapshot()
+	}
+	return st, err
 }
 
 func (s *Server) readState(w http.ResponseWriter) (State, bool) {
