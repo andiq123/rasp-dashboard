@@ -15,6 +15,8 @@ const (
 	vpnAutoRepairDelay    = 12 * time.Second
 	vpnAutoRepairCooldown = 5 * time.Minute
 	vpnHealthyGrace       = time.Minute
+	vpnHealthyPoll        = 30 * time.Second
+	vpnUnhealthyPoll      = 5 * time.Second
 )
 
 type vpnProgressController interface {
@@ -51,21 +53,30 @@ func (c *vpnRepairCoordinator) start(ctx context.Context) {
 	c.ctx = ctx
 	c.mu.Unlock()
 	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-		c.observe()
+		next := vpnHealthyPoll
+		if c.observe() {
+			next = vpnUnhealthyPoll
+		}
+		timer := time.NewTimer(next)
+		defer timer.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
-				c.observe()
+			case <-timer.C:
+				next = vpnHealthyPoll
+				if c.observe() {
+					next = vpnUnhealthyPoll
+				}
+				timer.Reset(next)
 			}
 		}
 	}()
 }
 
-func (c *vpnRepairCoordinator) observe() {
+// observe reports whether the tunnel is unhealthy. Healthy tunnels are checked
+// gently; failures switch back to the fast cadence used by auto-repair.
+func (c *vpnRepairCoordinator) observe() bool {
 	var st State
 	var err error
 	if cached, ok := c.reader.(interface{ ReadShellCached() (State, error) }); ok {
@@ -74,7 +85,7 @@ func (c *vpnRepairCoordinator) observe() {
 		st, err = c.reader.Read()
 	}
 	if err != nil {
-		return
+		return false
 	}
 	unhealthy := st.Mode == state.ModeMullvad && st.HotspotRunning &&
 		!(st.VPNHealth.CountryAllowed && st.VPNHealth.InterfaceUp &&
@@ -85,11 +96,11 @@ func (c *vpnRepairCoordinator) observe() {
 	if !unhealthy {
 		c.unhealthySince = time.Time{}
 		c.mu.Unlock()
-		return
+		return false
 	}
 	if c.running {
 		c.mu.Unlock()
-		return
+		return true
 	}
 	if c.unhealthySince.IsZero() {
 		c.unhealthySince = now
@@ -111,10 +122,11 @@ func (c *vpnRepairCoordinator) observe() {
 			c.notifyLocked()
 		}
 		c.mu.Unlock()
-		return
+		return true
 	}
 	c.mu.Unlock()
 	c.trigger(true)
+	return true
 }
 
 func (c *vpnRepairCoordinator) trigger(automatic bool) (state.VPNRepair, bool) {

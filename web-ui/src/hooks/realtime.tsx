@@ -33,70 +33,96 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let es: EventSource | null = null
+    let disposed = false
     let lastStateAt = 0
     const watchdog = window.setInterval(() => {
+      if (document.hidden) return
       if (lastStateAt > 0 && Date.now() - lastStateAt > 7000) setLive(false)
     }, 2000)
-    try {
-      es = new EventSource('/api/events')
 
-      const onState = (ev: Event) => {
-        try {
-          const data = JSON.parse((ev as MessageEvent).data) as AppState
-          qc.setQueryData(queryKeys.state, data)
-          lastStateAt = Date.now()
-          setLive(true)
-        } catch {
-          /* ignore bad payloads */
+    const connect = () => {
+      if (disposed || document.hidden || es) return
+      try {
+        const source = new EventSource('/api/events')
+        es = source
+
+        const onState = (ev: Event) => {
+          try {
+            const data = JSON.parse((ev as MessageEvent).data) as AppState
+            qc.setQueryData(queryKeys.state, data)
+            lastStateAt = Date.now()
+            setLive(true)
+          } catch {
+            /* ignore bad payloads */
+          }
         }
+
+        source.addEventListener('state', onState)
+        source.onmessage = onState
+
+        source.addEventListener('activity', (ev) => {
+          try {
+            const data = JSON.parse((ev as MessageEvent).data) as ActivitySnapshot
+            qc.setQueryData(queryKeys.activity, data)
+            setLive(true)
+            const prev = prevActivity.current
+            const scope = data.scope || ''
+            const deploymentId = data.deployment_id || ''
+            const phaseChanged =
+              data.active !== prev.active ||
+              scope !== prev.scope ||
+              deploymentId !== prev.deploymentId
+            prevActivity.current = { active: data.active, scope, deploymentId }
+            if (phaseChanged) invalidateServiceCaches(qc)
+          } catch {
+            /* ignore */
+          }
+        })
+
+        source.addEventListener('services', () => {
+          setLive(true)
+          invalidateServiceCaches(qc)
+        })
+
+        source.addEventListener('stats', (ev) => {
+          try {
+            const data = JSON.parse((ev as MessageEvent).data) as StatsSnapshot
+            applyStatsSnapshot(qc, data)
+            setLive(true)
+          } catch {
+            /* ignore */
+          }
+        })
+
+        // EventSource reconnects automatically. Only a fresh state payload marks
+        // the UI live; the watchdog enables HTTP fallback if the stream stalls.
+        source.onopen = () => setLive(false)
+        source.onerror = () => setLive(false)
+      } catch {
+        setLive(false)
       }
-
-      es.addEventListener('state', onState)
-      es.onmessage = onState
-
-      es.addEventListener('activity', (ev) => {
-        try {
-          const data = JSON.parse((ev as MessageEvent).data) as ActivitySnapshot
-          qc.setQueryData(queryKeys.activity, data)
-          setLive(true)
-          const prev = prevActivity.current
-          const scope = data.scope || ''
-          const deploymentId = data.deployment_id || ''
-          const phaseChanged =
-            data.active !== prev.active ||
-            scope !== prev.scope ||
-            deploymentId !== prev.deploymentId
-          prevActivity.current = { active: data.active, scope, deploymentId }
-          if (phaseChanged) invalidateServiceCaches(qc)
-        } catch {
-          /* ignore */
-        }
-      })
-
-      es.addEventListener('services', () => {
-        setLive(true)
-        invalidateServiceCaches(qc)
-      })
-
-      es.addEventListener('stats', (ev) => {
-        try {
-          const data = JSON.parse((ev as MessageEvent).data) as StatsSnapshot
-          applyStatsSnapshot(qc, data)
-          setLive(true)
-        } catch {
-          /* ignore */
-        }
-      })
-
-      // EventSource reconnects automatically. Only a fresh state payload marks
-      // the UI live; the watchdog enables HTTP fallback if the stream stalls.
-      es.onopen = () => setLive(false)
-      es.onerror = () => setLive(false)
-    } catch {
-      setLive(false)
     }
+
+    const onVisibility = () => {
+      if (document.hidden) {
+        // A background tab needs no live metrics. Keep fallback queries paused
+        // and release the SSE subscription so the Pi enters its idle cadence.
+        es?.close()
+        es = null
+        lastStateAt = 0
+        setLive(true)
+        return
+      }
+      setLive(false)
+      connect()
+    }
+
+    document.addEventListener('visibilitychange', onVisibility)
+    connect()
     return () => {
+      disposed = true
       window.clearInterval(watchdog)
+      document.removeEventListener('visibilitychange', onVisibility)
       es?.close()
     }
   }, [qc])

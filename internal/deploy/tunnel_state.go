@@ -12,6 +12,11 @@ import (
 
 const tunnelLogTailBytes int64 = 128 * 1024
 
+const (
+	tunnelVerifyPendingInterval = 30 * time.Second
+	tunnelVerifyIdleInterval    = 5 * time.Minute
+)
+
 var cloudflareConfigHostnamePattern = regexp.MustCompile(`hostname\\?":\\?"([^"\\]+)`)
 var cloudflareConnIndexPattern = regexp.MustCompile(`connIndex=([0-9]+)`)
 
@@ -116,30 +121,43 @@ func (m *Manager) tunnelConnectionStatusForProcess(group, slug string, active bo
 }
 
 func (m *Manager) BootstrapTunnelVerification() {
-	m.refreshPendingTunnelVerification()
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
+	pending := m.refreshPendingTunnelVerification()
+	timer := time.NewTimer(tunnelVerificationInterval(pending))
+	defer timer.Stop()
 	for {
 		select {
 		case <-m.bgDone():
 			return
-		case <-ticker.C:
-			m.refreshPendingTunnelVerification()
+		case <-timer.C:
+			pending = m.refreshPendingTunnelVerification()
+			timer.Reset(tunnelVerificationInterval(pending))
 		}
 	}
 }
 
-func (m *Manager) refreshPendingTunnelVerification() {
+func tunnelVerificationInterval(pending bool) time.Duration {
+	if pending {
+		return tunnelVerifyPendingInterval
+	}
+	return tunnelVerifyIdleInterval
+}
+
+func (m *Manager) refreshPendingTunnelVerification() bool {
 	ctx, cancel := context.WithTimeout(m.bgCtx, 6*time.Second)
 	defer cancel()
+	pending := false
 
 	status := m.DashboardTunnelStatus()
-	if status.Configured && status.Connected && !status.Verified && status.PublicURL != "" {
-		if err := verifyPublicURL(ctx, status.PublicURL, "/api/health"); err == nil {
-			_ = os.WriteFile(m.dashboardTunnelPath("verified"), []byte("1\n"), 0o600)
-			_ = os.Remove(m.dashboardTunnelPath("error"))
-		} else {
-			_ = os.WriteFile(m.dashboardTunnelPath("error"), []byte(err.Error()+"\n"), 0o600)
+	if status.Configured && !status.Verified && status.PublicURL != "" {
+		pending = true
+		if status.Connected {
+			if err := verifyPublicURL(ctx, status.PublicURL, "/api/health"); err == nil {
+				_ = os.WriteFile(m.dashboardTunnelPath("verified"), []byte("1\n"), 0o600)
+				_ = os.Remove(m.dashboardTunnelPath("error"))
+				pending = false
+			} else {
+				_ = os.WriteFile(m.dashboardTunnelPath("error"), []byte(err.Error()+"\n"), 0o600)
+			}
 		}
 	}
 
@@ -147,13 +165,14 @@ func (m *Manager) refreshPendingTunnelVerification() {
 	reg, err := m.loadRegistry()
 	m.mu.Unlock()
 	if err != nil {
-		return
+		return pending
 	}
 	for i := range reg.Services {
 		svc := reg.Services[i]
 		if svc.Type != TypeGo || svc.TunnelVerified || strings.TrimSpace(svc.PublicURL) == "" {
 			continue
 		}
+		pending = true
 		connection := m.tunnelConnectionStatus(svc.Group, svc.Slug)
 		if !connection.Connected {
 			continue
@@ -166,4 +185,5 @@ func (m *Manager) refreshPendingTunnelVerification() {
 			break
 		}
 	}
+	return pending
 }

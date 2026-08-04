@@ -19,8 +19,10 @@ import (
 )
 
 const (
-	autoDeployInitial  = 5 * time.Second
-	autoDeployInterval = 30 * time.Second
+	autoDeployInitial = 5 * time.Second
+	// Webhooks deploy immediately when configured. This is a low-frequency LAN
+	// fallback, so avoid waking the Pi and GitHub several times per minute.
+	autoDeployInterval = 2 * time.Minute
 	deployTokenBytes   = 32
 )
 

@@ -14,10 +14,12 @@ import (
 )
 
 const (
-	statsInterval     = 5 * time.Second
-	postgresContainer = "firewifi-postgres"
-	minioContainer    = "firewifi-minio"
-	statsMaxSubs      = 32
+	statsActiveInterval = 5 * time.Second
+	statsIdleInterval   = 30 * time.Second
+	statsPIDCacheTTL    = time.Minute
+	postgresContainer   = "firewifi-postgres"
+	minioContainer      = "firewifi-minio"
+	statsMaxSubs        = 32
 )
 
 // RuntimeStats is live CPU/RAM usage for a running container.
@@ -48,6 +50,9 @@ type statsHub struct {
 	latest map[string]RuntimeStats
 	seq    int
 	subs   map[chan StatsSnapshot]struct{}
+	wake   chan struct{}
+	pids   map[string]int
+	pidsAt time.Time
 }
 
 func newStatsHub() *statsHub {
@@ -55,6 +60,8 @@ func newStatsHub() *statsHub {
 		prev:   map[string]cpuSample{},
 		latest: map[string]RuntimeStats{},
 		subs:   make(map[chan StatsSnapshot]struct{}),
+		wake:   make(chan struct{}, 1),
+		pids:   make(map[string]int),
 	}
 }
 
@@ -72,6 +79,10 @@ func (h *statsHub) subscribe() (chan StatsSnapshot, func()) {
 	}
 	h.subs[ch] = struct{}{}
 	h.mu.Unlock()
+	select {
+	case h.wake <- struct{}{}:
+	default:
+	}
 	cancel := func() {
 		h.mu.Lock()
 		if _, ok := h.subs[ch]; ok {
@@ -81,6 +92,19 @@ func (h *statsHub) subscribe() (chan StatsSnapshot, func()) {
 		h.mu.Unlock()
 	}
 	return ch, cancel
+}
+
+func (h *statsHub) interval() time.Duration {
+	if h == nil {
+		return statsIdleInterval
+	}
+	h.mu.RLock()
+	active := len(h.subs) > 0
+	h.mu.RUnlock()
+	if active {
+		return statsActiveInterval
+	}
+	return statsIdleInterval
 }
 
 func (h *statsHub) publish(snap StatsSnapshot) {
@@ -113,16 +137,30 @@ func (m *Manager) BootstrapStats() {
 func (m *Manager) statsLoop() {
 	// Warm first sample so the next tick can compute CPU %.
 	m.sampleAllStats(m.bgCtx)
-	t := time.NewTicker(statsInterval)
+	t := time.NewTimer(m.stats.interval())
 	defer t.Stop()
 	for {
 		select {
 		case <-m.bgDone():
 			return
+		case <-m.stats.wake:
+			m.sampleAllStats(m.bgCtx)
+			resetTimer(t, m.stats.interval())
 		case <-t.C:
 			m.sampleAllStats(m.bgCtx)
+			t.Reset(m.stats.interval())
 		}
 	}
+}
+
+func resetTimer(t *time.Timer, d time.Duration) {
+	if !t.Stop() {
+		select {
+		case <-t.C:
+		default:
+		}
+	}
+	t.Reset(d)
 }
 
 func (m *Manager) sampleAllStats(ctx context.Context) {
@@ -175,7 +213,7 @@ func (m *Manager) sampleAllStats(ctx context.Context) {
 	for name := range seen {
 		names = append(names, name)
 	}
-	pids := m.containerPIDsBatch(ctx, names)
+	pids := m.cachedContainerPIDs(ctx, names)
 
 	for _, t := range seen {
 		pid := pids[t.name]
@@ -195,6 +233,36 @@ func (m *Manager) sampleAllStats(ctx context.Context) {
 		m.stats.mu.Unlock()
 	}
 	m.publishStatsSnapshot()
+}
+
+// cachedContainerPIDs avoids waking dockerd for every live metrics sample.
+// Container PIDs are stable for their lifetime; a periodic refresh still
+// discovers external starts and restarts without adding constant Docker work.
+func (m *Manager) cachedContainerPIDs(ctx context.Context, names []string) map[string]int {
+	if m == nil || m.stats == nil {
+		return nil
+	}
+	m.stats.mu.RLock()
+	fresh := !m.stats.pidsAt.IsZero() && time.Since(m.stats.pidsAt) < statsPIDCacheTTL
+	if fresh {
+		out := make(map[string]int, len(names))
+		for _, name := range names {
+			out[name] = m.stats.pids[name]
+		}
+		m.stats.mu.RUnlock()
+		return out
+	}
+	m.stats.mu.RUnlock()
+
+	out := m.containerPIDsBatch(ctx, names)
+	m.stats.mu.Lock()
+	m.stats.pids = make(map[string]int, len(out))
+	for name, pid := range out {
+		m.stats.pids[name] = pid
+	}
+	m.stats.pidsAt = time.Now()
+	m.stats.mu.Unlock()
+	return out
 }
 
 // SubscribeStats fans out live usage snapshots (after each sample tick).
