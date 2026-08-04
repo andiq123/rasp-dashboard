@@ -318,7 +318,7 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	}
 	ready := st.HotspotRunning
 	if st.Mode == state.ModeMullvad {
-		ready = ready && st.VPNHealth.InterfaceUp && st.VPNHealth.HandshakeHealthy && st.VPNHealth.EgressOK
+		ready = ready && st.VPNHealth.CountryAllowed && st.VPNHealth.InterfaceUp && st.VPNHealth.HandshakeHealthy && st.VPNHealth.EgressOK
 	} else {
 		ready = ready && st.ProxyRunning
 	}

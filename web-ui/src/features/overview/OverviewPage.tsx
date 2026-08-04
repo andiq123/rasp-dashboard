@@ -97,7 +97,7 @@ export function OverviewPage() {
   const vpn = state.vpn_health || {}
   const issues = state.issues || []
   const vpnHealthy = state.vpn_health
-    ? !!(vpn.interface_up && vpn.handshake_healthy && vpn.egress_ok)
+    ? !!(vpn.country_allowed && vpn.interface_up && vpn.handshake_healthy && vpn.egress_ok)
     : !!state.wg_up
   const healthy = !!(state.hotspot_running && (mode === 'mullvad' ? vpnHealthy : state.proxy_running))
 
@@ -326,6 +326,14 @@ export function OverviewPage() {
             ...(mode === 'mullvad'
               ? [
                   ['Relay', vpn.relay || 'Unknown'],
+                  [
+                    'Country policy',
+                    !vpn.country_allowed
+                      ? 'Romania only · blocked'
+                      : vpn.egress_server?.startsWith('ro-')
+                        ? 'Romania only · verified'
+                        : 'Romania only · configured',
+                  ],
                   [
                     'Handshake',
                     vpn.handshake_healthy

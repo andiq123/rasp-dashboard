@@ -80,8 +80,12 @@ type VPNHealth struct {
 	HandshakeHealthy    bool   `json:"handshake_healthy"`
 	HandshakeAgeSeconds *int64 `json:"handshake_age_seconds,omitempty"`
 	EgressOK            bool   `json:"egress_ok"`
+	CountryPolicy       string `json:"country_policy"`
+	CountryAllowed      bool   `json:"country_allowed"`
 	Relay               string `json:"relay,omitempty"`
+	EgressServer        string `json:"egress_server,omitempty"`
 	Endpoint            string `json:"endpoint,omitempty"`
+	LastRepairError     string `json:"last_repair_error,omitempty"`
 	CheckedAt           string `json:"checked_at"`
 	Error               string `json:"error,omitempty"`
 }
@@ -407,8 +411,10 @@ func (r *Reader) readVPNHealth(iface string) VPNHealth {
 	}
 
 	now := time.Now()
-	h := VPNHealth{InterfaceUp: wgUp(iface), CheckedAt: now.Format(time.RFC3339)}
+	h := VPNHealth{InterfaceUp: wgUp(iface), CountryPolicy: "ro", CheckedAt: now.Format(time.RFC3339)}
 	h.Relay, h.Endpoint = readWireGuardPeer(r.BaseDir)
+	h.LastRepairError = readLastRepairError(r.BaseDir)
+	h.CountryAllowed = strings.HasPrefix(h.Relay, "ro-")
 	if !h.InterfaceUp {
 		h.Error = "WireGuard interface is down"
 		r.vpn, r.vpnAt = h, now
@@ -430,7 +436,10 @@ func (r *Reader) readVPNHealth(iface string) VPNHealth {
 	}
 
 	if h.HandshakeHealthy {
-		h.EgressOK, err = mullvadEgressOK(iface)
+		h.EgressOK, h.EgressServer, err = mullvadEgressOK(iface)
+		if h.EgressServer != "" {
+			h.CountryAllowed = h.CountryAllowed && strings.HasPrefix(h.EgressServer, "ro-")
+		}
 		if err != nil {
 			h.Error = err.Error()
 		}
@@ -439,6 +448,14 @@ func (r *Reader) readVPNHealth(iface string) VPNHealth {
 	}
 	r.vpn, r.vpnAt = h, now
 	return h
+}
+
+func readLastRepairError(baseDir string) string {
+	b, err := os.ReadFile(filepath.Join(baseDir, "run", "vpn-repair-error"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }
 
 func readWireGuardPeer(baseDir string) (string, string) {
@@ -461,19 +478,19 @@ func readWireGuardPeer(baseDir string) (string, string) {
 	return relay, endpoint
 }
 
-func mullvadEgressOK(iface string) (bool, error) {
+func mullvadEgressOK(iface string) (bool, string, error) {
 	gatewayOut, err := exec.Command("sh", "-c", "ip -4 route show default | awk 'NR==1 {print $3}'").Output()
 	if err != nil || strings.TrimSpace(string(gatewayOut)) == "" {
-		return false, fmt.Errorf("could not find upstream DNS gateway")
+		return false, "", fmt.Errorf("could not find upstream DNS gateway")
 	}
 	dns := strings.TrimSpace(string(gatewayOut))
 	lookup, err := exec.Command("busybox", "nslookup", "am.i.mullvad.net", dns).CombinedOutput()
 	if err != nil {
-		return false, fmt.Errorf("could not resolve Mullvad status through upstream DNS")
+		return false, "", fmt.Errorf("could not resolve Mullvad status through upstream DNS")
 	}
 	ip := lastIPv4(string(lookup))
 	if ip == "" {
-		return false, fmt.Errorf("upstream DNS returned no Mullvad status address")
+		return false, "", fmt.Errorf("upstream DNS returned no Mullvad status address")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -481,9 +498,23 @@ func mullvadEgressOK(iface string) (bool, error) {
 		"--resolve", "am.i.mullvad.net:443:"+ip, "--connect-timeout", "2", "--max-time", "4",
 		"-fsS", "https://am.i.mullvad.net/connected").Output()
 	if err != nil {
-		return false, fmt.Errorf("Mullvad egress check failed")
+		return false, "", fmt.Errorf("Mullvad egress check failed")
 	}
-	return strings.HasPrefix(strings.TrimSpace(string(out)), "You are connected to Mullvad"), nil
+	status := strings.TrimSpace(string(out))
+	return strings.HasPrefix(status, "You are connected to Mullvad"), mullvadServer(status), nil
+}
+
+func mullvadServer(status string) string {
+	const marker = "(server "
+	start := strings.Index(status, marker)
+	if start < 0 {
+		return ""
+	}
+	server := status[start+len(marker):]
+	if end := strings.Index(server, ")"); end >= 0 {
+		server = server[:end]
+	}
+	return strings.TrimSpace(server)
 }
 
 func lastIPv4(text string) string {
@@ -504,12 +535,25 @@ func healthIssues(st State) []HealthIssue {
 	}
 	if st.Mode == ModeMullvad {
 		switch {
+		case !st.VPNHealth.CountryAllowed:
+			detail := "The saved or active Mullvad relay is outside the required Romania-only policy. Internet is blocked until a Romanian relay works."
+			if st.VPNHealth.Relay != "" {
+				detail = fmt.Sprintf("Relay %s violates the Romania-only policy. Internet is blocked until a Romanian relay works.", st.VPNHealth.Relay)
+			}
+			issues = append(issues, HealthIssue{Code: "vpn-country-blocked", Severity: "critical", Title: "Non-Romanian VPN route blocked", Detail: detail, Action: "repair-vpn"})
 		case !st.VPNHealth.InterfaceUp:
-			issues = append(issues, HealthIssue{Code: "vpn-interface-down", Severity: "critical", Title: "Mullvad tunnel is down", Detail: st.VPNHealth.Error, Action: "repair-vpn"})
+			detail := st.VPNHealth.Error
+			if st.VPNHealth.LastRepairError != "" {
+				detail = st.VPNHealth.LastRepairError
+			}
+			issues = append(issues, HealthIssue{Code: "vpn-interface-down", Severity: "critical", Title: "Romania-only internet is blocked", Detail: detail, Action: "repair-vpn"})
 		case !st.VPNHealth.HandshakeHealthy:
 			detail := st.VPNHealth.Error
 			if st.VPNHealth.HandshakeAgeSeconds != nil {
 				detail = fmt.Sprintf("Latest WireGuard handshake is %d seconds old.", *st.VPNHealth.HandshakeAgeSeconds)
+			}
+			if st.VPNHealth.LastRepairError != "" {
+				detail = st.VPNHealth.LastRepairError
 			}
 			issues = append(issues, HealthIssue{Code: "vpn-handshake-stale", Severity: "critical", Title: "Mullvad handshake is stale", Detail: detail, Action: "repair-vpn"})
 		case !st.VPNHealth.EgressOK:

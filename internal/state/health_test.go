@@ -42,12 +42,37 @@ func TestHealthIssuesReportsStaleHandshake(t *testing.T) {
 		HotspotRunning: true,
 		VPNHealth: VPNHealth{
 			InterfaceUp:         true,
+			CountryAllowed:      true,
 			HandshakeAgeSeconds: &age,
 		},
 	}
 	issues := healthIssues(st)
 	if len(issues) != 1 || issues[0].Code != "vpn-handshake-stale" || issues[0].Action != "repair-vpn" {
 		t.Fatalf("unexpected issues: %+v", issues)
+	}
+}
+
+func TestHealthIssuesBlocksNonRomanianRelay(t *testing.T) {
+	st := State{
+		Mode:           ModeMullvad,
+		HotspotRunning: true,
+		VPNHealth: VPNHealth{
+			InterfaceUp:      true,
+			HandshakeHealthy: true,
+			EgressOK:         true,
+			Relay:            "bg-sof-wg-001",
+		},
+	}
+	issues := healthIssues(st)
+	if len(issues) != 1 || issues[0].Code != "vpn-country-blocked" {
+		t.Fatalf("unexpected issues: %+v", issues)
+	}
+}
+
+func TestMullvadServer(t *testing.T) {
+	status := "You are connected to Mullvad (server ro-buh-wg-013). Your IP address is 192.0.2.1"
+	if got := mullvadServer(status); got != "ro-buh-wg-013" {
+		t.Fatalf("got %q", got)
 	}
 }
 

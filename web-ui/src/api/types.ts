@@ -17,8 +17,12 @@ export type VPNHealth = {
   handshake_healthy?: boolean
   handshake_age_seconds?: number
   egress_ok?: boolean
+  country_policy?: string
+  country_allowed?: boolean
   relay?: string
+  egress_server?: string
   endpoint?: string
+  last_repair_error?: string
   checked_at?: string
   error?: string
 }
