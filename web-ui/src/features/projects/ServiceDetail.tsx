@@ -201,10 +201,13 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
         public_url: updated.public_url,
         public_path: updated.public_path,
         tunnel_active: updated.tunnel_active,
+        tunnel_connected: updated.tunnel_connected,
         tunnel_verified: updated.tunnel_verified,
         tunnel_configured: updated.tunnel_configured,
         tunnel_mode: updated.tunnel_mode,
         tunnel_hostname: updated.tunnel_hostname,
+        tunnel_state: updated.tunnel_state,
+        tunnel_id: updated.tunnel_id,
         updated_at: updated.updated_at,
       })
       qc.setQueryData(queryKeys.service(group, slug), (current: Service | undefined) =>
@@ -268,6 +271,13 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
   const tunnelExposed =
     !!svc.tunnel_active ||
     (!!svc.public_url && (svc.tunnel_mode === 'managed' || svc.public_url.includes('.trycloudflare.com')))
+  const tunnelBadge = svc.tunnel_verified
+    ? { text: 'Verified', tone: 'badge-success', title: 'The Pi reached this hostname through Cloudflare' }
+    : svc.tunnel_connected
+      ? { text: 'Route pending', tone: 'badge-warning', title: 'Connected to Cloudflare; DNS and route verification will retry automatically' }
+      : svc.tunnel_state === 'starting'
+        ? { text: 'Connecting', tone: 'badge-info', title: 'cloudflared is starting and registering with Cloudflare' }
+        : { text: 'Disconnected', tone: 'badge-error', title: 'The local process has not registered with Cloudflare' }
   const savedManagedTunnel = !!svc.tunnel_configured
   const normalizedTunnelHostname = tunnelHostname
     .trim()
@@ -327,15 +337,14 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
                 </a>
                 {svc.public_url && svc.tunnel_mode === 'managed' ? (
                   <span
-                    className={`badge badge-xs ${svc.tunnel_verified ? 'badge-success' : 'badge-warning'}`}
-                    title={
-                      svc.tunnel_verified
-                        ? 'The Pi reached this hostname through Cloudflare'
-                        : 'Connector started; the public hostname did not answer the first verification yet'
-                    }
+                    className={`badge badge-xs ${tunnelBadge.tone}`}
+                    title={tunnelBadge.title}
                   >
-                    {svc.tunnel_verified ? 'Verified' : 'Route pending'}
+                    {tunnelBadge.text}
                   </span>
+                ) : null}
+                {svc.tunnel_id ? (
+                  <span className="text-[10px] font-mono text-base-content/50">Tunnel …{svc.tunnel_id.slice(-4)}</span>
                 ) : null}
               </div>
             ) : null}

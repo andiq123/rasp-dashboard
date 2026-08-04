@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -70,6 +71,26 @@ func TestProbeOriginHTTPFirstNonRoot(t *testing.T) {
 	}
 	if len(hits) != 2 || hits[0] != "/" || hits[1] != "/health" {
 		t.Fatalf("hits=%v", hits)
+	}
+}
+
+func TestVerifyPublicURLAcceptsAccessRedirectAndRejectsEdgeFailure(t *testing.T) {
+	for _, tc := range []struct {
+		status  int
+		wantErr bool
+	}{
+		{http.StatusFound, false},
+		{http.StatusOK, false},
+		{530, true},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(tc.status)
+		}))
+		err := verifyPublicURL(context.Background(), srv.URL, "/api/health")
+		srv.Close()
+		if (err != nil) != tc.wantErr {
+			t.Fatalf("status %d: err=%v wantErr=%v", tc.status, err, tc.wantErr)
+		}
 	}
 }
 

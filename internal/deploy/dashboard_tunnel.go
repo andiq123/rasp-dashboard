@@ -17,6 +17,7 @@ const (
 
 type DashboardTunnelStatus struct {
 	Active        bool   `json:"active"`
+	Connected     bool   `json:"connected"`
 	Verified      bool   `json:"verified"`
 	Configured    bool   `json:"configured"`
 	Mode          string `json:"mode,omitempty"`
@@ -25,6 +26,8 @@ type DashboardTunnelStatus struct {
 	LocalURL      string `json:"local_url"`
 	AuthEnabled   bool   `json:"auth_enabled"`
 	AccessGuarded bool   `json:"access_guarded"`
+	State         string `json:"state"`
+	TunnelID      string `json:"tunnel_id,omitempty"`
 	LastError     string `json:"last_error,omitempty"`
 }
 
@@ -39,14 +42,18 @@ func dashboardAuthEnabled() bool {
 }
 
 func (m *Manager) DashboardTunnelStatus() DashboardTunnelStatus {
+	connection := m.tunnelConnectionStatus(dashboardTunnelGroup, dashboardTunnelSlug)
 	status := DashboardTunnelStatus{
-		Active:        m.tunnelAlive(dashboardTunnelGroup, dashboardTunnelSlug),
+		Active:        connection.Active,
+		Connected:     connection.Connected,
 		Configured:    m.tunnelWanted(dashboardTunnelGroup, dashboardTunnelSlug),
 		PublicURL:     m.readTunnelURL(dashboardTunnelGroup, dashboardTunnelSlug),
 		LocalURL:      fmt.Sprintf("http://127.0.0.1:%d", dashboardPort),
 		AuthEnabled:   dashboardAuthEnabled(),
 		AccessGuarded: fileExists(m.dashboardTunnelPath("access-guarded")),
 		Verified:      fileExists(m.dashboardTunnelPath("verified")),
+		State:         connection.State,
+		TunnelID:      connection.TunnelID,
 	}
 	if m.hasManagedTunnelToken(dashboardTunnelGroup, dashboardTunnelSlug) {
 		status.Mode = "managed"
@@ -57,7 +64,7 @@ func (m *Manager) DashboardTunnelStatus() DashboardTunnelStatus {
 	if b, err := os.ReadFile(m.dashboardTunnelPath("error")); err == nil {
 		status.LastError = strings.TrimSpace(string(b))
 	}
-	if !status.Active {
+	if !status.Active || !status.Connected {
 		status.Verified = false
 	}
 	return status

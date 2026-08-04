@@ -147,8 +147,9 @@ func (m *Manager) managedTunnelTokenPath(group, slug string) string {
 
 func (m *Manager) writeManagedTunnelToken(group, slug, token string) error {
 	token = strings.TrimSpace(token)
-	if len(token) < 32 || strings.ContainsAny(token, "\r\n\x00") {
-		return fmt.Errorf("valid Cloudflare tunnel token required")
+	tunnelID, err := parseManagedTunnelToken(token)
+	if err != nil {
+		return err
 	}
 	dir := m.tunnelDir(group, slug)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -157,12 +158,15 @@ func (m *Manager) writeManagedTunnelToken(group, slug, token string) error {
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(m.managedTunnelTokenPath(group, slug), []byte(token+"\n"), 0o600)
+	tokenPath := m.managedTunnelTokenPath(group, slug)
+	if owner := m.managedTunnelOwner(tunnelID, tokenPath); owner != "" {
+		return fmt.Errorf("Cloudflare tunnel is already assigned to %s; create a separate tunnel for this service", owner)
+	}
+	return os.WriteFile(tokenPath, []byte(token+"\n"), 0o600)
 }
 
 func (m *Manager) hasManagedTunnelToken(group, slug string) bool {
-	b, err := os.ReadFile(m.managedTunnelTokenPath(group, slug))
-	return err == nil && len(strings.TrimSpace(string(b))) >= 32
+	return m.managedTunnelID(group, slug) != ""
 }
 
 func normalizeTunnelHostname(value string) (string, error) {
@@ -240,6 +244,13 @@ func (m *Manager) syncTunnel(svc *Service) {
 	wanted := m.tunnelWanted(svc.Group, svc.Slug)
 	if alive {
 		svc.TunnelActive = true
+		connection := m.tunnelConnectionStatusForProcess(svc.Group, svc.Slug, alive)
+		svc.TunnelConnected = connection.Connected
+		svc.TunnelState = connection.State
+		svc.TunnelID = connection.TunnelID
+		if !connection.Connected {
+			svc.TunnelVerified = false
+		}
 		if url != "" {
 			svc.PublicURL = url
 		} else if svc.PublicURL != "" {
@@ -251,12 +262,16 @@ func (m *Manager) syncTunnel(svc *Service) {
 	if wanted && url != "" {
 		// Process briefly missing — keep showing the same link while heal runs.
 		svc.TunnelActive = false
+		svc.TunnelConnected = false
+		svc.TunnelState = "inactive"
 		svc.PublicURL = url
 		return
 	}
 	if !alive && !wanted {
 		stale := svc.TunnelActive || svc.PublicURL != "" || url != ""
 		svc.TunnelActive = false
+		svc.TunnelConnected = false
+		svc.TunnelState = "inactive"
 		svc.PublicURL = ""
 		svc.PublicPath = ""
 		if url != "" || m.tunnelPID(svc.Group, svc.Slug) > 0 {
@@ -362,8 +377,13 @@ WantedBy=default.target
 	}
 	unit := tunnelUnit(group, slug) + ".service"
 	_ = exec.Command("systemctl", "--user", "daemon-reload").Run()
-	if err := exec.Command("systemctl", "--user", "enable", "--now", unit).Run(); err != nil {
+	if err := exec.Command("systemctl", "--user", "enable", unit).Run(); err != nil {
 		return 0, fmt.Errorf("start %s: %w", unit, err)
+	}
+	// Always restart: a running unit keeps its already-open token file and would
+	// otherwise continue using stale credentials after a managed-token update.
+	if err := exec.Command("systemctl", "--user", "restart", unit).Run(); err != nil {
+		return 0, fmt.Errorf("restart %s: %w", unit, err)
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
@@ -457,7 +477,10 @@ func (m *Manager) StartTunnel(ctx context.Context, group, slug string) (Service,
 
 	svc.PublicURL = public
 	svc.TunnelActive = true
+	svc.TunnelConnected = true
+	svc.TunnelState = "connected"
 	svc.TunnelMode = "quick"
+	svc.TunnelID = ""
 	svc.TunnelHostname = ""
 	svc.StaticHost = ""
 	m.applyOriginProbe(&svc)
@@ -549,6 +572,10 @@ func (m *Manager) StartManagedTunnel(ctx context.Context, group, slug, token, ho
 		svc.TunnelVerified = true
 		m.logf("ok", "Managed tunnel verified %s/%s → %s", group, slug, publicOpenURL(public, svc.PublicPath))
 	}
+	connection := m.tunnelConnectionStatusForProcess(group, slug, true)
+	svc.TunnelConnected = connection.Connected
+	svc.TunnelState = connection.State
+	svc.TunnelID = connection.TunnelID
 	svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	m.persistService(svc)
 	return svc, nil
@@ -603,7 +630,10 @@ func (m *Manager) StopTunnel(ctx context.Context, group, slug string) (Service, 
 	svc.PublicURL = ""
 	svc.PublicPath = ""
 	svc.TunnelActive = false
+	svc.TunnelConnected = false
 	svc.TunnelVerified = false
+	svc.TunnelState = "inactive"
+	svc.TunnelID = m.managedTunnelID(group, slug)
 	m.writeTunnelOpenPath(group, slug, "")
 	svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	if err := m.persistServiceExact(svc); err != nil {

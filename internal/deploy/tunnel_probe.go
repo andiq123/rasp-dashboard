@@ -148,7 +148,14 @@ func verifyPublicURL(ctx context.Context, publicURL, path string) error {
 	if u == "" {
 		return fmt.Errorf("empty public url")
 	}
-	client := &http.Client{Timeout: 8 * time.Second}
+	client := &http.Client{
+		Timeout: 8 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			// A Cloudflare Access redirect proves the edge route is reachable; do
+			// not follow it into the identity flow during a background health check.
+			return http.ErrUseLastResponse
+		},
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return err

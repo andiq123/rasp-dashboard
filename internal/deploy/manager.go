@@ -62,6 +62,7 @@ func NewManager(baseDir, homeDir string, pg *infra.Postgres, mn *infra.MinIO) *M
 	m.bindActivityPersist()
 	m.startBackground(m.BootstrapQuickTunnels)
 	m.startBackground(m.BootstrapDashboardTunnel)
+	m.startBackground(m.BootstrapTunnelVerification)
 	m.startBackground(m.BootstrapAutoDeploy)
 	m.startBackground(m.BootstrapStats)
 	m.startBackground(m.BootstrapJobWatchdog)
@@ -972,10 +973,13 @@ func (m *Manager) createGo(ctx context.Context, group string, in CreateGoRequest
 			svc.PublicURL = prev.PublicURL
 			svc.StaticHost = prev.StaticHost
 			svc.TunnelActive = prev.TunnelActive
+			svc.TunnelConnected = prev.TunnelConnected
 			svc.TunnelVerified = prev.TunnelVerified
 			svc.TunnelConfigured = prev.TunnelConfigured
 			svc.TunnelMode = prev.TunnelMode
 			svc.TunnelHostname = prev.TunnelHostname
+			svc.TunnelState = prev.TunnelState
+			svc.TunnelID = prev.TunnelID
 			if !svc.AutoDeploySet {
 				svc.AutoDeploy = true
 				svc.AutoDeploySet = true

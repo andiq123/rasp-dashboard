@@ -56,10 +56,13 @@ type Service struct {
 	PublicPath       string        `json:"public_path,omitempty"` // best path to open (e.g. /health)
 	StaticHost       string        `json:"static_host,omitempty"`
 	TunnelActive     bool          `json:"tunnel_active,omitempty"`
+	TunnelConnected  bool          `json:"tunnel_connected,omitempty"`
 	TunnelVerified   bool          `json:"tunnel_verified,omitempty"`
 	TunnelConfigured bool          `json:"tunnel_configured,omitempty"`
 	TunnelMode       string        `json:"tunnel_mode,omitempty"`
 	TunnelHostname   string        `json:"tunnel_hostname,omitempty"`
+	TunnelState      string        `json:"tunnel_state,omitempty"`
+	TunnelID         string        `json:"tunnel_id,omitempty"`
 	ConnectionURL    string        `json:"connection_url,omitempty"`
 	Database         string        `json:"database,omitempty"`
 	Bucket           string        `json:"bucket,omitempty"`

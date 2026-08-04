@@ -2,10 +2,22 @@ package deploy
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
+
+func testManagedTunnelToken(t *testing.T, tunnelID string) string {
+	t.Helper()
+	b, err := json.Marshal(map[string]string{"a": "account", "t": tunnelID, "s": "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}
 
 func TestNormalizeTunnelHostname(t *testing.T) {
 	for _, tc := range []struct {
@@ -71,7 +83,7 @@ func TestStopTunnelPersistsClearedPublicState(t *testing.T) {
 
 func TestManagedTunnelTokenIsOwnerOnly(t *testing.T) {
 	m := &Manager{DeployDir: t.TempDir()}
-	token := "eyJ-test-token-that-is-long-enough-to-store-safely"
+	token := testManagedTunnelToken(t, "01ac4b15-bb9a-4649-bbae-fb9605930d23")
 	if err := m.writeManagedTunnelToken("group", "app", token); err != nil {
 		t.Fatal(err)
 	}
@@ -89,6 +101,73 @@ func TestManagedTunnelTokenIsOwnerOnly(t *testing.T) {
 	}
 	if !m.hasManagedTunnelToken("group", "app") {
 		t.Fatal("saved token not detected")
+	}
+}
+
+func TestManagedTunnelTokenRejectsInvalidAndDuplicateTunnel(t *testing.T) {
+	m := &Manager{DeployDir: t.TempDir()}
+	if err := m.writeManagedTunnelToken("group", "bad", "eyJ-not-a-cloudflare-token"); err == nil {
+		t.Fatal("invalid token should be rejected")
+	}
+	token := testManagedTunnelToken(t, "715cac91-3dfa-4a9d-8fac-4d649ecee8f6")
+	if err := m.writeManagedTunnelToken("apps", "one", token); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.writeManagedTunnelToken("apps", "two", token); err == nil {
+		t.Fatal("duplicate tunnel assignment should be rejected")
+	}
+	if err := m.writeManagedTunnelToken("apps", "one", token); err != nil {
+		t.Fatalf("rewriting the owning service should be allowed: %v", err)
+	}
+}
+
+func TestTunnelConnectionStatusUsesCurrentLogSession(t *testing.T) {
+	m := &Manager{DeployDir: t.TempDir()}
+	id := "01ac4b15-bb9a-4649-bbae-fb9605930d23"
+	if err := m.writeManagedTunnelToken("dashboard", "port-8484", testManagedTunnelToken(t, id)); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(m.tunnelDir("dashboard", "port-8484"), "cloudflared.log")
+	log := "Registered tunnel connection connIndex=0\nStarting tunnel tunnelID=" + id + "\nRegistered tunnel connection connIndex=0\n"
+	if err := os.WriteFile(logPath, []byte(log), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := m.tunnelConnectionStatusForProcess("dashboard", "port-8484", true)
+	if !got.Connected || got.State != "connected" || got.TunnelID != id {
+		t.Fatalf("status = %+v", got)
+	}
+	log = "Starting tunnel tunnelID=715cac91-3dfa-4a9d-8fac-4d649ecee8f6\nRegistered tunnel connection connIndex=0\n"
+	if err := os.WriteFile(logPath, []byte(log), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got = m.tunnelConnectionStatusForProcess("dashboard", "port-8484", true)
+	if got.State != "misconfigured" || got.Connected {
+		t.Fatalf("mismatched status = %+v", got)
+	}
+
+	m.writeTunnelURL("dashboard", "port-8484", "https://main.firewifi.online")
+	log = "Starting tunnel tunnelID=" + id + "\nRegistered tunnel connection connIndex=0\n" +
+		`Updated to new configuration config="{\"ingress\":[{\"hostname\":\"999scraper.firewifi.online\"}]}"` + "\n"
+	if err := os.WriteFile(logPath, []byte(log), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got = m.tunnelConnectionStatusForProcess("dashboard", "port-8484", true)
+	if got.State != "misconfigured" || got.Connected {
+		t.Fatalf("wrong remote hostname status = %+v", got)
+	}
+
+	log = "Starting tunnel tunnelID=" + id + "\nRegistered tunnel connection connIndex=0\n" +
+		"Failed to serve tunnel connection connIndex=0\n"
+	if err := os.WriteFile(logPath, []byte(log), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(logPath, old, old); err != nil {
+		t.Fatal(err)
+	}
+	got = m.tunnelConnectionStatusForProcess("dashboard", "port-8484", true)
+	if got.State != "disconnected" || got.Connected {
+		t.Fatalf("disconnected status = %+v", got)
 	}
 }
 

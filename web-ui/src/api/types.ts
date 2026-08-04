@@ -154,6 +154,7 @@ export type HistorySeries = {
 
 export type DashboardTunnelStatus = {
   active: boolean
+  connected: boolean
   verified: boolean
   configured: boolean
   mode?: 'quick' | 'managed' | string
@@ -162,6 +163,8 @@ export type DashboardTunnelStatus = {
   local_url: string
   auth_enabled: boolean
   access_guarded: boolean
+  state: 'inactive' | 'starting' | 'connected' | 'disconnected' | 'misconfigured' | string
+  tunnel_id?: string
   last_error?: string
 }
 
@@ -183,10 +186,13 @@ export type Service = {
   public_url?: string
   public_path?: string
   tunnel_active?: boolean
+  tunnel_connected?: boolean
   tunnel_verified?: boolean
   tunnel_configured?: boolean
   tunnel_mode?: 'quick' | 'managed' | string
   tunnel_hostname?: string
+  tunnel_state?: 'inactive' | 'starting' | 'connected' | 'disconnected' | 'misconfigured' | string
+  tunnel_id?: string
   connection_url?: string
   linked_database?: string
   linked_bucket?: string

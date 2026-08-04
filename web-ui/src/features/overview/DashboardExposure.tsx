@@ -86,6 +86,23 @@ export function DashboardExposure() {
   const normalizedHost = hostname.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '')
   const savedManaged = status?.mode === 'managed'
   const managedReady = normalizedHost.includes('.') && (!!token.trim() || savedManaged) && (!!status?.auth_enabled || accessGuarded)
+  const connectorTitle = !status?.active
+    ? 'Local only'
+    : status.connected
+      ? 'Public connector connected'
+      : status.state === 'starting'
+        ? 'Connector starting'
+        : 'Connector needs attention'
+  const connectorBadge = !status?.active
+    ? { text: ':8484', tone: 'badge-ghost' }
+    : status.verified
+      ? { text: 'Verified', tone: 'badge-success' }
+      : status.connected
+        ? { text: 'Route pending', tone: 'badge-warning' }
+        : status.state === 'starting'
+          ? { text: 'Connecting', tone: 'badge-info' }
+          : { text: 'Disconnected', tone: 'badge-error' }
+  const tunnelHint = status?.tunnel_id ? `Tunnel …${status.tunnel_id.slice(-4)}` : ''
 
   return (
     <>
@@ -103,11 +120,12 @@ export function DashboardExposure() {
             <div className={`${tile} p-3 flex flex-wrap items-start justify-between gap-3`}>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <strong className="text-sm">{status?.active ? 'Public connector active' : 'Local only'}</strong>
-                  <span className={`badge badge-sm ${status?.active ? status.verified ? 'badge-success' : 'badge-warning' : 'badge-ghost'}`}>
-                    {status?.active ? status.verified ? 'Verified' : 'Checking route' : ':8484'}
+                  <strong className="text-sm">{connectorTitle}</strong>
+                  <span className={`badge badge-sm ${connectorBadge.tone}`}>
+                    {connectorBadge.text}
                   </span>
                   {status?.mode === 'managed' ? <span className="badge badge-info badge-sm">Persistent</span> : null}
+                  {tunnelHint ? <span className="text-[10px] font-mono text-base-content/50">{tunnelHint}</span> : null}
                 </div>
                 {status?.public_url ? (
                   <a href={status.public_url} target="_blank" rel="noreferrer" className="link link-primary text-xs inline-flex items-center gap-1 mt-1 max-w-full">
@@ -127,7 +145,15 @@ export function DashboardExposure() {
                 )}
               </div>
             </div>
-            {status?.last_error ? <p className="text-error text-xs m-0">{status.last_error}</p> : null}
+            {status?.active && !status.connected ? (
+              <p className="text-error text-xs m-0">
+                {status.state === 'misconfigured'
+                  ? 'The running connector does not match the saved tunnel token. Restart exposure with the correct token.'
+                  : status.last_error || 'cloudflared is running but has not registered with Cloudflare yet.'}
+              </p>
+            ) : status?.connected && !status.verified ? (
+              <p className={`text-xs m-0 ${muted}`}>Connected securely. Public DNS and route verification will retry automatically.</p>
+            ) : null}
             <div className="flex items-start gap-2 text-[11px]">
               <ShieldCheck className="h-3.5 w-3.5 text-success shrink-0 mt-0.5" aria-hidden />
               <p className={`m-0 ${muted}`}>
