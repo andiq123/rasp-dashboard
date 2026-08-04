@@ -479,9 +479,9 @@ function CopyCode({ value, label = 'Copy', prominent = false }: { value: string;
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(value)
+      await writeClipboardText(value)
       setCopied(true)
-      window.setTimeout(() => setCopied(false), 1800)
+      window.setTimeout(() => setCopied(false), 3000)
     } catch {
       showToast('Could not copy to clipboard', 'error')
     }
@@ -496,6 +496,29 @@ function CopyCode({ value, label = 'Copy', prominent = false }: { value: string;
       {copied ? 'Copied' : label}
     </Button>
   )
+}
+
+async function writeClipboardText(value: string): Promise<void> {
+  if (window.isSecureContext && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value)
+      return
+    } catch {
+      // rasp.local commonly runs over HTTP; use the compatible path below.
+    }
+  }
+
+  const input = document.createElement('textarea')
+  input.value = value
+  input.setAttribute('readonly', '')
+  input.style.position = 'fixed'
+  input.style.opacity = '0'
+  input.style.pointerEvents = 'none'
+  document.body.appendChild(input)
+  input.select()
+  const copied = document.execCommand('copy')
+  input.remove()
+  if (!copied) throw new Error('clipboard unavailable')
 }
 
 function fencedCode(language: string, value: string): string {
