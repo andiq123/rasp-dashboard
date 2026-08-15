@@ -37,9 +37,25 @@ function linePath(points: HistoryPoint[], key: keyof HistoryPoint, ceiling: numb
     .join(' ')
 }
 
+function pointY(point: HistoryPoint, key: keyof HistoryPoint, ceiling: number) {
+  const value = Math.max(0, Math.min(ceiling, Number(point[key] || 0)))
+  return 132 - (value / ceiling) * 132
+}
+
 function formatTime(at = 0) {
   if (!at) return '—'
   return new Date(at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatHoverTime(at = 0) {
+  if (!at) return 'Unknown time'
+  return new Date(at * 1000).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
 }
 
 function Stat({ label, value, detail, icon: Icon }: { label: string; value: string; detail: string; icon: typeof Cpu }) {
@@ -66,6 +82,7 @@ export function MonitorHistory({
   compact?: boolean
 }) {
   const [range, setRange] = useState<Range>('6h')
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   const query = useQuery({
     queryKey:
       kind === 'system'
@@ -88,6 +105,16 @@ export function MonitorHistory({
   const memoryCeiling = kind === 'system' ? 100 : Math.max(64, Math.ceil(memoryPeak / 64) * 64)
   const temperatureCeiling = Math.max(100, Math.ceil(temperaturePeak / 10) * 10)
   const uptime = points.length ? (points.filter((point) => point.running).length / points.length) * 100 : 0
+  const activeIndex = hoverIndex == null ? null : Math.min(hoverIndex, points.length - 1)
+  const activePoint = activeIndex == null ? null : points[activeIndex]
+  const activeX = activeIndex == null || points.length <= 1 ? 0 : (activeIndex / (points.length - 1)) * 640
+  const activePercent = (activeX / 640) * 100
+
+  const selectNearestPoint = (clientX: number, left: number, width: number) => {
+    if (!points.length || width <= 0) return
+    const ratio = Math.max(0, Math.min(1, (clientX - left) / width))
+    setHoverIndex(Math.round(ratio * (points.length - 1)))
+  }
 
   return (
     <section className="grid gap-2.5" aria-label={`${kind === 'system' ? 'System' : 'Service'} monitor history`}>
@@ -185,47 +212,132 @@ export function MonitorHistory({
               </span>
               <span className={muted}>{formatTime(points[0]?.at)} — {formatTime(latest?.at)}</span>
             </div>
-            <svg
-              viewBox="0 0 640 132"
-              className={`w-full ${compact ? 'h-32' : 'h-40'} overflow-visible`}
-              role="img"
-              aria-label={kind === 'system' ? 'CPU, memory, and temperature history chart' : 'CPU and memory history chart'}
-              preserveAspectRatio="none"
-            >
-              {[0, 33, 66, 99, 132].map((y) => (
-                <line key={y} x1="0" y1={y} x2="640" y2={y} className="stroke-base-300/80" strokeWidth="1" />
-              ))}
-              <path
-                d={linePath(points, kind === 'system' ? 'memory_percent' : 'memory_mb', memoryCeiling)}
-                fill="none"
-                stroke="#8b5cf6"
-                strokeWidth="2.25"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                vectorEffect="non-scaling-stroke"
-              />
-              {kind === 'system' && temperaturePeak > 0 ? (
+            <div className="relative">
+              <svg
+                viewBox="0 0 640 132"
+                className={`w-full ${compact ? 'h-32' : 'h-40'} overflow-visible cursor-crosshair touch-none focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 rounded-sm`}
+                role="img"
+                aria-label={kind === 'system' ? 'CPU, memory, and temperature history chart' : 'CPU and memory history chart'}
+                preserveAspectRatio="none"
+                tabIndex={0}
+                onPointerMove={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  selectNearestPoint(event.clientX, rect.left, rect.width)
+                }}
+                onPointerLeave={() => setHoverIndex(null)}
+                onFocus={() => setHoverIndex((current) => current ?? points.length - 1)}
+                onBlur={() => setHoverIndex(null)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+                  event.preventDefault()
+                  const direction = event.key === 'ArrowLeft' ? -1 : 1
+                  setHoverIndex((current) => Math.max(0, Math.min(points.length - 1, (current ?? points.length - 1) + direction)))
+                }}
+              >
+                {[0, 33, 66, 99, 132].map((y) => (
+                  <line key={y} x1="0" y1={y} x2="640" y2={y} className="stroke-base-300/80" strokeWidth="1" />
+                ))}
                 <path
-                  d={linePath(points, 'temperature_c', temperatureCeiling)}
+                  d={linePath(points, kind === 'system' ? 'memory_percent' : 'memory_mb', memoryCeiling)}
                   fill="none"
-                  stroke="#f59e0b"
-                  strokeWidth="2"
-                  strokeDasharray="5 4"
+                  stroke="#8b5cf6"
+                  strokeWidth="2.25"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   vectorEffect="non-scaling-stroke"
                 />
+                {kind === 'system' && temperaturePeak > 0 ? (
+                  <path
+                    d={linePath(points, 'temperature_c', temperatureCeiling)}
+                    fill="none"
+                    stroke="#f59e0b"
+                    strokeWidth="2"
+                    strokeDasharray="5 4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ) : null}
+                <path
+                  d={linePath(points, 'cpu_percent', cpuCeiling)}
+                  fill="none"
+                  stroke="#0ea5e9"
+                  strokeWidth="2.25"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  vectorEffect="non-scaling-stroke"
+                />
+                {activePoint ? (
+                  <g aria-hidden>
+                    <line
+                      x1={activeX}
+                      y1="0"
+                      x2={activeX}
+                      y2="132"
+                      className="stroke-base-content/25"
+                      strokeWidth="1"
+                      strokeDasharray="3 3"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                    <circle
+                      cx={activeX}
+                      cy={pointY(activePoint, kind === 'system' ? 'memory_percent' : 'memory_mb', memoryCeiling)}
+                      r="3.5"
+                      fill="#8b5cf6"
+                      stroke="white"
+                      strokeWidth="1.5"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                    {kind === 'system' && temperaturePeak > 0 ? (
+                      <circle
+                        cx={activeX}
+                        cy={pointY(activePoint, 'temperature_c', temperatureCeiling)}
+                        r="3.5"
+                        fill="#f59e0b"
+                        stroke="white"
+                        strokeWidth="1.5"
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    ) : null}
+                    <circle
+                      cx={activeX}
+                      cy={pointY(activePoint, 'cpu_percent', cpuCeiling)}
+                      r="3.5"
+                      fill="#0ea5e9"
+                      stroke="white"
+                      strokeWidth="1.5"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  </g>
+                ) : null}
+              </svg>
+              {activePoint ? (
+                <div
+                  className={`pointer-events-none absolute top-1 z-10 min-w-36 rounded-box border border-base-300 bg-base-100/95 px-2.5 py-2 shadow-lg backdrop-blur-sm ${
+                    activePercent < 12 ? '' : activePercent > 88 ? '-translate-x-full' : '-translate-x-1/2'
+                  }`}
+                  style={{ left: `${activePercent}%` }}
+                  role="tooltip"
+                >
+                  <strong className="block whitespace-nowrap text-[10px] font-semibold">{formatHoverTime(activePoint.at)}</strong>
+                  <span className="mt-1 flex items-center justify-between gap-4 text-[10px] text-sky-500">
+                    <span>CPU</span><b className="tabular-nums">{Number(activePoint.cpu_percent || 0).toFixed(1)}%</b>
+                  </span>
+                  <span className="flex items-center justify-between gap-4 text-[10px] text-violet-500">
+                    <span>Memory</span>
+                    <b className="tabular-nums">
+                      {Number((kind === 'system' ? activePoint.memory_percent : activePoint.memory_mb) || 0).toFixed(1)}
+                      {kind === 'system' ? '%' : 'MB'}
+                    </b>
+                  </span>
+                  {kind === 'system' && temperaturePeak > 0 ? (
+                    <span className="flex items-center justify-between gap-4 text-[10px] text-amber-500">
+                      <span>Temperature</span><b className="tabular-nums">{Number(activePoint.temperature_c || 0).toFixed(0)}°C</b>
+                    </span>
+                  ) : null}
+                </div>
               ) : null}
-              <path
-                d={linePath(points, 'cpu_percent', cpuCeiling)}
-                fill="none"
-                stroke="#0ea5e9"
-                strokeWidth="2.25"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                vectorEffect="non-scaling-stroke"
-              />
-            </svg>
+            </div>
             <p className={`text-[10px] m-0 mt-1 ${muted}`}>
               CPU 0–{cpuCeiling}% · Memory 0–{memoryCeiling}{kind === 'system' ? '%' : 'MB'}
               {kind === 'system' && temperaturePeak > 0 ? ` · Temperature 0–${temperatureCeiling}°C` : ''} · Downsampled on the Pi.
