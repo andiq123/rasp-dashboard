@@ -387,7 +387,7 @@ func (s *Server) handleAPIMode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.vpnRepair != nil {
-		s.vpnRepair.cancel("VPN recovery stopped because the route mode changed")
+		s.vpnRepair.cancel()
 	}
 	if err := s.Switcher.SwitchMode(r.Context(), body.Mode); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -407,7 +407,7 @@ func (s *Server) handleHotspot(w http.ResponseWriter, r *http.Request) {
 		err = s.Hotspot.Start(r.Context())
 	case strings.HasSuffix(r.URL.Path, "/stop"):
 		if s.vpnRepair != nil {
-			s.vpnRepair.cancel("VPN recovery stopped because the hotspot was stopped")
+			s.vpnRepair.cancel()
 		}
 		err = s.Hotspot.Stop(r.Context())
 	case strings.HasSuffix(r.URL.Path, "/restart"):

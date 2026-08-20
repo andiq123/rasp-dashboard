@@ -102,6 +102,15 @@ func TestVPNAutoRepairStartsAfterStableFailure(t *testing.T) {
 	})
 }
 
+func TestVPNAutoRepairPendingClearsWhenRouteIsHealthy(t *testing.T) {
+	c := newVPNRepairCoordinator(&vpnStateReader{value: State{Mode: state.ModeResidential}}, &vpnController{})
+	c.status = state.VPNRepair{Automatic: true, Phase: "scheduled"}
+	c.observe()
+	if status := c.snapshot(); status != nil {
+		t.Fatalf("stale repair remained after route changed: %+v", status)
+	}
+}
+
 func TestVPNRepairFailureHasCooldown(t *testing.T) {
 	controller := &vpnController{failure: errors.New("safe verification failed")}
 	c := newVPNRepairCoordinator(&vpnStateReader{}, controller)

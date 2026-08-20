@@ -34,7 +34,6 @@ type vpnRepairCoordinator struct {
 	unhealthySince time.Time
 	nextAuto       time.Time
 	cancelRun      context.CancelFunc
-	cancelReason   string
 	subs           map[chan struct{}]struct{}
 }
 
@@ -95,6 +94,10 @@ func (c *vpnRepairCoordinator) observe() bool {
 	c.mu.Lock()
 	if !unhealthy {
 		c.unhealthySince = time.Time{}
+		if !c.running && c.status.Automatic && c.status.Phase == "scheduled" {
+			c.status = state.VPNRepair{}
+			c.notifyLocked()
+		}
 		c.mu.Unlock()
 		return false
 	}
@@ -159,7 +162,6 @@ func (c *vpnRepairCoordinator) trigger(automatic bool) (state.VPNRepair, bool) {
 	c.notifyLocked()
 	ctx, cancel := context.WithCancel(c.ctx)
 	c.cancelRun = cancel
-	c.cancelReason = ""
 	status := c.status
 	c.mu.Unlock()
 
@@ -171,6 +173,10 @@ func (c *vpnRepairCoordinator) run(ctx context.Context, automatic bool) {
 	report := func(phase, message string) {
 		now := time.Now().UTC().Format(time.RFC3339)
 		c.mu.Lock()
+		if ctx.Err() != nil {
+			c.mu.Unlock()
+			return
+		}
 		c.status.Active = true
 		c.status.Phase = phase
 		c.status.Message = message
@@ -199,13 +205,7 @@ func (c *vpnRepairCoordinator) run(ctx context.Context, automatic bool) {
 	c.status.FinishedAt = now.UTC().Format(time.RFC3339)
 	c.status.UpdatedAt = c.status.FinishedAt
 	if errors.Is(err, context.Canceled) {
-		c.status.Phase = "cancelled"
-		c.status.Message = c.cancelReason
-		if c.status.Message == "" {
-			c.status.Message = "VPN recovery stopped"
-		}
-		c.status.Error = ""
-		c.status.NextRetryAt = ""
+		c.status = state.VPNRepair{}
 		c.nextAuto = time.Time{}
 	} else if err != nil {
 		c.status.Phase = "failed"
@@ -254,15 +254,18 @@ func (c *vpnRepairCoordinator) notifyLocked() {
 	}
 }
 
-func (c *vpnRepairCoordinator) cancel(reason string) {
+func (c *vpnRepairCoordinator) cancel() {
 	if c == nil {
 		return
 	}
 	c.mu.Lock()
 	if c.cancelRun != nil {
-		c.cancelReason = reason
 		c.cancelRun()
 	}
+	c.status = state.VPNRepair{}
+	c.unhealthySince = time.Time{}
+	c.nextAuto = time.Time{}
+	c.notifyLocked()
 	c.mu.Unlock()
 }
 
