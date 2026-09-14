@@ -146,13 +146,13 @@ function applyStatsSnapshot(qc: QueryClient, snap: StatsSnapshot) {
         if (!prev || typeof prev !== 'object') return prev
         return { ...(prev as object), stats: st }
       })
-      qc.setQueryData(queryKeys.services(group), (prev: unknown) => {
-        if (!Array.isArray(prev)) return prev
-        return prev.map((s: { slug?: string; stats?: RuntimeStats }) =>
-          s?.slug === slug ? { ...s, stats: st } : s,
-        )
-      })
     }
+    qc.setQueryData(queryKeys.services(group), (prev: unknown) => {
+      if (!Array.isArray(prev)) return prev
+      return prev.map((s: { slug?: string; stats?: RuntimeStats }) =>
+        s?.slug && stats[s.slug] ? { ...s, stats: stats[s.slug] } : s,
+      )
+    })
   }
 }
 

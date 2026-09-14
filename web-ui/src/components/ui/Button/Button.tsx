@@ -51,6 +51,7 @@ export function Button({
     <button
       type={type}
       className={`btn ${size === 'sm' ? 'btn-sm' : ''} ${variantClass[variant]} ${className}`}
+      aria-busy={loading || undefined}
       disabled={disabled || loading}
       {...rest}
     >

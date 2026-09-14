@@ -93,18 +93,20 @@ export function FilesPage() {
     if (!stillVisible) setSelected(null)
   }, [entries, selected])
 
-  const canUp = path !== home && path.startsWith(home)
+  const withinHome = home === '/' || path === home || path.startsWith(`${home.replace(/\/+$/, '')}/`)
+  const canUp = path !== home && withinHome
 
   function go(p: string) {
     const rel = p.startsWith('/') ? p.slice(1) : p
-    navigate(`/files/${rel}`)
+    navigate(`/files/${rel.split('/').map(encodeURIComponent).join('/')}`)
     setSelected(null)
+    setQuery('')
   }
 
   const pathParts = path.replace(/\/+$/, '').split('/').filter(Boolean)
   const homeParts = home.replace(/\/+$/, '').split('/').filter(Boolean)
   const relativeParts =
-    path.startsWith(home) && path !== home ? pathParts.slice(homeParts.length) : []
+    withinHome && path !== home ? pathParts.slice(homeParts.length) : []
 
   const emptyBody =
     !showHidden && hiddenCount > 0 && !query.trim()
@@ -115,7 +117,7 @@ export function FilesPage() {
 
   return (
     <div className="grid gap-3.5">
-      <PageHeader
+      <PageHeader title="Files"
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <div className="join">
@@ -191,15 +193,15 @@ export function FilesPage() {
             </div>
           ) : listingQ.isError ? (
             <div className="p-4">
-              <Empty title="Could not list" body={(listingQ.error as Error).message} />
+              <Empty title="Could not list files" body={(listingQ.error as Error).message} action={<Button onClick={() => void listingQ.refetch()}>Retry</Button>} />
             </div>
           ) : !entries.length ? (
             <div className="p-4">
-              <Empty title="Empty folder" body={emptyBody} />
+              <Empty title={query.trim() ? "No matching files" : "Empty folder"} body={emptyBody} action={query.trim() ? <Button onClick={() => setQuery('')}>Clear filter</Button> : undefined} />
             </div>
           ) : (
             <div className="overflow-auto flex-1">
-              <table className="table table-sm">
+              <table className="table table-sm table-fixed">
                 <thead className="sticky top-0 bg-base-100 z-1">
                   <tr className="border-b border-base-300">
                     <th className="font-semibold">Name</th>
@@ -230,7 +232,7 @@ export function FilesPage() {
                             }}
                           >
                             {e.type === 'dir' ? (
-                              <Folder className={`h-4 w-4 ${muted} shrink-0`} aria-hidden />
+                              <Folder className="h-5 w-5 text-primary shrink-0" aria-hidden />
                             ) : (
                               <File className={`h-4 w-4 ${muted} shrink-0`} aria-hidden />
                             )}

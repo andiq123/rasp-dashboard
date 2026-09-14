@@ -5,6 +5,9 @@ import {
   FolderOpen,
   Settings,
   Radio,
+  Wifi,
+  Server,
+  ChevronRight,
   Loader2,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -22,39 +25,26 @@ const items: Array<{ to: string; label: string; icon: LucideIcon; end?: boolean 
 
 export function Rail() {
   return (
-    <aside className="w-16 sm:w-20 shrink-0 border-r border-base-300 bg-base-100 sticky top-0 h-svh z-20">
-      <nav className="flex h-full flex-col items-center gap-1 p-2 pt-3" aria-label="Main navigation">
-        <div
-          className="mb-3 grid h-10 w-10 place-items-center rounded-box bg-primary text-primary-content text-xs font-extrabold tracking-wide"
-          aria-hidden
-        >
-          FW
-        </div>
-        {items.map((item) => {
-          const Icon = item.icon
-          return (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              title={item.label}
-              viewTransition
-              className={({ isActive }) =>
-                [
-                  'flex w-full flex-col items-center gap-1 rounded-box px-1 py-2 text-[10px] font-semibold',
-                  'transition-[color,background-color,transform] duration-300 ease-out',
-                  isActive
-                    ? 'bg-primary/10 text-primary scale-[1.02]'
-                    : `${muted} hover:bg-base-200 hover:text-base-content active:scale-[0.98]`,
-                ].join(' ')
-              }
-            >
-              <Icon className="h-5 w-5 transition-transform duration-300" strokeWidth={1.75} aria-hidden />
-              <span>{item.label}</span>
-            </NavLink>
-          )
-        })}
+    <aside className="app-rail">
+      <NavLink to="/overview" className="brand" aria-label="FireWifi home">
+        <span className="brand-icon"><Wifi size={23} strokeWidth={2} aria-hidden /></span>
+        <span className="rail-copy"><strong>FireWifi<span className="text-primary">.</span></strong><small>YOUR PI, CONNECTED</small></span>
+      </NavLink>
+      <div className="rail-caption rail-copy">WORKSPACE</div>
+      <nav className="rail-nav" aria-label="Main navigation">
+        {items.map(({ to, label, icon: Icon, end }) => (
+          <NavLink key={to} to={to} end={end} title={label}
+            className={({ isActive }) => `rail-link ${isActive ? 'is-active' : ''}`}>
+            <Icon size={20} strokeWidth={1.75} aria-hidden />
+            <span>{label}</span>
+            <ChevronRight size={14} className="rail-chevron" aria-hidden />
+          </NavLink>
+        ))}
       </nav>
+      <div className="rail-device rail-copy">
+        <span className="grid h-9 w-9 place-items-center rounded-xl bg-white/5"><Server size={18} aria-hidden /></span>
+        <div><strong>Raspberry Pi</strong><small>Local workspace</small></div>
+      </div>
     </aside>
   )
 }
@@ -76,14 +66,14 @@ export function Topbar({ live, activity }: { live: boolean; activity: ActivitySn
   const deployTarget = scope[1] || scope[0] || 'service'
 
   return (
-    <header className={`navbar min-h-14 shrink-0 border-b bg-base-100 px-4 sticky top-0 z-10 overflow-hidden ${deploying ? 'border-info/50' : 'border-base-300'}`}>
+    <header className={`navbar app-topbar shrink-0 border-b bg-base-100 px-4 sticky top-0 z-10 overflow-hidden ${deploying ? 'border-info/50' : 'border-base-300'}`}>
       <div className="flex-1 min-w-0">
         <div>
           <div className="flex items-baseline gap-2 min-w-0">
-            <h1 className="text-lg font-bold tracking-tight leading-none truncate">{title}</h1>
+            <span className="text-sm font-semibold tracking-tight leading-none truncate">{title}</span>
             {crumb ? <span className={`text-xs ${muted} truncate`}>{crumb}</span> : null}
           </div>
-          <p className={`text-xs m-0 mt-0.5 ${muted}`}>FireWifi · Pi hotspot</p>
+          <p className={`text-xs m-0 mt-1 ${muted}`}>Workspace / {crumb || "Dashboard"}</p>
         </div>
       </div>
       <div className="flex-none flex items-center gap-2 sm:gap-3">
@@ -100,7 +90,7 @@ export function Topbar({ live, activity }: { live: boolean; activity: ActivitySn
           </div>
         ) : null}
         <div
-          className={`badge badge-sm gap-1.5 transition-colors duration-300 ${live ? 'badge-success' : 'badge-ghost'}`}
+          className={`badge badge-sm gap-1.5 transition-colors duration-300 ${live ? 'badge-success badge-soft' : 'badge-warning badge-soft'}`}
           title={live ? 'Live updates connected' : 'Connecting to live updates'}
         >
           <Radio className="h-3 w-3" aria-hidden />

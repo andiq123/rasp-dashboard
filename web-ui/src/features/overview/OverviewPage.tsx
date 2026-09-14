@@ -43,6 +43,7 @@ import { actionDoneLabel } from '@/lib/actions'
 import { fmtBytes, fmtPct, fmtRate } from '@/lib/format'
 import { hostCapacity, reservedFromServices } from '@/lib/resources'
 import { muted, tile } from '@/lib/ui'
+import { PageHeader, PageSub } from '@/components/ui/PageHeader/PageHeader'
 import { DashboardExposure } from './DashboardExposure'
 
 function Metric({
@@ -60,12 +61,12 @@ function Metric({
 }) {
   const p = Math.max(0, Math.min(100, percent || 0))
   return (
-    <div className={`${tile} px-2.5 py-2`}>
-      <div className={`flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide ${muted}`}>
-        <Icon className="h-3 w-3 shrink-0" aria-hidden />
+    <div className={`${tile} metric-card px-4 py-4`}>
+      <div className={`flex items-center gap-1 text-xs font-semibold uppercase tracking-wide ${muted}`}>
+        <Icon className="h-4 w-4 shrink-0" aria-hidden />
         {label}
       </div>
-      <div className="text-lg font-bold tracking-tight leading-tight mt-0.5">{value}</div>
+      <div className="text-3xl font-semibold tracking-tight leading-tight mt-3">{value}</div>
       <div className={`text-[11px] ${muted} truncate`}>{detail}</div>
       <progress className="progress progress-primary w-full mt-1.5 h-1" value={p} max={100} />
     </div>
@@ -318,8 +319,76 @@ export function OverviewPage() {
   const busy = modeMut.isPending || hs.isPending || sx.isPending || save.isPending || !!vpnRepair?.active
 
   return (
-    <div className="grid gap-3 lg:grid-cols-2 items-start">
-      <Panel
+    <div className="grid gap-5">
+      <PageHeader title="Overview"><PageSub>Your network, services, and system health at a glance.</PageSub></PageHeader>
+      <div className="overview-grid">
+      <Panel className="overview-system"
+        title={
+          <span className="inline-flex items-center gap-1.5">
+            <Activity className="h-3.5 w-3.5" aria-hidden /> System
+          </span>
+        }
+        hint={live ? 'Live · auto-updating' : 'Reconnecting · HTTP fallback active'}
+      >
+        <div className="grid grid-cols-2 gap-3">
+          <Metric
+            icon={Cpu}
+            label="CPU"
+            value={fmtPct(cpu.busy_percent)}
+            detail={`Idle ${fmtPct(cpu.idle_percent)}`}
+            percent={cpu.busy_percent || 0}
+          />
+          <Metric
+            icon={MemoryStick}
+            label="Memory"
+            value={fmtPct(mem.used_percent)}
+            detail={fmtBytes(mem.used_bytes)}
+            percent={mem.used_percent || 0}
+          />
+          <Metric
+            icon={Thermometer}
+            label="Thermal"
+            value={thermal.available ? `${temp.toFixed(0)}°` : 'n/a'}
+            detail={
+              thermal.throttle_known
+                ? thermal.throttled
+                  ? 'Throttled now'
+                  : thermal.throttled_before
+                    ? 'OK now · past event'
+                    : 'OK'
+                : 'Sensor'
+            }
+            percent={(temp / 85) * 100}
+          />
+          <Metric
+            icon={HardDrive}
+            label="Disk"
+            value={fmtPct(storage.used_percent)}
+            detail={fmtBytes(storage.used_bytes)}
+            percent={storage.used_percent || 0}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className={`${tile} px-2.5 py-2`}>
+            <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase ${muted}`}>
+              <ArrowDownToLine className="h-3 w-3" aria-hidden /> Down
+            </span>
+            <strong className="block text-sm mt-0.5">{fmtRate(net.down_bytes_per_sec)}</strong>
+          </div>
+          <div className={`${tile} px-2.5 py-2`}>
+            <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase ${muted}`}>
+              <ArrowUpFromLine className="h-3 w-3" aria-hidden /> Up
+            </span>
+            <strong className="block text-sm mt-0.5">{fmtRate(net.up_bytes_per_sec)}</strong>
+          </div>
+        </div>
+        <ResourceBudget host={host} reserved={reserved} compact />
+      </Panel>
+
+      <div className="overview-history card bg-base-100 border border-base-300 shadow-sm p-5 section-enter">
+        <MonitorHistory kind="system" />
+      </div>
+      <Panel className="overview-network"
         title={
           <span className="inline-flex items-center gap-1.5">
             <Shield className="h-3.5 w-3.5" aria-hidden />
@@ -387,7 +456,7 @@ export function OverviewPage() {
               </div>
             ))}
           </div>
-        ) : !recoveringVPN && issues.length === 0 ? (
+        ) : live && !recoveringVPN && issues.length === 0 ? (
           <div className="rounded-lg border border-success/25 bg-success/10 px-2.5 py-2 text-xs">
             No active hotspot or route issues detected.
           </div>
@@ -546,73 +615,9 @@ export function OverviewPage() {
         </div>
       </Panel>
 
-      <Panel
-        title={
-          <span className="inline-flex items-center gap-1.5">
-            <Activity className="h-3.5 w-3.5" aria-hidden /> System
-          </span>
-        }
-        hint={live ? 'Live · auto-updating' : 'Reconnecting · HTTP fallback active'}
-      >
-        <div className="grid grid-cols-2 gap-1.5">
-          <Metric
-            icon={Cpu}
-            label="CPU"
-            value={fmtPct(cpu.busy_percent)}
-            detail={`Idle ${fmtPct(cpu.idle_percent)}`}
-            percent={cpu.busy_percent || 0}
-          />
-          <Metric
-            icon={MemoryStick}
-            label="Memory"
-            value={fmtPct(mem.used_percent)}
-            detail={fmtBytes(mem.used_bytes)}
-            percent={mem.used_percent || 0}
-          />
-          <Metric
-            icon={Thermometer}
-            label="Thermal"
-            value={thermal.available ? `${temp.toFixed(0)}°` : 'n/a'}
-            detail={
-              thermal.throttle_known
-                ? thermal.throttled
-                  ? 'Throttled now'
-                  : thermal.throttled_before
-                    ? 'OK now · past event'
-                    : 'OK'
-                : 'Sensor'
-            }
-            percent={(temp / 85) * 100}
-          />
-          <Metric
-            icon={HardDrive}
-            label="Disk"
-            value={fmtPct(storage.used_percent)}
-            detail={fmtBytes(storage.used_bytes)}
-            percent={storage.used_percent || 0}
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-1.5">
-          <div className={`${tile} px-2.5 py-2`}>
-            <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase ${muted}`}>
-              <ArrowDownToLine className="h-3 w-3" aria-hidden /> Down
-            </span>
-            <strong className="block text-sm mt-0.5">{fmtRate(net.down_bytes_per_sec)}</strong>
-          </div>
-          <div className={`${tile} px-2.5 py-2`}>
-            <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase ${muted}`}>
-              <ArrowUpFromLine className="h-3 w-3" aria-hidden /> Up
-            </span>
-            <strong className="block text-sm mt-0.5">{fmtRate(net.up_bytes_per_sec)}</strong>
-          </div>
-        </div>
-        <ResourceBudget host={host} reserved={reserved} compact />
-      </Panel>
+      <div className="overview-exposure"><DashboardExposure /></div>
 
-      <DashboardExposure />
 
-      <div className="card bg-base-100 border border-base-300 shadow-sm p-3.5 section-enter">
-        <MonitorHistory kind="system" />
       </div>
     </div>
   )

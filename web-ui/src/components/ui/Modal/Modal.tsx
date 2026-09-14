@@ -1,4 +1,5 @@
 import { useId, useLayoutEffect, useRef, type ReactNode } from 'react'
+import { X } from 'lucide-react'
 import { muted } from '@/lib/ui'
 
 type Props = {
@@ -35,7 +36,8 @@ export function Modal({ open, title, sub, onClose, children, footer, size = 'sm'
       aria-labelledby={titleId}
     >
       <div className={`modal-box ${size === 'md' ? 'max-w-3xl' : 'max-w-md'}`}>
-        <h3 id={titleId} className="font-bold text-lg tracking-tight">
+        <button type="button" className="btn btn-sm btn-circle btn-ghost absolute right-3 top-3" aria-label="Close dialog" onClick={onClose}><X size={18} aria-hidden /></button>
+        <h3 id={titleId} className="font-bold text-lg tracking-tight pr-8">
           {title}
         </h3>
         {sub ? <p className={`text-sm mt-1 ${muted}`}>{sub}</p> : null}

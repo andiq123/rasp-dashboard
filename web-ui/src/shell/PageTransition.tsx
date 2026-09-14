@@ -49,7 +49,7 @@ export function ScrollMain({ mainId = 'app-main' }: { mainId?: string }) {
   useEffect(() => {
     const el = document.getElementById(mainId)
     if (!el) return
-    el.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
+    window.scrollTo({ top: 0, behavior: reduced ? 'instant' : 'smooth' })
   }, [section, mainId, reduced])
 
   return null

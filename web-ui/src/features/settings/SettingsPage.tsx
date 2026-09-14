@@ -145,7 +145,7 @@ export function SettingsPage() {
 
   return (
     <div className="grid gap-3.5">
-      <PageHeader>
+      <PageHeader title="Settings">
         <PageSub>GitHub, shared engines, and Docker on this Pi</PageSub>
       </PageHeader>
 

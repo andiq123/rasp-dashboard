@@ -1,5 +1,5 @@
 /** Shared semantic class helpers — daisyUI tokens only. */
-export const muted = 'text-base-content/60'
+export const muted = 'text-base-content/65'
 
 /** Primary card on page canvas */
 export const surface = 'bg-base-100 border border-base-300 rounded-box shadow-sm'

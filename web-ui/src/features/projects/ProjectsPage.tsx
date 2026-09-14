@@ -50,6 +50,7 @@ import { fmtBytes, slugify } from '@/lib/format'
 import { hostCapacity, reservedFromServices, RESOURCE } from '@/lib/resources'
 import { muted, surface, tile } from '@/lib/ui'
 import { usePendingAddGo } from './pendingAddGo'
+import { PageHeader, PageSub } from '@/components/ui/PageHeader/PageHeader'
 import { ServiceCard } from './ServiceCard'
 import { ServiceDetail } from './ServiceDetail'
 import { DeployQueue } from './DeployQueue'
@@ -417,8 +418,9 @@ export function ProjectsPage() {
   const nameDirty = group && draftName.trim() !== (group.name || group.slug).trim()
 
   return (
-    <div className="min-h-[calc(100vh-100px)]">
-      <div className="grid grid-cols-1 gap-3.5 items-start min-h-[60vh] md:grid-cols-[minmax(200px,260px)_minmax(0,1fr)]">
+    <div className="grid gap-5">
+      <PageHeader title="Projects"><PageSub>Deploy, organize, and monitor your applications.</PageSub></PageHeader>
+      <div className="grid grid-cols-1 gap-3.5 items-start min-h-[60vh] xl:grid-cols-[minmax(180px,220px)_minmax(0,1fr)]">
         <aside className={`card ${surface} section-enter`}>
           <div className="card-body gap-3 p-3">
             <div className="flex items-center gap-2">
@@ -531,8 +533,13 @@ export function ProjectsPage() {
           className={`card ${surface} section-enter ${deployingN ? 'border-info/40' : ''}`}
         >
           <div className="card-body gap-4 p-3 sm:p-4">
-            {!groupSlug ? (
-              <div className={`grid place-items-center gap-2 min-h-[280px] text-center ${muted}`}>
+            {!groupSlug && groupsQ.isError ? (
+              <Empty title="Projects unavailable" body="Could not connect to this Pi. Retry to load your existing groups." action={<Button onClick={() => void groupsQ.refetch()}>Retry</Button>} />
+            ) : !groupSlug && groupsQ.isLoading ? (
+              <Spinner label="Loading projects…" />
+            ) : !groupSlug ? (
+              <div className={`flex flex-col items-center justify-center gap-4 min-h-[360px] text-center ${muted}`}>
+                <span className="grid h-16 w-16 place-items-center rounded-2xl bg-primary/10 text-primary"><Layers3 size={28} aria-hidden /></span>
                 <h3 className="text-base font-bold m-0 text-base-content">
                   {(groupsQ.data || []).length ? 'Select a group' : 'Create a group'}
                 </h3>
@@ -617,7 +624,7 @@ export function ProjectsPage() {
                   <AnimatedServiceCollection
                     key={`grid-${groupSlug}`}
                     services={services}
-                    className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2.5"
+                    className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,240px),1fr))] gap-2.5"
                     itemClassName="min-w-0"
                     empty={
                       <Empty

@@ -11,9 +11,9 @@ type Props = {
 /** Page toolbar — optional title, subtitle/breadcrumbs via children, trailing actions. */
 export function PageHeader({ title, children, actions }: Props) {
   return (
-    <header className="flex flex-wrap items-end justify-between gap-3 mb-1">
+    <header className="page-header flex flex-wrap items-end justify-between gap-4">
       <div className="min-w-0">
-        {title ? <h2 className="text-xl font-bold tracking-tight m-0">{title}</h2> : null}
+        {title ? <h1 className="text-3xl font-semibold tracking-tight m-0 mb-2">{title}</h1> : null}
         {children}
       </div>
       {actions}
