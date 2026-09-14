@@ -36,7 +36,6 @@ export function Modal({ open, title, sub, onClose, children, footer, size = 'sm'
       aria-labelledby={titleId}
     >
       <div className={`modal-box ${size === 'md' ? 'max-w-3xl' : 'max-w-md'}`}>
-        <button type="button" className="btn btn-sm btn-circle btn-ghost absolute right-3 top-3" aria-label="Close dialog" onClick={onClose}><X size={18} aria-hidden /></button>
         <h3 id={titleId} className="font-bold text-lg tracking-tight pr-8">
           {title}
         </h3>
@@ -45,6 +44,7 @@ export function Modal({ open, title, sub, onClose, children, footer, size = 'sm'
           <div className="mt-4 grid gap-3">{children}</div>
         ) : null}
         {footer ? <div className="modal-action flex-wrap">{footer}</div> : null}
+        <button type="button" className="btn btn-sm btn-circle btn-ghost absolute right-3 top-3" aria-label="Close dialog" onClick={onClose}><X size={18} aria-hidden /></button>
       </div>
       <form method="dialog" className="modal-backdrop bg-base-content/20">
         <button type="submit">close</button>

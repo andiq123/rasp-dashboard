@@ -35,6 +35,7 @@ function Bar({
         </span>
       </div>
       <progress
+        aria-label={label}
         className={`progress w-full h-2 ${over ? 'progress-error' : pct > 85 ? 'progress-warning' : 'progress-primary'}`}
         value={pct}
         max={100}

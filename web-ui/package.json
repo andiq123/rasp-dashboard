@@ -9,7 +9,8 @@
     "typecheck": "tsc -b --pretty false",
     "lint": "oxlint",
     "check": "npm run typecheck && npm run lint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node tests/ui-regressions.cjs"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"

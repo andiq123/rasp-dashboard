@@ -18,16 +18,16 @@ export function Field({ label, meta, tip, children, htmlFor, className = '' }: F
   const id = htmlFor || generatedId
   return (
     <FieldContext.Provider value={{ id, description: tip ? `${id}-tip` : undefined }}>
-    <fieldset className={`fieldset p-0 ${className}`}>
-      <div className="flex items-baseline justify-between gap-2 mb-1">
-        <label htmlFor={id} className="label p-0 text-sm font-semibold">
-          {label}
-        </label>
-        {meta ? <span className={`text-xs ${muted}`}>{meta}</span> : null}
-      </div>
-      {children}
-      {tip ? <p id={`${id}-tip`} className={`text-xs ${muted} m-0 mt-1`}>{tip}</p> : null}
-    </fieldset>
+      <fieldset className={`fieldset p-0 ${className}`}>
+        <div className="flex items-baseline justify-between gap-2 mb-1">
+          <label htmlFor={id} className="label p-0 text-sm font-semibold">
+            {label}
+          </label>
+          {meta ? <span className={`text-xs ${muted}`}>{meta}</span> : null}
+        </div>
+        {children}
+        {tip ? <p id={`${id}-tip`} className={`text-xs ${muted} m-0 mt-1`}>{tip}</p> : null}
+      </fieldset>
     </FieldContext.Provider>
   )
 }

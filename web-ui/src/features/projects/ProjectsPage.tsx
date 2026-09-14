@@ -420,7 +420,7 @@ export function ProjectsPage() {
   return (
     <div className="grid gap-5">
       <PageHeader title="Projects"><PageSub>Deploy, organize, and monitor your applications.</PageSub></PageHeader>
-      <div className="grid grid-cols-1 gap-3.5 items-start min-h-[60vh] xl:grid-cols-[minmax(180px,220px)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-3.5 items-start xl:min-h-[60vh] xl:grid-cols-[minmax(180px,220px)_minmax(0,1fr)]">
         <aside className={`card ${surface} section-enter`}>
           <div className="card-body gap-3 p-3">
             <div className="flex items-center gap-2">
@@ -620,7 +620,7 @@ export function ProjectsPage() {
                   <Spinner compact label="Loading services…" />
                 ) : servicesQ.isError ? (
                   <Empty compact title="Could not load services" body={(servicesQ.error as Error).message} />
-                ) : (
+                ) : !selected ? (
                   <AnimatedServiceCollection
                     key={`grid-${groupSlug}`}
                     services={services}
@@ -655,7 +655,7 @@ export function ProjectsPage() {
                       />
                     )}
                   </AnimatedServiceCollection>
-                )}
+                ) : null}
 
                 {selected ? (
                   <ServiceDetail

@@ -1077,7 +1077,7 @@ function DeployProgress({ progress, title }: { progress: Progress; title?: strin
         </div>
         <span className={`text-[11px] font-mono ${muted}`}>{progress.percent}%</span>
       </div>
-      <progress className="progress progress-primary w-full h-1.5" value={progress.percent} max={100} />
+      <progress aria-label="Deployment progress" className="progress progress-primary w-full h-1.5" value={progress.percent} max={100} />
       {progress.detail ? <p className={`text-[11px] m-0 ${muted}`}>{progress.detail}</p> : null}
       {steps.length ? (
         <ol className="flex flex-wrap gap-1 list-none m-0 p-0">
@@ -1698,7 +1698,7 @@ function DeploysTab({
   const progress = selectedLive ? activity.progress : null
 
   return (
-    <div className="grid gap-3 lg:grid-cols-[minmax(200px,260px)_minmax(0,1fr)] items-start">
+    <div className="grid gap-3 2xl:grid-cols-[minmax(180px,220px)_minmax(0,1fr)] items-start">
       <ul className="list-none m-0 p-0 grid gap-1 content-start max-h-[min(70vh,560px)] overflow-y-auto">
         {items.map((d) => {
           const live = d.id === liveId || d.status === 'building' || d.status === 'queued'
@@ -1736,7 +1736,7 @@ function DeploysTab({
                   {d.branch ? ` · ${d.branch}` : ''}
                 </span>
                 {live && deploying && progress && activeSel ? (
-                  <progress
+                  <progress aria-label="Deployment progress"
                     className="progress progress-info w-full h-1 mt-1.5"
                     value={progress.percent || 0}
                     max={100}
@@ -1772,7 +1772,7 @@ function DeploysTab({
               ) : null}
             </div>
             {selectedLive && progress ? (
-              <progress
+              <progress aria-label="Deployment progress"
                 className="progress progress-primary w-full h-1.5"
                 value={progress.percent || 0}
                 max={100}

@@ -68,7 +68,7 @@ function Metric({
       </div>
       <div className="text-3xl font-semibold tracking-tight leading-tight mt-3">{value}</div>
       <div className={`text-[11px] ${muted} truncate`}>{detail}</div>
-      <progress className="progress progress-primary w-full mt-1.5 h-1" value={p} max={100} />
+      <progress aria-label={label} className="progress progress-primary w-full mt-1.5 h-1" value={p} max={100} />
     </div>
   )
 }
@@ -465,6 +465,7 @@ export function OverviewPage() {
         <div className="join w-full">
           <Button
             className="join-item flex-1"
+            aria-pressed={mode === 'mullvad'}
             variant={mode === 'mullvad' ? 'primary' : 'quiet'}
             disabled={modeMut.isPending}
             loading={modeMut.isPending && modeMut.variables === 'mullvad'}
@@ -474,6 +475,7 @@ export function OverviewPage() {
           </Button>
           <Button
             className="join-item flex-1"
+            aria-pressed={mode === 'residential'}
             variant={mode === 'residential' ? 'primary' : 'quiet'}
             disabled={modeMut.isPending}
             loading={modeMut.isPending && modeMut.variables === 'residential'}

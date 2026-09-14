@@ -86,7 +86,7 @@ export function Topbar({ live, activity }: { live: boolean; activity: ActivitySn
               </span>
               <span className="font-mono tabular-nums text-info">{progress}%</span>
             </div>
-            <progress className="progress progress-info h-1 w-full" value={progress} max={100} />
+            <progress aria-label="Deployment progress" className="progress progress-info h-1 w-full" value={progress} max={100} />
           </div>
         ) : null}
         <div

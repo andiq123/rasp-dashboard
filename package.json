@@ -6,6 +6,7 @@
     "build": "./scripts/build-ui.sh",
     "typecheck": "npm --prefix web-ui run typecheck",
     "lint": "npm --prefix web-ui run lint",
-    "check": "npm --prefix web-ui run check"
+    "check": "npm --prefix web-ui run check",
+    "test": "npm --prefix web-ui test"
   }
 }
