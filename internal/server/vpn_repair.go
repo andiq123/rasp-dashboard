@@ -92,12 +92,11 @@ func (c *vpnRepairCoordinator) observe() bool {
 
 	now := time.Now()
 	c.mu.Lock()
+	if c.reconcileLocked(st) {
+		c.notifyLocked()
+	}
 	if !unhealthy {
 		c.unhealthySince = time.Time{}
-		if !c.running && c.status.Automatic && c.status.Phase == "scheduled" {
-			c.status = state.VPNRepair{}
-			c.notifyLocked()
-		}
 		c.mu.Unlock()
 		return false
 	}
@@ -208,6 +207,7 @@ func (c *vpnRepairCoordinator) run(ctx context.Context, automatic bool) {
 		c.status = state.VPNRepair{}
 		c.nextAuto = time.Time{}
 	} else if err != nil {
+		c.status.FailedPhase = c.status.Phase
 		c.status.Phase = "failed"
 		c.status.Message = "Automatic recovery could not verify safe Romanian egress"
 		if !automatic {
@@ -275,6 +275,60 @@ func (c *vpnRepairCoordinator) snapshot() *state.VPNRepair {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.status.Phase == "" {
+		return nil
+	}
+	status := c.status
+	return &status
+}
+
+// Reconcile completed attempts with current route health. A historical failure
+// must not keep advertising a retry after the route has recovered or been stopped.
+func (c *vpnRepairCoordinator) reconcileLocked(st State) bool {
+	if c.running || c.status.Phase == "" {
+		return false
+	}
+	if st.Mode != state.ModeMullvad || !st.HotspotRunning {
+		c.status = state.VPNRepair{}
+		c.unhealthySince = time.Time{}
+		c.nextAuto = time.Time{}
+		c.attempt = 0
+		return true
+	}
+	healthy := st.VPNHealth.CountryAllowed && st.VPNHealth.InterfaceUp &&
+		st.VPNHealth.HandshakeHealthy && st.VPNHealth.EgressOK
+	if healthy && (c.status.Phase == "scheduled" || c.status.Phase == "failed") {
+		c.unhealthySince = time.Time{}
+		c.nextAuto = time.Now().Add(vpnHealthyGrace)
+		c.attempt = 0
+		if c.status.Phase == "scheduled" {
+			c.status = state.VPNRepair{}
+		} else {
+			c.status.Phase = "recovered"
+			c.status.Message = "VPN connection recovered; Romanian egress is healthy"
+			c.status.Error = ""
+			c.status.FailedPhase = ""
+			c.status.NextRetryAt = ""
+			c.status.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		}
+		return true
+	}
+	if !healthy && (c.status.Phase == "verified" || c.status.Phase == "recovered") {
+		c.status = state.VPNRepair{}
+		return true
+	}
+	return false
+}
+
+func (c *vpnRepairCoordinator) snapshotFor(st State) *state.VPNRepair {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.reconcileLocked(st) {
+		c.notifyLocked()
+	}
 	if c.status.Phase == "" {
 		return nil
 	}

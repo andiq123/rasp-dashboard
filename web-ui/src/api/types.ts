@@ -32,6 +32,7 @@ export type VPNRepair = {
   active?: boolean
   automatic?: boolean
   phase?: string
+  failed_phase?: string
   message?: string
   attempt?: number
   started_at?: string

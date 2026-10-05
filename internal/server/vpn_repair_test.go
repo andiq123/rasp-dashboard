@@ -70,7 +70,7 @@ func TestVPNRepairSingleFlightAndProgress(t *testing.T) {
 
 func TestManualVPNRepairReturnsImmediatelyAndContinuesInBackground(t *testing.T) {
 	controller := &vpnController{block: make(chan struct{})}
-	srv := New(&vpnStateReader{}, nil, controller, nil, nil, nil, nil)
+	srv := New(&vpnStateReader{value: State{Mode: state.ModeMullvad, HotspotRunning: true}}, nil, controller, nil, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/hotspot/repair-vpn", nil)
 	res := httptest.NewRecorder()
 	srv.handleHotspot(res, req)
@@ -120,8 +120,55 @@ func TestVPNRepairFailureHasCooldown(t *testing.T) {
 	if status.NextRetryAt == "" || status.Error == "" {
 		t.Fatalf("missing retry/error state: %+v", status)
 	}
+	if status.FailedPhase != "restarting" {
+		t.Fatalf("failure lost its actual stage: %+v", status)
+	}
 	if _, started := c.trigger(true); started {
 		t.Fatal("automatic repair must honor cooldown")
+	}
+	if retry, started := c.trigger(false); !started || !retry.Active || retry.Automatic || retry.Error != "" || retry.NextRetryAt != "" || retry.FailedPhase != "" {
+		t.Fatalf("manual retry must bypass cooldown and reset the attempt: %+v, started=%t", retry, started)
+	}
+	waitVPNRepair(t, c, func(s *state.VPNRepair) bool { return s != nil && s.Phase == "failed" && s.Attempt == 2 })
+}
+
+func TestVPNRepairReconcilesCurrentHealth(t *testing.T) {
+	healthy := State{Mode: state.ModeMullvad, HotspotRunning: true, VPNHealth: state.VPNHealth{
+		CountryAllowed: true, InterfaceUp: true, HandshakeHealthy: true, EgressOK: true,
+	}}
+	c := newVPNRepairCoordinator(&vpnStateReader{value: healthy}, &vpnController{})
+	c.status = state.VPNRepair{Phase: "failed", FailedPhase: "fetching", Error: "download failed", NextRetryAt: time.Now().Add(-time.Second).Format(time.RFC3339)}
+	s := c.snapshotFor(healthy)
+	if s == nil || s.Phase != "recovered" || s.Error != "" || s.NextRetryAt != "" || s.FailedPhase != "" {
+		t.Fatalf("healthy connection retained a stale failure: %+v", s)
+	}
+	healthy.VPNHealth.EgressOK = false
+	if s := c.snapshotFor(healthy); s != nil {
+		t.Fatalf("unhealthy connection retained stale success: %+v", s)
+	}
+	for _, st := range []State{{Mode: state.ModeResidential, HotspotRunning: true}, {Mode: state.ModeMullvad}} {
+		c.status = state.VPNRepair{Phase: "failed", Error: "old error"}
+		if s := c.snapshotFor(st); s != nil {
+			t.Fatalf("inactive VPN route retained recovery state: %+v", s)
+		}
+	}
+}
+
+func TestManualVPNRepairRejectsInactiveRoute(t *testing.T) {
+	for _, st := range []State{{Mode: state.ModeResidential, HotspotRunning: true}, {Mode: state.ModeMullvad}} {
+		controller := &vpnController{}
+		srv := New(&vpnStateReader{value: st}, nil, controller, nil, nil, nil, nil)
+		res := httptest.NewRecorder()
+		srv.handleHotspot(res, httptest.NewRequest(http.MethodPost, "/api/hotspot/repair-vpn", nil))
+		if res.Code != http.StatusConflict {
+			t.Fatalf("inactive route status = %d; body = %s", res.Code, res.Body.String())
+		}
+		controller.mu.Lock()
+		calls := controller.calls
+		controller.mu.Unlock()
+		if calls != 0 {
+			t.Fatal("inactive route started a repair")
+		}
 	}
 }
 

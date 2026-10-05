@@ -413,8 +413,24 @@ func (s *Server) handleHotspot(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(r.URL.Path, "/restart"):
 		err = s.Hotspot.Restart(r.Context())
 	case strings.HasSuffix(r.URL.Path, "/repair-vpn"):
+		if s.Hotspot == nil {
+			http.Error(w, "Hotspot controller unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		st, ok := s.readState(w)
+		if !ok {
+			return
+		}
+		if st.Mode != state.ModeMullvad || !st.HotspotRunning {
+			http.Error(w, "Start the hotspot in Mullvad mode before repairing the VPN", http.StatusConflict)
+			return
+		}
 		if s.vpnRepair != nil {
-			status, _ := s.vpnRepair.trigger(false)
+			status, started := s.vpnRepair.trigger(false)
+			if !started && !status.Active {
+				http.Error(w, "Previous VPN repair is stopping. Try again shortly", http.StatusConflict)
+				return
+			}
 			jsonReply(w, status)
 			return
 		}
@@ -499,7 +515,7 @@ func (s *Server) readShellState() (State, error) {
 		st, err = s.State.Read()
 	}
 	if err == nil && s.vpnRepair != nil {
-		st.VPNRepair = s.vpnRepair.snapshot()
+		st.VPNRepair = s.vpnRepair.snapshotFor(st)
 	}
 	return st, err
 }

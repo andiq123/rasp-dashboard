@@ -15,9 +15,12 @@ function load(file, extra = '') {
     compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
   })
   const module = { exports: {} }
-  const resolve = (name) => name.startsWith('@/')
-    ? load(`${name.slice(2)}.ts`)
-    : require(name)
+  const resolve = (name) => {
+    if (!name.startsWith('@/')) return require(name)
+    const relative = name.slice(2)
+    const extension = fs.existsSync(path.resolve(__dirname, '../src', `${relative}.ts`)) ? '.ts' : '.tsx'
+    return load(relative + extension)
+  }
   new Function('require', 'module', 'exports', outputText)(resolve, module, module.exports)
   return module.exports
 }
@@ -50,4 +53,25 @@ const labelId = markup.match(/for="([^"]+)"/)[1]
 assert.ok(markup.includes(`id="${labelId}"`), 'Generated label must target the control')
 assert.ok(markup.includes(`aria-describedby="${labelId}-tip"`), 'Help text must be associated with the control')
 client.clear()
-console.log('UI regressions passed: batched live stats, cache preservation, accessible fields.')
+const { VPNRepairFlow, retryLabel } = load('features/overview/VPNRepairFlow.tsx')
+const renderRepair = (repair, props = {}) => renderToStaticMarkup(React.createElement(VPNRepairFlow, { repair, healthy: false, onRetry() {}, ...props }))
+const failed = { phase: 'failed', failed_phase: 'fetching', error: 'Relay download failed', next_retry_at: '2026-10-05T12:05:00Z', attempt: 2 }
+const failedMarkup = renderRepair(failed)
+assert.ok(failedMarkup.includes('Retry now'), 'A failed repair must offer a manual retry')
+assert.ok(failedMarkup.includes('Relay list: failed'), 'Failure must mark the actual stage')
+assert.ok(failedMarkup.includes('Restart: pending'), 'Failure before restart must not claim a completed restart')
+assert.ok(!renderRepair({ ...failed, failed_phase: undefined }).includes('Restart: completed'), 'Older server failures must not invent completed stages')
+const restoredMarkup = renderRepair(failed, { healthy: true })
+assert.ok(restoredMarkup.includes('VPN connection restored'))
+assert.ok(!restoredMarkup.includes('Relay download failed') && !restoredMarkup.includes('Retry now'), 'A recovered connection must not show stale failure or retry')
+const recoveredMarkup = renderRepair({ phase: 'recovered', message: 'Connection recovered' }, { healthy: true })
+assert.ok(recoveredMarkup.includes('VPN connection restored') && !recoveredMarkup.includes('completed'), 'Natural recovery must not claim repair stages completed')
+const scheduledMarkup = renderRepair({ phase: 'scheduled', next_retry_at: failed.next_retry_at })
+assert.ok(scheduledMarkup.includes('VPN repair scheduled') && scheduledMarkup.includes('Repair now'))
+assert.ok(!scheduledMarkup.includes('animate-spin'), 'Scheduled repair is waiting, not running')
+const pendingMarkup = renderRepair(failed, { loading: true })
+assert.ok(/<button[^>]*disabled/.test(pendingMarkup), 'Retry must disable while submitting')
+assert.equal(retryLabel(failed.next_retry_at, Date.parse('2026-10-05T12:04:01Z')), 'Automatic retry in 59s, if the connection is still unhealthy.')
+assert.equal(retryLabel(failed.next_retry_at, Date.parse('2026-10-05T12:05:01Z')), 'Checking whether another retry is needed…')
+assert.ok(!retryLabel('invalid', Date.now()).includes('NaN'))
+console.log('UI regressions passed: live stats, accessible fields, VPN failure stages, recovery, retry states, countdowns.')

@@ -56,6 +56,7 @@ type VPNRepair struct {
 	Active      bool   `json:"active"`
 	Automatic   bool   `json:"automatic"`
 	Phase       string `json:"phase"`
+	FailedPhase string `json:"failed_phase,omitempty"`
 	Message     string `json:"message"`
 	Attempt     int    `json:"attempt"`
 	StartedAt   string `json:"started_at,omitempty"`
