@@ -97,6 +97,45 @@ Protect the hostname with a Cloudflare Access application before enabling the ro
 Temporary `trycloudflare.com` previews are accepted only when `FIREWIFI_AUTH` is set.
 The dashboard verifies the public route after starting it and never returns a saved
 connector token to the browser.
+
+### Tunnel routing with Mullvad
+
+If Mullvad blocks Cloudflare's outbound tunnel transport, install the optional
+host routing service from this repository on the Pi:
+
+```sh
+sudo install -m 755 scripts/cloudflare-routing.py /usr/local/sbin/firewifi-cloudflare-routing
+sudo install -m 644 scripts/firewifi-cloudflare-routing.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now firewifi-cloudflare-routing.service
+```
+
+Only TCP/UDP port 7844 to Cloudflare's two IPv4 tunnel edge networks uses the
+main routing table and physical uplink. Other traffic retains the VPN policy.
+The service persists across reboot and refuses to overwrite unrelated routing
+rules at priorities 20000–20003. Restart the affected user-systemd tunnel
+connectors after installation, then verify their public health endpoints.
+
+For VPN repairs and relay changes, add these hooks inside `[Interface]` in the
+WireGuard configuration used by `wg-quick` (back up the configuration first):
+
+```ini
+PreUp = if systemctl is-enabled --quiet firewifi-cloudflare-routing.service; then /usr/local/sbin/firewifi-cloudflare-routing stop; fi
+PostUp = if systemctl is-enabled --quiet firewifi-cloudflare-routing.service; then /usr/local/sbin/firewifi-cloudflare-routing start; fi
+```
+
+WireGuard automatically assigns priorities ahead of existing rules. Removing the
+Cloudflare exceptions before startup and restoring them afterward keeps tunnel
+traffic on the physical uplink across VPN reconnects. Relay refreshes must preserve
+these hooks. Remove the hooks before uninstalling the routing helper.
+
+Check routing with `ip route get 198.41.192.67 ipproto tcp dport 7844` and
+`ip route get 1.1.1.1`: the first should use the physical uplink, the second the
+VPN. Roll back with `sudo systemctl disable --now firewifi-cloudflare-routing.service`;
+this removes only the service's four rules.
+
+Routing tests: `python3 -m unittest discover -s scripts -p 'test_cloudflare_routing.py'`.
+
 | `FIREWIFI_FILES_ROOT` | Files browser chroot (default: `$HOME`) |
 | `FIREWIFI_BASE` | Config / token base directory |
 | `HOME` | Deployments root (`$HOME/deployments`) and default paths |

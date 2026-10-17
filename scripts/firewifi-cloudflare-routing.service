@@ -1,0 +1,13 @@
+[Unit]
+Description=Route encrypted Cloudflare tunnels through the physical uplink
+After=network-online.target firewifi.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/firewifi-cloudflare-routing start
+ExecStop=/usr/local/sbin/firewifi-cloudflare-routing stop
+
+[Install]
+WantedBy=multi-user.target
