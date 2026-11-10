@@ -42,15 +42,12 @@ def rules():
             {"dst": address, "dstlen": int(length), "ipproto": protocol, "dport": TUNNEL_PORT, "table": "main"},
         )
     uid = f"{SERVICES_UID}-{SERVICES_UID}"
-    for family in ("-4", "-6"):
-        # IPv6 too: the uplink has none, so services fall back to IPv4 at once
-        # instead of leaving through the VPN's IPv6 route.
-        yield (
-            family,
-            20100,
-            ["uidrange", uid, "lookup", "main"],
-            {"uid_start": SERVICES_UID, "uid_end": SERVICES_UID, "table": "main"},
-        )
+    owner = {"uid_start": SERVICES_UID, "uid_end": SERVICES_UID}
+    yield ("-4", 20100, ["uidrange", uid, "lookup", "main"], {**owner, "table": "main"})
+    # The uplink has no IPv6. Sending services to the main table would find no
+    # route there and fall through to the VPN's, so IPv6 is refused outright and
+    # they use IPv4 at once.
+    yield ("-6", 20100, ["uidrange", uid, "unreachable"], {**owner, "action": "unreachable"})
 
 
 def existing(family):

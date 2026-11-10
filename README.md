@@ -86,8 +86,9 @@ changed). The app must listen on `PORT` on all interfaces.
 ## Service networking
 
 Apps run on the host network as one unprivileged user (uid 64000). A policy routing
-rule on the host (`pref 20100 uidrange 64000-64000 lookup main`, IPv4 and IPv6) sends
-that user's traffic out the physical uplink, so services never use the hotspot VPN,
+rule on the host (`pref 20100 uidrange 64000-64000 lookup main`) sends that user's
+IPv4 traffic out the physical uplink, and its IPv6 is refused (the uplink has none, and
+it would otherwise fall through to the VPN), so services never use the hotspot VPN,
 with nothing to configure per service. Hotspot clients are unaffected: their traffic
 is forwarded, not sent by that user, and stays on the VPN rules the hotspot scripts
 install. Apps resolve names through public resolvers, because the host's resolver is
