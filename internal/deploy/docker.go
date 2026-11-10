@@ -880,6 +880,10 @@ func (m *Manager) runGoContainer(ctx context.Context, svc Service) error {
 
 	m.logf("info", "Replacing any previous container")
 	m.removeServiceContainers(ctx, svc.Group, svc.Slug)
+	// The app must be under the egress rule before it makes its first request.
+	if err := m.EnsureServiceEgress(ctx); err != nil {
+		m.logf("warn", "Service egress: %v — the app may leave through the hotspot VPN", err)
+	}
 	// Host network: app shares the Pi network stack so loopback Postgres
 	// (127.0.0.1:5432) and published ports work without bridge NAT.
 	runArgs := []string{
@@ -888,6 +892,7 @@ func (m *Manager) runGoContainer(ctx context.Context, svc Service) error {
 		"--network", "host",
 		"--restart", "unless-stopped",
 	}
+	runArgs = append(runArgs, serviceEgressArgs()...)
 	if cgroupMemorySupported() {
 		runArgs = append(runArgs, "--memory", fmt.Sprintf("%dm", mem))
 		m.logf("info", "Memory limit %d MB · CPU %s", mem, formatCPUs(cpus))

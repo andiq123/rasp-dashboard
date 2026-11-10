@@ -83,6 +83,16 @@ Rust builds share one Cargo registry cache and keep compiled artifacts per servi
 only the first build is slow (20–40 minutes on a Pi 4; later deploys recompile what
 changed). The app must listen on `PORT` on all interfaces.
 
+## Service networking
+
+Apps run on the host network as one unprivileged user (uid 64000), and the dashboard
+keeps a policy routing rule (`pref 20100 uidrange 64000-64000 lookup main`, IPv4 and
+IPv6) that sends that user's traffic out the physical uplink. Services therefore never
+use the hotspot VPN, with nothing to configure per service. Hotspot clients are
+unaffected: their traffic is forwarded, not sent by that user, and stays on the VPN
+rules the hotspot scripts install. Apps resolve names through public resolvers,
+because the host's resolver is the VPN's while the VPN is up.
+
 ## Optional hardening
 
 | Env | Purpose |
