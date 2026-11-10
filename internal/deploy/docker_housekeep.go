@@ -473,9 +473,9 @@ func (m *Manager) DockerDo(ctx context.Context, act DockerAction) (DockerActionR
 		return res, nil
 
 	case "start":
-		id := strings.TrimSpace(act.ID)
-		if id == "" {
-			return res, fmt.Errorf("id required")
+		id, err := dockerActionID(act.ID)
+		if err != nil {
+			return res, err
 		}
 		out, err := m.dockerQuiet(ctx, "start", id)
 		if err != nil {
@@ -487,9 +487,9 @@ func (m *Manager) DockerDo(ctx context.Context, act DockerAction) (DockerActionR
 		return res, nil
 
 	case "stop":
-		id := strings.TrimSpace(act.ID)
-		if id == "" {
-			return res, fmt.Errorf("id required")
+		id, err := dockerActionID(act.ID)
+		if err != nil {
+			return res, err
 		}
 		out, err := m.dockerQuiet(ctx, "stop", id)
 		if err != nil {
@@ -501,9 +501,9 @@ func (m *Manager) DockerDo(ctx context.Context, act DockerAction) (DockerActionR
 		return res, nil
 
 	case "rm-container", "remove-container":
-		id := strings.TrimSpace(act.ID)
-		if id == "" {
-			return res, fmt.Errorf("id required")
+		id, err := dockerActionID(act.ID)
+		if err != nil {
+			return res, err
 		}
 		args := []string{"rm"}
 		if act.Force {
@@ -520,9 +520,9 @@ func (m *Manager) DockerDo(ctx context.Context, act DockerAction) (DockerActionR
 		return res, nil
 
 	case "rm-image", "remove-image":
-		id := strings.TrimSpace(act.ID)
-		if id == "" {
-			return res, fmt.Errorf("id required")
+		id, err := dockerActionID(act.ID)
+		if err != nil {
+			return res, err
 		}
 		args := []string{"rmi"}
 		if act.Force {
@@ -539,9 +539,9 @@ func (m *Manager) DockerDo(ctx context.Context, act DockerAction) (DockerActionR
 		return res, nil
 
 	case "rm-volume", "remove-volume":
-		id := strings.TrimSpace(act.ID)
-		if id == "" {
-			return res, fmt.Errorf("id required")
+		id, err := dockerActionID(act.ID)
+		if err != nil {
+			return res, err
 		}
 		args := []string{"volume", "rm"}
 		if act.Force {
@@ -630,6 +630,20 @@ func (m *Manager) DockerDo(ctx context.Context, act DockerAction) (DockerActionR
 	}
 }
 
+// dockerActionID validates a container/image/volume reference from the API.
+// It is passed to docker as a bare argument, so a leading "-" would be parsed
+// as a command-line flag instead of a name.
+func dockerActionID(raw string) (string, error) {
+	id := strings.TrimSpace(raw)
+	if id == "" {
+		return "", fmt.Errorf("id required")
+	}
+	if strings.HasPrefix(id, "-") || strings.ContainsAny(id, " \t\r\n\x00") {
+		return "", fmt.Errorf("invalid id")
+	}
+	return id, nil
+}
+
 // listManagedRunningIDs returns IDs of running FireWifi-managed containers.
 // The shared Postgres engine is excluded — control it from Storage → Engine.
 func (m *Manager) listManagedRunningIDs(ctx context.Context) []string {
@@ -674,4 +688,3 @@ func (m *Manager) listManagedRunningIDs(ctx context.Context) []string {
 	}
 	return ids
 }
-

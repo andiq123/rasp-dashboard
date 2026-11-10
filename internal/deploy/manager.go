@@ -33,6 +33,7 @@ type Manager struct {
 	jobScope       string // group/slug or group while a job runs
 	jobStartedAt   time.Time
 	jobCancel      context.CancelFunc
+	jobCancelSeq   uint64 // bumped per registerJobCancel; identifies jobCancel's owner
 	deployQueue    []queuedDeploy
 	deletedMu      sync.Mutex
 	deleting       map[string]struct{} // group/slug being removed — ignore late build completion
@@ -341,13 +342,10 @@ func (m *Manager) DeleteGroup(ctx context.Context, group string) error {
 		return err
 	}
 	var doomed []Service
-	var keep []Service
 	for _, s := range reg.Services {
 		if s.Group == group {
 			doomed = append(doomed, s)
-			continue
 		}
-		keep = append(keep, s)
 	}
 	m.mu.Unlock()
 
@@ -379,6 +377,14 @@ func (m *Manager) DeleteGroup(ctx context.Context, group string) error {
 		m.mu.Unlock()
 		m.releaseJob(false, err.Error())
 		return err
+	}
+	// Filter the registry as it is now: the teardown above ran unlocked, so
+	// other groups' services may have been updated since the first snapshot.
+	keep := make([]Service, 0, len(reg.Services))
+	for _, s := range reg.Services {
+		if s.Group != group {
+			keep = append(keep, s)
+		}
 	}
 	reg.Services = keep
 	next := reg.Groups[:0]
@@ -629,6 +635,17 @@ func (m *Manager) createPostgres(ctx context.Context, group string, name, versio
 		return Service{}, err
 	}
 	m.logf("ok", "Database %s created", db.Name)
+	// m.mu was released for the engine work above: reload so registry writes
+	// made meanwhile (settings, tunnels, auto-deploy SHAs) are not overwritten.
+	reg, err = m.loadRegistry()
+	if err != nil {
+		_ = m.Postgres.DropDatabase(ctx, db.Name)
+		return Service{}, err
+	}
+	if _, idx := findService(reg, group, slug); idx >= 0 {
+		_ = m.Postgres.DropDatabase(ctx, db.Name)
+		return Service{}, fmt.Errorf("service already exists in group")
+	}
 
 	m.stepProgress("register")
 	m.detailProgress("Writing env")
@@ -713,6 +730,10 @@ func (m *Manager) createGo(ctx context.Context, group string, in CreateGoRequest
 	branch := strings.TrimSpace(in.Branch)
 	if branch == "" {
 		branch = defaultBranch
+	}
+	if err := validateBranch(branch); err != nil {
+		m.mu.Unlock()
+		return Service{}, "", err
 	}
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
@@ -1055,30 +1076,6 @@ func (m *Manager) persistService(svc Service) {
 	_ = m.writeMeta(svc)
 }
 
-// persistServiceExact is for explicit operator changes where empty values are
-// meaningful (for example removing a public URL). Deploy pipelines use
-// persistService instead so concurrently rebuilt values retain operator config.
-func (m *Manager) persistServiceExact(svc Service) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	reg, err := m.loadRegistry()
-	if err != nil {
-		return err
-	}
-	if m.isDeleting(svc.Group, svc.Slug) {
-		return fmt.Errorf("service is being deleted")
-	}
-	_, idx := findService(reg, svc.Group, svc.Slug)
-	if idx < 0 {
-		return fmt.Errorf("service not found")
-	}
-	reg.Services[idx] = svc
-	if err := m.saveRegistry(reg); err != nil {
-		return err
-	}
-	return m.writeMeta(svc)
-}
-
 // markBuilding updates registry immediately so polls never show Failed mid-deploy.
 func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in SettingsUpdate) (Service, error) {
 	if err := requireSlug(group, "group"); err != nil {
@@ -1107,6 +1104,10 @@ func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in Set
 		nb := strings.TrimSpace(*in.Branch)
 		if nb == "" {
 			nb = defaultBranch
+		}
+		if err := validateBranch(nb); err != nil {
+			m.mu.Unlock()
+			return Service{}, err
 		}
 		if nb != svc.Branch {
 			svc.Branch = nb
@@ -1327,9 +1328,9 @@ func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in Set
 
 func (m *Manager) finishGoDeployAsync(svc Service, buildDir, deployID, okMsg string) {
 	ctx, cancel := context.WithTimeout(context.Background(), deployTimeout(buildDir))
-	m.registerJobCancel(cancel)
+	cancelToken := m.registerJobCancel(cancel)
 	go func() {
-		defer m.clearJobCancel(cancel)
+		defer m.clearJobCancel(cancelToken)
 		defer cancel()
 		m.logf("info", "Background build started — logs keep updating here")
 		err := m.buildAndRunGo(ctx, svc, buildDir, deployID)
@@ -1379,8 +1380,12 @@ func (m *Manager) Start(ctx context.Context, group, slug string) error {
 	}
 	var runErr error
 	if svc.Type == TypePostgres {
-		m.logf("step", "Starting shared Postgres engine")
-		runErr = m.Postgres.Start(ctx)
+		if m.Postgres == nil {
+			runErr = fmt.Errorf("postgres engine not configured")
+		} else {
+			m.logf("step", "Starting shared Postgres engine")
+			runErr = m.Postgres.Start(ctx)
+		}
 	} else if svc.Type == TypeBucket {
 		if m.MinIO == nil {
 			runErr = fmt.Errorf("minio engine not configured")
@@ -1400,7 +1405,7 @@ func (m *Manager) Start(ctx context.Context, group, slug string) error {
 		svc.Status = "failed"
 		svc.LastError = runErr.Error()
 		svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-		m.persistService(svc)
+		m.persistRunState(svc)
 		m.logf("err", "Start failed · %s", runErr.Error())
 		m.releaseJob(false, runErr.Error())
 		return runErr
@@ -1437,7 +1442,7 @@ func (m *Manager) Start(ctx context.Context, group, slug string) error {
 	svc.Status = "running"
 	svc.LastError = ""
 	svc.UpdatedAt = now
-	m.persistService(svc)
+	m.persistRunState(svc)
 	m.stepProgress("health")
 	endpoint := svc.URL
 	if svc.Type == TypeRedis {
@@ -1529,7 +1534,7 @@ func (m *Manager) Stop(ctx context.Context, group, slug string) error {
 	svc.Running = false
 	svc.Status = "stopped"
 	svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	m.persistService(svc)
+	m.persistRunState(svc)
 	if svc.Type == TypeRedis {
 		m.logf("ok", "Stopped · data volume kept — Start without reprovisioning")
 	} else {
@@ -1616,7 +1621,7 @@ func (m *Manager) Restart(ctx context.Context, group, slug string) error {
 	svc.Status = "running"
 	svc.LastError = ""
 	svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	m.persistService(svc)
+	m.persistRunState(svc)
 	m.stepProgress("health")
 	endpoint := svc.URL
 	if svc.Type == TypeRedis {
@@ -1872,7 +1877,9 @@ func (m *Manager) refreshStatus(ctx context.Context, svc Service) Service {
 		// Never clobber in-flight or queued deploys — UI must not flash Failed/Stopped mid-pipeline.
 		switch svc.Status {
 		case "queued":
-			if m.isDeployQueued(svc.Group, svc.Slug) {
+			// Also pending when the item was just dequeued and owns the job slot
+			// but executeGoDeploy has not flipped the registry to "building" yet.
+			if m.isServiceProvisionPending(svc.Group, svc.Slug) {
 				svc.LastError = ""
 				break
 			}
@@ -2181,6 +2188,21 @@ func (m *Manager) cloneOrPull(ctx context.Context, repoDir, repo, branch, token 
 		return fmt.Errorf("activate cloned source: %w", err)
 	}
 	m.logf("ok", "Clone on disk · %s", fmtBytes(dirSize(repoDir)))
+	return nil
+}
+
+// validateBranch rejects branch names that git would parse as something else.
+// The branch is passed as a bare argument to git fetch/checkout, so a value
+// starting with "-" would be read as a command-line option.
+func validateBranch(branch string) error {
+	if branch == "" || len(branch) > 255 || strings.HasPrefix(branch, "-") || strings.Contains(branch, "..") {
+		return fmt.Errorf("invalid branch name")
+	}
+	for _, r := range branch {
+		if r <= ' ' || r == 0x7f || strings.ContainsRune(`~^:?*[\`, r) {
+			return fmt.Errorf("invalid branch name")
+		}
+	}
 	return nil
 }
 

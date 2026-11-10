@@ -7,7 +7,7 @@ web-ui/src/
   api/            # typed client + query keys
   components/ui/  # shared primitives (Button, Field, Modal, …)
   features/       # overview | projects | settings | files
-  shell/          # rail + topbar
+  shell/          # top bar, nav, theme toggle
 ```
 
 ## Pack into the Go binary

@@ -247,7 +247,7 @@ export function DockerPanel() {
                     ]
                 ).map((d) => (
                   <div key={d.type} className={`${tile} px-2.5 py-2`}>
-                    <div className={`text-[10px] font-bold uppercase tracking-wide ${muted}`}>
+                    <div className={`text-[10px] font-bold ${muted}`}>
                       {d.type.replace('Local ', '')}
                     </div>
                     <div className="text-sm font-bold tabular-nums leading-tight mt-0.5">

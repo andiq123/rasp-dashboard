@@ -34,7 +34,7 @@ export function UsageMeter({
     <div className={`grid ${compact ? 'gap-1' : 'gap-1.5'} min-w-0`}>
       <div className="flex items-baseline justify-between gap-2 min-w-0">
         <span
-          className={`uppercase tracking-wide font-bold ${muted} ${
+          className={` font-bold ${muted} ${
             compact ? 'text-[10px]' : 'text-[11px]'
           }`}
         >

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -56,6 +57,9 @@ type Server struct {
 	Postgres  *infra.Postgres
 	History   *monitor.Store
 	vpnRepair *vpnRepairCoordinator
+	// bgCtx is the lifetime context from StartBackground. Long-lived streams
+	// watch it so graceful shutdown is not held open by idle SSE clients.
+	bgCtx context.Context
 }
 
 func New(
@@ -90,6 +94,9 @@ func New(
 
 // StartBackground runs bounded host recovery jobs for the lifetime of ctx.
 func (s *Server) StartBackground(ctx context.Context) {
+	if s != nil {
+		s.bgCtx = ctx
+	}
 	if s != nil && s.vpnRepair != nil {
 		s.vpnRepair.start(ctx)
 	}
@@ -257,9 +264,18 @@ func (s *Server) handleAPIEvents(w http.ResponseWriter, r *http.Request) {
 	keepAlive := time.NewTicker(20 * time.Second)
 	defer keepAlive.Stop()
 
+	var shutdown <-chan struct{}
+	if s.bgCtx != nil {
+		shutdown = s.bgCtx.Done()
+	}
+
 	for {
 		select {
 		case <-r.Context().Done():
+			return
+		case <-shutdown:
+			// http.Server.Shutdown waits for active handlers; an event stream
+			// never finishes on its own, so end it when the server stops.
 			return
 		case snap, ok := <-actCh:
 			if !ok {
@@ -497,7 +513,11 @@ func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.Config.Save(cfg); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			status := http.StatusInternalServerError
+			if errors.Is(err, state.ErrInvalidConfig) {
+				status = http.StatusBadRequest
+			}
+			http.Error(w, err.Error(), status)
 			return
 		}
 		okReply(w)

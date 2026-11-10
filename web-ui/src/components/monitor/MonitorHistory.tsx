@@ -61,7 +61,7 @@ function formatHoverTime(at = 0) {
 function Stat({ label, value, detail, icon: Icon }: { label: string; value: string; detail: string; icon: typeof Cpu }) {
   return (
     <div className={`${tile} px-2.5 py-2 min-w-0`}>
-      <span className={`flex items-center gap-1 text-[10px] font-bold uppercase ${muted}`}>
+      <span className={`flex items-center gap-1 text-[10px] font-bold ${muted}`}>
         <Icon className="h-3 w-3" aria-hidden /> {label}
       </span>
       <strong className="block text-base mt-0.5 tabular-nums">{value}</strong>

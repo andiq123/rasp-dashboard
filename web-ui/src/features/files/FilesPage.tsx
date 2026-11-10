@@ -34,7 +34,7 @@ export function FilesPage() {
   const { showToast } = useToast()
   const { confirm } = useConfirm()
   const qc = useQueryClient()
-  const home = readInitialState().files_root || '/home'
+  const [home] = useState(() => readInitialState().files_root || '/home')
   const pathFromRoute = splat ? `/${splat}` : ''
   const path = pathFromRoute || home
   const [query, setQuery] = useState('')
@@ -186,7 +186,7 @@ export function FilesPage() {
       </PageHeader>
 
       <div className="grid grid-cols-1 gap-3.5 min-h-[60vh] lg:grid-cols-[minmax(0,1.25fr)_minmax(260px,0.75fr)]">
-        <div className={`card ${surface} overflow-hidden section-enter min-h-[360px] flex flex-col`}>
+        <div className={`card ${surface} overflow-hidden min-h-[360px] flex flex-col`}>
           {listingQ.isLoading ? (
             <div className="p-4">
               <Spinner label="Loading…" />
@@ -251,7 +251,7 @@ export function FilesPage() {
           )}
         </div>
 
-        <aside className={`card ${surface} section-enter min-h-[360px] flex flex-col`}>
+        <aside className={`card ${surface} min-h-[360px] flex flex-col`}>
           <div className="card-body gap-2.5 p-3.5 flex-1 min-h-0 grid grid-rows-[auto_1fr]">
             {!selected ? (
               <div className="grid place-items-center">

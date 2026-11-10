@@ -74,6 +74,17 @@ func (m *Manager) createBucket(ctx context.Context, group, name string) (Service
 		return Service{}, err
 	}
 	m.logf("ok", "Bucket %s created", info.Name)
+	// m.mu was released for the engine work above: reload so registry writes
+	// made meanwhile are not overwritten by the stale snapshot.
+	reg, err = m.loadRegistry()
+	if err != nil {
+		_ = m.MinIO.DeleteBucket(ctx, info.Name)
+		return Service{}, err
+	}
+	if _, idx := findService(reg, group, slug); idx >= 0 {
+		_ = m.MinIO.DeleteBucket(ctx, info.Name)
+		return Service{}, fmt.Errorf("service already exists in group")
+	}
 
 	m.stepProgress("register")
 	m.detailProgress("Writing env")

@@ -49,7 +49,7 @@ func (m *Manager) EnsureTunnel(ctx context.Context, group, slug string) (Service
 	}
 
 	m.syncTunnel(&svc)
-	m.persistService(svc)
+	m.persistTunnelState(svc)
 	return svc, nil
 }
 
@@ -135,7 +135,7 @@ func originsMatch(unitOrigin, wantOrigin string) bool {
 func (m *Manager) keepTunnel(svc Service, public string) (Service, error) {
 	if public == "" {
 		m.syncTunnel(&svc)
-		m.persistService(svc)
+		m.persistTunnelState(svc)
 		return svc, nil
 	}
 	m.writeTunnelURL(svc.Group, svc.Slug, public)
@@ -143,7 +143,7 @@ func (m *Manager) keepTunnel(svc Service, public string) (Service, error) {
 	svc.TunnelActive = true
 	m.restorePublicPath(&svc)
 	svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	m.persistService(svc)
+	m.persistTunnelState(svc)
 	m.logf("ok", "Tunnel kept %s/%s → %s", svc.Group, svc.Slug, publicOpenURL(public, svc.PublicPath))
 	return svc, nil
 }

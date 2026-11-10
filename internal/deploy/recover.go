@@ -109,7 +109,10 @@ func (m *Manager) persistInterruptedAsync(svc Service) {
 			return
 		}
 		cur, idx := findService(reg, snap.Group, snap.Slug)
-		if idx < 0 || cur.Status != "building" {
+		// Re-check ownership now: the caller's snapshot may predate a deploy
+		// that has since started for this service. Failing it here would mark
+		// the live deployment failed and remove its running containers.
+		if idx < 0 || cur.Status != "building" || m.isServiceProvisionPending(snap.Group, snap.Slug) {
 			m.mu.Unlock()
 			return
 		}
@@ -137,6 +140,9 @@ func (m *Manager) persistInterruptedAsync(svc Service) {
 	}(svc)
 }
 
+// crashRewriteInterval limits how often an already-recorded crash is rewritten.
+const crashRewriteInterval = time.Minute
+
 func (m *Manager) persistCrashAsync(svc Service) {
 	go func(snap Service) {
 		m.mu.Lock()
@@ -153,8 +159,17 @@ func (m *Manager) persistCrashAsync(svc Service) {
 			return
 		}
 		nextErr := strings.TrimSpace(snap.LastError)
-		if cur.Status == "failed" && !cur.Running && nextErr != "" && cur.LastError == nextErr {
-			return
+		if cur.Status == "failed" && !cur.Running && strings.TrimSpace(cur.LastError) != "" {
+			if nextErr == "" || cur.LastError == nextErr {
+				return
+			}
+			// A crash-looping container ends on a different log line each
+			// time. Every save emits a services event, the UI refetches, and
+			// the refetch lands back here: refresh the stored reason at most
+			// once per interval. API responses still carry the live summary.
+			if t, err := time.Parse(time.RFC3339, cur.UpdatedAt); err == nil && time.Since(t) < crashRewriteInterval {
+				return
+			}
 		}
 		cur.Status = "failed"
 		cur.Running = false

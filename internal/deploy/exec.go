@@ -72,6 +72,10 @@ func (m *Manager) runCmdLogged(ctx context.Context, label string, name string, a
 			mu.Unlock()
 			m.logf(classifyCmdLine(line), "%s", line)
 		}
+		// Scan stops early on an over-long line (bufio.ErrTooLong). Keep
+		// draining, or the child blocks forever on a full pipe and the
+		// command hangs until its context expires.
+		_, _ = io.Copy(io.Discard, r)
 	}
 
 	wg.Add(2)

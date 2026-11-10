@@ -68,10 +68,3 @@ export function hostCapacity(metrics?: DeviceMetrics | null): HostCapacity {
     live_busy_percent: Number(metrics?.cpu?.busy_percent || 0),
   }
 }
-
-export function remainingAfterReserve(host: HostCapacity, reserved: Reserved) {
-  return {
-    memory_mb: host.total_mb > 0 ? host.total_mb - reserved.memory_mb : null,
-    cpus: host.cores > 0 ? Math.round((host.cores - reserved.cpus) * 10) / 10 : null,
-  }
-}

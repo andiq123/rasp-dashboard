@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 )
@@ -452,7 +454,39 @@ func guardFilesPath(path string) error {
 	if !strings.HasPrefix(path, prefix) {
 		return fmt.Errorf("path outside allowed root (%s)", root)
 	}
-	return nil
+	return guardFilesSymlinks(root, path)
+}
+
+// guardFilesSymlinks rejects paths that leave the root through a symlinked
+// parent directory (root/link/x where link → /etc). The lexical prefix check
+// alone would let such a path list, preview, copy or delete files outside the
+// root. The final component is deliberately not resolved: every operation
+// treats it as the link itself (Lstat / rename / remove), never its target.
+func guardFilesSymlinks(root, path string) error {
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		realRoot = root
+	}
+	// Deepest existing ancestor: components below it do not exist yet, so
+	// they cannot be symlinks.
+	dir := filepath.Dir(path)
+	for {
+		real, err := filepath.EvalSymlinks(dir)
+		if err == nil {
+			if real != realRoot && !strings.HasPrefix(real, realRoot+string(os.PathSeparator)) {
+				return fmt.Errorf("path outside allowed root (%s)", root)
+			}
+			return nil
+		}
+		if !os.IsNotExist(err) && !errors.Is(err, syscall.ENOTDIR) {
+			return fmt.Errorf("path not accessible")
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return fmt.Errorf("path outside allowed root (%s)", root)
+		}
+		dir = parent
+	}
 }
 
 func guardFilesMutate(path string) error {

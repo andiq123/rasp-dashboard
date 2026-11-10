@@ -89,4 +89,3 @@ func DetectNPM(srcDir string) bool {
 func DetectGo(srcDir string) bool {
 	return fileExists(filepath.Join(srcDir, "go.mod"))
 }
-

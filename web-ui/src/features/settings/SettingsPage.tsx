@@ -21,6 +21,7 @@ import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { usePendingAddGo } from '@/features/projects/pendingAddGo'
 import { DockerPanel } from '@/features/settings/DockerPanel'
+import { writeClipboardText } from '@/lib/clipboard'
 import { codeSurface, muted } from '@/lib/ui'
 
 export function SettingsPage() {
@@ -111,7 +112,7 @@ export function SettingsPage() {
     const key = sshKey.data?.public_key?.trim()
     if (!key) return
     try {
-      await navigator.clipboard.writeText(key)
+      await writeClipboardText(key)
       showToast('SSH key copied')
     } catch {
       showToast('Could not copy — select the key manually', 'error')

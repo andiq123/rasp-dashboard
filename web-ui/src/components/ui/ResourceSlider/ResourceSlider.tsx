@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { muted } from '@/lib/ui'
 import { RESOURCE } from '@/lib/resources'
 
@@ -15,6 +16,45 @@ type Props = {
   disabled?: boolean
   /** Live usage (same unit as value) — draws a smooth fill under the limit thumb. */
   liveValue?: number | null
+}
+
+/** Typing stays free-form (so "1024" isn't clamped at "1"); the value commits on blur or Enter. */
+function NumberBox({
+  id,
+  label,
+  value,
+  min,
+  max,
+  step,
+  disabled,
+  onChange,
+}: Pick<Props, 'id' | 'label' | 'value' | 'min' | 'max' | 'step' | 'disabled' | 'onChange'>) {
+  const [draft, setDraft] = useState<string | null>(null)
+  function commit() {
+    if (draft == null) return
+    const n = Number(draft)
+    if (draft.trim() !== '' && Number.isFinite(n)) onChange(Math.min(max, Math.max(min, n)))
+    setDraft(null)
+  }
+  return (
+    <input
+      type="number"
+      inputMode="decimal"
+      className="input input-sm w-24"
+      min={min}
+      max={max}
+      step={step}
+      value={draft ?? value}
+      disabled={disabled}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit()
+      }}
+      aria-label={label}
+      aria-describedby={`${id}-range`}
+    />
+  )
 }
 
 /** Range + numeric input for memory/CPU with optional live usage fill. */
@@ -75,22 +115,9 @@ export function ResourceSlider({
           />
         </div>
         <div className="flex items-center gap-2">
-          <input
-            type="number"
-            className="input input-sm w-24"
-            min={min}
-            max={max}
-            step={step}
-            value={value}
-            disabled={disabled}
-            onChange={(e) => {
-              const n = Number(e.target.value)
-              if (Number.isFinite(n)) onChange(n)
-            }}
-            aria-label={label}
-          />
-          <span className={`text-xs ${muted}`}>
-            {unit} · {min}–{max}
+          <NumberBox id={id} label={label} value={value} min={min} max={max} step={step} disabled={disabled} onChange={onChange} />
+          <span id={`${id}-range`} className={`text-xs ${muted}`}>
+            {min}–{max}
             {unit}
             {liveValue != null ? (
               <span className="text-info"> · live {Math.round(liveValue * 10) / 10}{unit}</span>

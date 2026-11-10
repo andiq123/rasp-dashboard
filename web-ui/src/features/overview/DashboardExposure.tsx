@@ -1,3 +1,4 @@
+import { writeClipboardText } from '@/lib/clipboard'
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, Cloud, CloudOff, Copy, ExternalLink, LockKeyhole, ShieldCheck } from 'lucide-react'
@@ -76,7 +77,7 @@ export function DashboardExposure() {
   async function copyURL() {
     if (!status?.public_url) return
     try {
-      await navigator.clipboard.writeText(status.public_url)
+      await writeClipboardText(status.public_url)
       showToast('Public dashboard URL copied')
     } catch {
       showToast('Could not copy the URL', 'error')

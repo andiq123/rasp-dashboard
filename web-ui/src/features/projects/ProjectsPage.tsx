@@ -16,10 +16,8 @@ import {
   Trash2,
 } from 'lucide-react'
 import {
-  createBucket,
   createGroup,
-  createPostgres,
-  createRedis,
+  createService,
   deleteGroup,
   deployGo,
   fetchBranches,
@@ -50,7 +48,6 @@ import { fmtBytes, slugify } from '@/lib/format'
 import { hostCapacity, reservedFromServices, RESOURCE } from '@/lib/resources'
 import { muted, surface, tile } from '@/lib/ui'
 import { usePendingAddGo } from './pendingAddGo'
-import { PageHeader, PageSub } from '@/components/ui/PageHeader/PageHeader'
 import { ServiceCard } from './ServiceCard'
 import { ServiceDetail } from './ServiceDetail'
 import { DeployQueue } from './DeployQueue'
@@ -64,7 +61,7 @@ import {
   statusLabel,
   statusTone,
 } from './serviceStatus'
-import { activityMatchesGroup, useActivity } from '@/hooks/useActivity'
+import { activityMatchesGroup, useActivity, activityMatchesService } from '@/hooks/useActivity'
 import { useLiveState } from '@/hooks/useLiveState'
 
 type WizardStep = 'type' | 'github' | 'group' | 'go' | 'postgres' | 'bucket' | 'redis' | null
@@ -208,7 +205,10 @@ export function ProjectsPage() {
   const redisSlugTaken = !!redisServiceSlug && services.some((service) => service.slug === redisServiceSlug)
   const selected = services.find((s) => s.slug === serviceSlug)
   const buildingN = services.filter(isBuilding).length
-  const queuedN = Math.max(services.filter(isQueued).length, (activity.queue || []).length)
+  const queuedN = Math.max(
+    services.filter(isQueued).length,
+    (activity.queue || []).filter((q) => q.group === groupSlug).length,
+  )
   const liveDeploying = activity.active && activityMatchesGroup(activity, groupSlug)
   const deployingN = Math.max(buildingN + queuedN, liveDeploying ? 1 : 0)
 
@@ -290,8 +290,8 @@ export function ProjectsPage() {
         linked_bucket: goForm.linked_bucket,
         linked_redis: goForm.linked_redis,
         root_dir: goForm.root_dir,
-        memory_mb: goForm.memory_mb,
-        cpus: goForm.cpus,
+        memory_mb: clampMem(goForm.memory_mb),
+        cpus: clampCpu(goForm.cpus),
         build_cmd: goForm.build_cmd,
         go_toolchain: 'auto',
         env: goForm.env,
@@ -306,7 +306,7 @@ export function ProjectsPage() {
   })
 
   const pgMut = useMutation({
-    mutationFn: (name: string) => createPostgres(groupSlug, { type: 'postgres', name, version: 'latest' }),
+    mutationFn: (name: string) => createService(groupSlug, 'postgres', { name, version: 'latest' }),
     onSuccess: async (svc) => {
       const queued = svc.status === 'queued'
       showToast(queued ? 'Postgres queued — it will start automatically' : 'Postgres ready', queued ? 'info' : 'success')
@@ -320,7 +320,7 @@ export function ProjectsPage() {
   })
 
   const bucketMut = useMutation({
-    mutationFn: (name: string) => createBucket(groupSlug, { type: 'bucket', name }),
+    mutationFn: (name: string) => createService(groupSlug, 'bucket', { name }),
     onSuccess: async (svc) => {
       const queued = svc.status === 'queued'
       showToast(queued ? 'Bucket queued — it will start automatically' : 'Bucket ready', queued ? 'info' : 'success')
@@ -334,7 +334,7 @@ export function ProjectsPage() {
   })
 
   const redisMut = useMutation({
-    mutationFn: (name: string) => createRedis(groupSlug, { name }),
+    mutationFn: (name: string) => createService(groupSlug, 'redis', { name }),
     onSuccess: async (svc) => {
       const queued = svc.status === 'queued'
       showToast(queued ? 'Redis queued — it will start automatically' : 'Redis ready', queued ? 'info' : 'success')
@@ -418,10 +418,10 @@ export function ProjectsPage() {
   const nameDirty = group && draftName.trim() !== (group.name || group.slug).trim()
 
   return (
-    <div className="grid gap-5">
-      <PageHeader title="Projects"><PageSub>Deploy, organize, and monitor your applications.</PageSub></PageHeader>
+    <div className="grid gap-4">
+      <h1 className="sr-only">Projects</h1>
       <div className="grid grid-cols-1 gap-3.5 items-start xl:min-h-[60vh] xl:grid-cols-[minmax(180px,220px)_minmax(0,1fr)]">
-        <aside className={`card ${surface} section-enter`}>
+        <aside className={`card ${surface} ${serviceSlug ? 'max-xl:hidden' : ''}`}>
           <div className="card-body gap-3 p-3">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-bold m-0">Groups</h3>
@@ -496,7 +496,7 @@ export function ProjectsPage() {
                   >
                     {(svc) => {
                       const Icon = serviceTypeIcon(svc.type)
-                      const busy = isBuilding(svc) || (activity.active && activity.scope?.startsWith(`${groupSlug}/${svc.slug}`))
+                      const busy = isBuilding(svc) || (activity.active && activityMatchesService(activity, groupSlug, svc.slug))
                       const waiting = isQueued(svc) && !busy
                       const tone = statusTone(svc, { busy, waiting })
                       const label = statusLabel(svc)
@@ -530,7 +530,7 @@ export function ProjectsPage() {
         </aside>
 
         <section
-          className={`card ${surface} section-enter ${deployingN ? 'border-info/40' : ''}`}
+          className={`card ${surface} ${deployingN ? 'border-info/40' : ''}`}
         >
           <div className="card-body gap-4 p-3 sm:p-4">
             {!groupSlug && groupsQ.isError ? (
@@ -659,6 +659,7 @@ export function ProjectsPage() {
 
                 {selected ? (
                   <ServiceDetail
+                    key={`${groupSlug}/${selected.slug}`}
                     group={groupSlug}
                     slug={selected.slug}
                     siblings={services}

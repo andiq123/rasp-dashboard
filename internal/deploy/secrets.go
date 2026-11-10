@@ -68,7 +68,7 @@ func (m *Manager) envHintsForService(svc Service) envStackHints {
 	}
 	src := filepath.Join(m.serviceDir(svc.Group, svc.Slug), "repo")
 	if root := strings.TrimSpace(svc.RootDir); root != "" && root != "." && root != "/" {
-		src = filepath.Join(src, filepath.Clean("/"+root)[1:])
+		src = filepath.Join(src, filepath.Clean("/" + root)[1:])
 	}
 	h := detectEnvStackHints(src)
 	h.Go = !h.Rust

@@ -119,9 +119,10 @@ export const updateServiceSettings = (group: string, slug: string, body: Service
     body,
   })
 
-export const fetchServiceLogs = (group: string, slug: string, lines = 200) =>
+export const fetchServiceLogs = (group: string, slug: string, lines = 200, signal?: AbortSignal) =>
   api<{ logs?: string }>(
     `/api/groups/${encodeURIComponent(group)}/services/${encodeURIComponent(slug)}/logs?lines=${lines}`,
+    { signal },
   ).then((r) => r.logs || '')
 
 export const fetchDeployments = (group: string, slug: string) =>
@@ -129,31 +130,17 @@ export const fetchDeployments = (group: string, slug: string) =>
     `/api/groups/${encodeURIComponent(group)}/services/${encodeURIComponent(slug)}/deployments`,
   ).then((r) => r.deployments || [])
 
-export const fetchDeployLogs = (group: string, slug: string, deployId: string) =>
+export const fetchDeployLogs = (group: string, slug: string, deployId: string, signal?: AbortSignal) =>
   api<{ lines: ActivityLine[] }>(
     `/api/groups/${encodeURIComponent(group)}/services/${encodeURIComponent(slug)}/deployments/${encodeURIComponent(deployId)}/logs`,
+    { signal },
   ).then((r) => r.lines || [])
 
 export const deployGo = (group: string, body: Record<string, unknown>) =>
   api<Service>(`/api/groups/${encodeURIComponent(group)}/services`, { method: 'POST', body })
 
-export const createPostgres = (group: string, body: Record<string, unknown>) =>
-  api<Service>(`/api/groups/${encodeURIComponent(group)}/services`, {
-    method: 'POST',
-    body: { ...body, type: 'postgres' },
-  })
-
-export const createBucket = (group: string, body: Record<string, unknown>) =>
-  api<Service>(`/api/groups/${encodeURIComponent(group)}/services`, {
-    method: 'POST',
-    body: { ...body, type: 'bucket' },
-  })
-
-export const createRedis = (group: string, body: Record<string, unknown>) =>
-  api<Service>(`/api/groups/${encodeURIComponent(group)}/services`, {
-    method: 'POST',
-    body: { ...body, type: 'redis' },
-  })
+export const createService = (group: string, type: 'postgres' | 'bucket' | 'redis', body: Record<string, unknown>) =>
+  api<Service>(`/api/groups/${encodeURIComponent(group)}/services`, { method: 'POST', body: { ...body, type } })
 
 export const serviceAction = (group: string, slug: string, action: string) =>
   api<Service>(`/api/groups/${encodeURIComponent(group)}/services/${encodeURIComponent(slug)}/${action}`, {

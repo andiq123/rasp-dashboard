@@ -185,6 +185,7 @@ func (m *Manager) buildRust(ctx context.Context, svc Service, buildDir, outDir s
 	buildName := buildContainerName(svc.Group, svc.Slug)
 	m.stopContainer(ctx, buildName)
 	defer m.stopContainer(context.Background(), buildName)
+	defer m.stopBuildContainerOnDone(buildCtx, buildName)()
 
 	args := []string{"run", "--rm", "--name", buildName}
 	args = append(args, dockerScopeLabels(svc.Group, svc.Slug, "build")...)

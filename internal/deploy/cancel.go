@@ -45,27 +45,31 @@ func (m *Manager) isDeleting(group, slug string) bool {
 	return ok
 }
 
-func (m *Manager) registerJobCancel(cancel context.CancelFunc) {
+// registerJobCancel installs the active job's cancel func and returns a token
+// identifying this registration for clearJobCancel.
+func (m *Manager) registerJobCancel(cancel context.CancelFunc) uint64 {
 	if m == nil || cancel == nil {
-		return
+		return 0
 	}
 	m.jobMu.Lock()
 	defer m.jobMu.Unlock()
+	m.jobCancelSeq++
 	m.jobCancel = cancel
+	return m.jobCancelSeq
 }
 
-func (m *Manager) clearJobCancel(cancel context.CancelFunc) {
-	if m == nil {
+// clearJobCancel drops the registered cancel only if it is still the one that
+// registerJobCancel returned token for, so a finished job never clobbers the
+// cancel func of the next job. (Func values cannot be compared: %p prints the
+// shared code pointer, which is identical for every context cancel func.)
+func (m *Manager) clearJobCancel(token uint64) {
+	if m == nil || token == 0 {
 		return
 	}
 	m.jobMu.Lock()
 	defer m.jobMu.Unlock()
-	// Only clear if this is still our registered cancel (avoid clobbering a newer job).
-	if cancel != nil && m.jobCancel != nil {
-		// identity via pointer string — cancel funcs from WithTimeout are stable for the job lifetime
-		if fmt.Sprintf("%p", m.jobCancel) == fmt.Sprintf("%p", cancel) {
-			m.jobCancel = nil
-		}
+	if m.jobCancel != nil && m.jobCancelSeq == token {
+		m.jobCancel = nil
 	}
 }
 

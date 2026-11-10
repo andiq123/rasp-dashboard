@@ -452,13 +452,10 @@ func (h *ActivityHub) Subscribe() (<-chan ActivitySnapshot, func()) {
 		return ch, func() {}
 	}
 	h.subs[ch] = struct{}{}
-	// Initial snapshot so clients catch up immediately.
-	snap := h.snapshotLocked()
+	// Initial snapshot so clients catch up immediately. Sent under the lock so
+	// it can never be queued behind (and thus override) a newer broadcast.
+	ch <- h.snapshotLocked() // fresh buffered channel: never blocks
 	h.mu.Unlock()
-	select {
-	case ch <- snap:
-	default:
-	}
 	cancel := func() {
 		h.mu.Lock()
 		if _, ok := h.subs[ch]; ok {
@@ -475,8 +472,20 @@ func (h *ActivityHub) broadcastLocked() {
 	for ch := range h.subs {
 		select {
 		case ch <- snap:
+			continue
 		default:
-			// Drop if subscriber is slow — next event will catch up via Snapshot().
+		}
+		// Subscriber is slow. Every snapshot is the complete state, so drop
+		// the oldest queued one and keep the newest: the final snapshot of a
+		// job (End) must never be the one that is lost, or clients would show
+		// the job as running until the next unrelated event.
+		select {
+		case <-ch:
+		default:
+		}
+		select {
+		case ch <- snap:
+		default:
 		}
 	}
 }
@@ -561,7 +570,12 @@ func (m *Manager) AttachDeploymentID(id string) {
 }
 
 func (m *Manager) endJob(ok bool, msg string) {
-	if m == nil || m.Activity == nil {
+	if m == nil {
+		return
+	}
+	// Jobs start, stop and replace containers; their cached PIDs are now stale.
+	m.stats.invalidatePIDs()
+	if m.Activity == nil {
 		return
 	}
 	m.Activity.End(ok, msg)

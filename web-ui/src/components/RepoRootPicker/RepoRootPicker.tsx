@@ -106,7 +106,7 @@ export function RepoRootPicker({ repo, branch, value, onChange, disabled }: Prop
 
       {!browse && modules.length ? (
         <div className="px-2.5 py-2 border-b border-base-300 grid gap-1">
-          <span className={`text-[11px] font-bold uppercase tracking-wide ${muted}`}>Module found</span>
+          <span className={`text-[11px] font-bold ${muted}`}>Module found</span>
           <div className="flex flex-wrap gap-1">
             <Button
               variant={!value ? 'primary' : 'quiet'}

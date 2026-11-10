@@ -390,8 +390,10 @@ func (p *Postgres) SetImage(ctx context.Context, image string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	body := "POSTGRES_IMAGE=" + image + "\n"
-	if err := os.WriteFile(p.EnvFile(), []byte(body), 0o644); err != nil {
+	// The compose .env is shared with MinIO (root credentials): upsert the one
+	// key instead of rewriting the file, or the next MinIO start would mint a
+	// new root password that no longer matches the running engine.
+	if err := writeDotEnv(p.EnvFile(), map[string]string{"POSTGRES_IMAGE": image}); err != nil {
 		return err
 	}
 	out, err := p.compose(ctx, "pull", "postgres").CombinedOutput()

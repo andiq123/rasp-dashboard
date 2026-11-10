@@ -55,7 +55,9 @@ func main() {
 	defer stop()
 	srv.StartBackground(ctx)
 
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		defer cancel()
@@ -69,6 +71,9 @@ func main() {
 	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
+	// ListenAndServe returns as soon as Shutdown is called; wait for it to
+	// finish draining in-flight requests instead of exiting underneath them.
+	<-shutdownDone
 }
 
 func resolveBaseDir() string {

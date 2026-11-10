@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -302,12 +303,12 @@ func (m *Manager) ListDirs(ctx context.Context, repo, branch, dirPath string) ([
 	if err != nil {
 		return nil, err
 	}
-	url := "https://api.github.com/repos/" + repo + "/contents"
+	apiURL := "https://api.github.com/repos/" + repo + "/contents"
 	if norm != "" {
-		url += "/" + norm
+		apiURL += "/" + norm
 	}
-	url += "?ref=" + strings.ReplaceAll(branch, " ", "%20")
-	body, err := m.ghGET(ctx, url, token)
+	apiURL += "?ref=" + url.QueryEscape(branch)
+	body, err := m.ghGET(ctx, apiURL, token)
 	if err != nil {
 		return nil, err
 	}

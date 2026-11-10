@@ -6,23 +6,21 @@ export function fmtPct(n: number | undefined | null): string {
 export function fmtBytes(n: number | undefined | null): string {
   let v = Number(n) || 0
   if (v < 0) return '—'
-  if (v < 1024) return `${v} B`
-  const units = ['KB', 'MB', 'GB', 'TB']
-  v /= 1024
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let i = 0
-  while (v >= 1024 && i < units.length - 1) {
+  // Step up before rounding could print "1024 KB".
+  while (Math.round(v) >= 1024 && i < units.length - 1) {
     v /= 1024
     i++
   }
-  if (v >= 100) return `${Math.round(v)} ${units[i]}`
-  if (v >= 10) return `${v.toFixed(1)} ${units[i]}`
-  return `${v.toFixed(2)} ${units[i]}`
+  if (i === 0 || v >= 100) return `${Math.round(v)} ${units[i]}`
+  return `${v.toFixed(v >= 10 ? 1 : 2)} ${units[i]}`
 }
 
 export function fmtRate(n: number | undefined | null): string {
   const v = Number(n) || 0
-  if (v < 1024) return `${Math.round(v)} B/s`
-  return `${fmtBytes(v)}/s`.replace(' ', '')
+  if (v < 0) return '—'
+  return `${fmtBytes(v)}/s`
 }
 
 export function fmtRelative(iso: string | undefined | null): string {

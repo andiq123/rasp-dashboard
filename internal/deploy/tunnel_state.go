@@ -179,7 +179,7 @@ func (m *Manager) refreshPendingTunnelVerification() bool {
 		}
 		if err := verifyPublicURL(ctx, svc.PublicURL, svc.PublicPath); err == nil {
 			svc.TunnelVerified = true
-			m.persistService(svc)
+			m.persistTunnelState(svc)
 		}
 		if ctx.Err() != nil {
 			break

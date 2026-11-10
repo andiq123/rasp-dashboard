@@ -62,7 +62,7 @@ function Metric({
   const p = Math.max(0, Math.min(100, percent || 0))
   return (
     <div className={`${tile} metric-card px-4 py-4`}>
-      <div className={`flex items-center gap-1 text-xs font-semibold uppercase tracking-wide ${muted}`}>
+      <div className={`flex items-center gap-1 text-xs font-semibold ${muted}`}>
         <Icon className="h-4 w-4 shrink-0" aria-hidden />
         {label}
       </div>
@@ -266,13 +266,13 @@ export function OverviewPage() {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className={`${tile} px-2.5 py-2`}>
-            <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase ${muted}`}>
+            <span className={`inline-flex items-center gap-1 text-[10px] font-bold ${muted}`}>
               <ArrowDownToLine className="h-3 w-3" aria-hidden /> Down
             </span>
             <strong className="block text-sm mt-0.5">{fmtRate(net.down_bytes_per_sec)}</strong>
           </div>
           <div className={`${tile} px-2.5 py-2`}>
-            <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase ${muted}`}>
+            <span className={`inline-flex items-center gap-1 text-[10px] font-bold ${muted}`}>
               <ArrowUpFromLine className="h-3 w-3" aria-hidden /> Up
             </span>
             <strong className="block text-sm mt-0.5">{fmtRate(net.up_bytes_per_sec)}</strong>
@@ -281,7 +281,7 @@ export function OverviewPage() {
         <ResourceBudget host={host} reserved={reserved} compact />
       </Panel>
 
-      <div className="overview-history card bg-base-100 border border-base-300 shadow-sm p-5 section-enter">
+      <div className="overview-history card bg-base-100 border border-base-300 shadow-sm p-5">
         <MonitorHistory kind="system" />
       </div>
       <Panel className="overview-network"

@@ -211,6 +211,22 @@ func pidAlive(pid int) bool {
 	return proc.Signal(syscall.Signal(0)) == nil
 }
 
+// cloudflaredPIDAlive reports whether pid is a live cloudflared process. The
+// tunnel PID file outlives reboots and tunnel crashes, after which the number
+// may belong to an unrelated process: trusting it would report a dead tunnel
+// as alive and, on Unexpose/Delete, signal that other process (group).
+func cloudflaredPIDAlive(pid int) bool {
+	if !pidAlive(pid) {
+		return false
+	}
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		// No procfs entry to inspect (non-Linux): keep the plain liveness check.
+		return true
+	}
+	return strings.Contains(string(b), "cloudflared")
+}
+
 func (m *Manager) systemdTunnelPID(group, slug string) int {
 	unit := tunnelUnit(group, slug) + ".service"
 	out, err := exec.Command("systemctl", "--user", "show", "-p", "MainPID", "--value", unit).Output()
@@ -222,7 +238,7 @@ func (m *Manager) systemdTunnelPID(group, slug string) int {
 }
 
 func (m *Manager) tunnelAlive(group, slug string) bool {
-	if pidAlive(m.tunnelPID(group, slug)) {
+	if cloudflaredPIDAlive(m.tunnelPID(group, slug)) {
 		return true
 	}
 	if pid := m.systemdTunnelPID(group, slug); pidAlive(pid) {
@@ -281,7 +297,7 @@ func (m *Manager) syncTunnel(svc *Service) {
 		}
 		if stale {
 			svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-			m.persistService(*svc)
+			m.persistTunnelState(*svc)
 		}
 	}
 }
@@ -424,7 +440,7 @@ func (m *Manager) StartTunnel(ctx context.Context, group, slug string) (Service,
 			m.writeTunnelWanted(group, slug, true)
 			if svc.PublicPath == "" {
 				m.applyOriginProbe(&svc)
-				m.persistService(svc)
+				m.persistTunnelState(svc)
 			}
 			return svc, nil
 		}
@@ -493,7 +509,7 @@ func (m *Manager) StartTunnel(ctx context.Context, group, slug string) (Service,
 		m.logf("ok", "Public check OK %s/%s → %s", group, slug, open)
 	}
 	svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	m.persistService(svc)
+	m.persistTunnelState(svc)
 	m.logf("ok", "Exposed %s/%s → %s", group, slug, open)
 	return svc, nil
 }
@@ -577,7 +593,7 @@ func (m *Manager) StartManagedTunnel(ctx context.Context, group, slug, token, ho
 	svc.TunnelState = connection.State
 	svc.TunnelID = connection.TunnelID
 	svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	m.persistService(svc)
+	m.persistTunnelState(svc)
 	return svc, nil
 }
 
@@ -595,7 +611,7 @@ func (m *Manager) stopTunnelProcesses(group, slug string) {
 		_ = tp.cmd.Process.Kill()
 	}
 	m.stopSystemdTunnel(group, slug)
-	if pid := m.tunnelPID(group, slug); pid > 0 {
+	if pid := m.tunnelPID(group, slug); pid > 1 && cloudflaredPIDAlive(pid) {
 		_ = syscall.Kill(-pid, syscall.SIGTERM)
 		if proc, err := os.FindProcess(pid); err == nil {
 			_ = proc.Kill()
@@ -636,7 +652,7 @@ func (m *Manager) StopTunnel(ctx context.Context, group, slug string) (Service, 
 	svc.TunnelID = m.managedTunnelID(group, slug)
 	m.writeTunnelOpenPath(group, slug, "")
 	svc.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	if err := m.persistServiceExact(svc); err != nil {
+	if err := m.persistTunnelState(svc); err != nil {
 		return Service{}, err
 	}
 	// Return the same complete shape as Get: current runtime state and current

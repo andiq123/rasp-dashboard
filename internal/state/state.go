@@ -3,6 +3,7 @@ package state
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -649,7 +650,12 @@ func LoadConfig(baseDir string) (Config, error) {
 	return parseEnv(f), nil
 }
 
-// SaveConfig updates only the known keys in baseDir/config/env, preserving all others.
+// ErrInvalidConfig marks a save rejected because of the submitted values.
+var ErrInvalidConfig = errors.New("invalid config")
+
+// SaveConfig updates the known keys in baseDir/config/env, preserving every
+// other line. A key with no line yet is appended when it has a value, so a
+// save never reports success while dropping a setting.
 // Empty Password keeps the previously stored value.
 func SaveConfig(baseDir string, c Config) error {
 	path := filepath.Join(baseDir, "config", "env")
@@ -662,19 +668,30 @@ func SaveConfig(baseDir string, c Config) error {
 	if err != nil {
 		return err
 	}
-	updates := map[string]string{
-		"SSID":       c.SSID,
-		"PASSWORD":   c.Password,
-		"HOTSPOT_IP": c.HotspotIP,
-		"DHCP_START": c.DHCPStart,
-		"DHCP_END":   c.DHCPEnd,
+	updates := []struct{ key, val string }{
+		{"SSID", c.SSID},
+		{"PASSWORD", c.Password},
+		{"HOTSPOT_IP", c.HotspotIP},
+		{"DHCP_START", c.DHCPStart},
+		{"DHCP_END", c.DHCPEnd},
 	}
-	for i, line := range lines {
-		for key, val := range updates {
-			if strings.HasPrefix(line, key+"=") {
-				lines[i] = key + "=" + val
-				break
+	// One value per line: a line break would add arbitrary extra entries to
+	// the env file the hotspot scripts read.
+	for _, u := range updates {
+		if strings.ContainsAny(u.val, "\r\n\x00") {
+			return fmt.Errorf("%w: %s must be a single line", ErrInvalidConfig, u.key)
+		}
+	}
+	for _, u := range updates {
+		found := false
+		for i, line := range lines {
+			if strings.HasPrefix(strings.TrimSpace(line), u.key+"=") {
+				lines[i] = u.key + "=" + u.val
+				found = true
 			}
+		}
+		if !found && u.val != "" {
+			lines = append(lines, u.key+"="+u.val)
 		}
 	}
 	return writeLines(path, lines)

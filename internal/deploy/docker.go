@@ -684,6 +684,7 @@ func (m *Manager) buildGo(ctx context.Context, svc Service, repoDir, outDir stri
 		buildName := buildContainerName(svc.Group, svc.Slug)
 		m.stopContainer(ctx, buildName)
 		defer m.stopContainer(context.Background(), buildName)
+		defer m.stopBuildContainerOnDone(buildCtx, buildName)()
 		args := []string{"run", "--rm", "--name", buildName}
 		args = append(args, dockerScopeLabels(svc.Group, svc.Slug, "build")...)
 		// Match host UID so /out/app is not root-owned (chmod would fail on Pi).
@@ -777,6 +778,20 @@ func (m *Manager) buildGo(ctx context.Context, svc Service, repoDir, outDir stri
 	}
 	m.logf("ok", "Binary ready · %s", fmtBytes(fileSize(bin)))
 	return nil
+}
+
+// stopBuildContainerOnDone force-removes the build container as soon as ctx is
+// cancelled or times out. Cancelling exec.CommandContext only kills the sudo
+// wrapper; the docker client and the container keep running and keep the
+// output pipes open, so without this the build timeout would not take effect
+// until the compile finished on its own. Call the returned func to disarm.
+func (m *Manager) stopBuildContainerOnDone(ctx context.Context, name string) func() {
+	stop := context.AfterFunc(ctx, func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		m.stopContainer(stopCtx, name)
+	})
+	return func() { stop() }
 }
 
 // cgroupMemorySupported reports whether Docker can enforce --memory on this host.

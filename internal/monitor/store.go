@@ -132,6 +132,9 @@ func (s *Store) Query(subject string, since time.Time, limit int) (Series, error
 	if limit <= 0 || limit > maxQueryPoints {
 		limit = 240
 	}
+	if s == nil || s.db == nil {
+		return Series{Subject: subject, Points: []Point{}}, nil
+	}
 	now := time.Now()
 	oldest := now.Add(-s.retention)
 	if since.IsZero() || since.Before(oldest) {
@@ -140,9 +143,6 @@ func (s *Store) Query(subject string, since time.Time, limit int) (Series, error
 	series := Series{
 		Subject: subject, From: since.Unix(), To: now.Unix(),
 		Retention: int64(s.retention.Seconds()), Points: []Point{},
-	}
-	if s == nil || s.db == nil {
-		return series, nil
 	}
 	err := s.db.View(func(tx *bolt.Tx) error {
 		dataBucket := tx.Bucket(seriesBucket).Bucket([]byte(subject))

@@ -56,11 +56,11 @@ import { hostCapacity, reservedFromServices, RESOURCE } from '@/lib/resources'
 import { codeSurface, iconWell, muted, surface, tile } from '@/lib/ui'
 import { LogConsole } from '@/components/ui/LogConsole/LogConsole'
 import { MonitorHistory } from '@/components/monitor/MonitorHistory'
-import { activityToLogLines, textToLogLines, type LogLineView } from '@/lib/logLines'
+import { writeClipboardText } from '@/lib/clipboard'
+import { activityToLogLines, cleanLogText, textToLogLines, type LogLineView } from '@/lib/logLines'
 import {
   isBuilding,
   isQueued,
-  phaseLabel,
   serviceTypeIcon,
   statusDot,
   statusLabel,
@@ -122,11 +122,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
   const building = svc ? isBuilding(svc) : false
   const deployingHere = activityMatchesService(activity, group, slug) && (activity.active || building)
 
-  useEffect(() => {
-    setTab('config')
-    setDeployId(null)
-  }, [group, slug])
-
+  // Follow a build to its logs when it starts. The parent remounts this per service.
   const wasDeploying = useRef(false)
   useEffect(() => {
     if (deployingHere && !wasDeploying.current) {
@@ -136,18 +132,10 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
     wasDeploying.current = deployingHere
   }, [deployingHere, activity.deployment_id])
 
-  // Keep the live deployment selected while this service is building.
-  useEffect(() => {
-    if (!deployingHere || !activity.deployment_id) return
-    setDeployId(activity.deployment_id)
-  }, [deployingHere, activity.deployment_id])
-
   const invalidate = async () => {
     await Promise.all([
       qc.invalidateQueries({ queryKey: queryKeys.service(group, slug) }),
       qc.invalidateQueries({ queryKey: queryKeys.services(group) }),
-      qc.invalidateQueries({ queryKey: queryKeys.serviceEnv(group, slug) }),
-      qc.invalidateQueries({ queryKey: queryKeys.serviceLogs(group, slug) }),
       qc.invalidateQueries({ queryKey: queryKeys.deployments(group, slug) }),
     ])
   }
@@ -169,6 +157,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
     mutationFn: () => deleteService(group, slug),
     onSuccess: async () => {
       showToast('Service deleted')
+      qc.removeQueries({ queryKey: queryKeys.service(group, slug) })
       await qc.invalidateQueries({ queryKey: queryKeys.services(group) })
       onDeleted()
     },
@@ -294,7 +283,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
   const queuePos = (activity.queue || []).find((q) => q.group === group && q.slug === slug)?.position
 
   return (
-    <div className={`card ${surface} overflow-hidden section-enter`}>
+    <div className={`card ${surface} overflow-hidden`}>
       <header className="flex flex-wrap items-start justify-between gap-3 px-3 sm:px-4 py-3 border-b border-base-300">
         <div className="min-w-0 flex gap-3">
           <div className={iconWell(tone)}>
@@ -433,7 +422,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
       </header>
 
       {deployingHere && activity.progress ? (
-        <DeployProgress progress={activity.progress} title={activity.title} />
+        <DeployProgress progress={activity.progress} title={activity.title} startedAt={activity.started_at} />
       ) : null}
       {svc.running && svc.stats && !deployingHere ? (
         <div className="px-3 sm:px-4 py-2.5 border-b border-base-300 bg-base-200/40">
@@ -510,7 +499,6 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
               running={!!svc.running}
               deploying={deployingHere}
               activityLines={deployingHere ? activity.lines : []}
-              activitySeq={activity.seq}
             />
           ) : null}
           {tab === 'deploys' ? (
@@ -767,29 +755,6 @@ function CopyCode({ value, label = 'Copy', prominent = false }: { value: string;
   )
 }
 
-async function writeClipboardText(value: string): Promise<void> {
-  if (window.isSecureContext && navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(value)
-      return
-    } catch {
-      // rasp.local commonly runs over HTTP; use the compatible path below.
-    }
-  }
-
-  const input = document.createElement('textarea')
-  input.value = value
-  input.setAttribute('readonly', '')
-  input.style.position = 'fixed'
-  input.style.opacity = '0'
-  input.style.pointerEvents = 'none'
-  document.body.appendChild(input)
-  input.select()
-  const copied = document.execCommand('copy')
-  input.remove()
-  if (!copied) throw new Error('clipboard unavailable')
-}
-
 function fencedCode(language: string, value: string): string {
   return ['```' + language, value.trim(), '```'].join('\n')
 }
@@ -907,12 +872,12 @@ function resourceIntegrationGuide({
 
 function CodeGuide({ title, value }: { title: string; value: string }) {
   return (
-    <div className="rounded-box border border-base-300 overflow-hidden bg-neutral text-neutral-content">
-      <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-white/10 bg-black/10">
-        <strong className="text-[11px] font-medium text-white/70">{title}</strong>
+    <div data-theme="fw-dark" className="log-shell">
+      <div className="log-bar">
+        <strong className="mr-auto font-medium opacity-80">{title}</strong>
         <CopyCode value={value} />
       </div>
-      <pre className="m-0 p-3 overflow-x-auto text-[11px] leading-relaxed whitespace-pre font-mono text-white/90">{value}</pre>
+      <pre className="m-0 p-3 overflow-x-auto text-[11px] leading-relaxed whitespace-pre font-mono text-base-content/90">{value}</pre>
     </div>
   )
 }
@@ -1065,43 +1030,51 @@ function ShieldNote() {
   return <span className="grid h-7 w-7 place-items-center rounded-full bg-primary/10 text-primary shrink-0"><PlugZap className="h-3.5 w-3.5" aria-hidden /></span>
 }
 
-function DeployProgress({ progress, title }: { progress: Progress; title?: string }) {
+function DeployProgress({ progress, title, startedAt }: { progress: Progress; title?: string; startedAt?: string }) {
   const steps = progress.steps || []
-  const phase = phaseLabel(progress.phase)
+  const percent = Math.max(0, Math.min(100, Math.round(progress.percent || 0)))
   return (
-    <div className="px-3 sm:px-4 py-2.5 border-b border-base-300 bg-info/5 grid gap-1.5 queue-enter">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <strong className="text-xs truncate">{title || progress.label || 'Deploying'}</strong>
-          {phase ? <span className="badge badge-info badge-sm">{phase}</span> : null}
+    <div className="px-3 sm:px-4 py-3 border-b border-base-300 bg-info/5 grid gap-2.5 queue-enter" role="status">
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="min-w-0">
+          <strong className="text-sm block truncate">{progress.label || title || 'Deploying'}</strong>
+          {progress.detail ? <p className={`text-xs font-mono m-0 truncate ${muted}`}>{cleanLogText(progress.detail)}</p> : null}
         </div>
-        <span className={`text-[11px] font-mono ${muted}`}>{progress.percent}%</span>
+        <span className={`text-xs font-mono tabular-nums shrink-0 ${muted}`}>
+          <Elapsed since={startedAt} /> {percent}%
+        </span>
       </div>
-      <progress aria-label="Deployment progress" className="progress progress-primary w-full h-1.5" value={progress.percent} max={100} />
-      {progress.detail ? <p className={`text-[11px] m-0 ${muted}`}>{progress.detail}</p> : null}
       {steps.length ? (
-        <ol className="flex flex-wrap gap-1 list-none m-0 p-0">
+        <ol className="steps-track">
           {steps.map((s) => (
             <li
               key={s.id}
-              className={`badge badge-sm gap-1 transition-colors duration-300 ${
-                s.status === 'done'
-                  ? 'badge-success'
-                  : s.status === 'active'
-                    ? 'badge-info'
-                    : s.status === 'error'
-                      ? 'badge-error'
-                      : 'badge-ghost'
-              }`}
+              className={s.status === 'done' ? 'is-done' : s.status === 'active' ? 'is-active' : s.status === 'error' ? 'is-error' : ''}
+              aria-current={s.status === 'active' ? 'step' : undefined}
             >
-              {s.status === 'active' ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : null}
-              {s.label}
+              <span>{s.label}</span>
             </li>
           ))}
         </ol>
-      ) : null}
+      ) : (
+        <span className="meter text-info" aria-hidden><span style={{ width: `${percent}%` }} /></span>
+      )}
     </div>
   )
+}
+
+/** Ticking m:ss since a build started. */
+function Elapsed({ since }: { since?: string }) {
+  const start = since ? Date.parse(since) : NaN
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    if (Number.isNaN(start)) return
+    const t = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(t)
+  }, [start])
+  if (Number.isNaN(start)) return null
+  const sec = Math.max(0, Math.floor((now - start) / 1000))
+  return <span className="mr-2">{Math.floor(sec / 60)}:{String(sec % 60).padStart(2, '0')}</span>
 }
 
 function ConfigTab({
@@ -1143,7 +1116,8 @@ function ConfigTab({
     setBucket(svc.linked_bucket || '')
     setRedis(svc.linked_redis || '')
     setAutoDeploy(!!svc.auto_deploy)
-  }, [svc])
+    // Refill only when the saved service changes; live stats replace `svc` every tick.
+  }, [svc.slug, svc.updated_at]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const mem = clampMem(memory)
   const cpu = clampCpu(cpus)
@@ -1498,53 +1472,35 @@ function ConsoleTab({
   running,
   deploying,
   activityLines,
-  activitySeq,
 }: {
   group: string
   slug: string
   running: boolean
   deploying: boolean
   activityLines: ActivityLine[]
-  activitySeq: number
 }) {
   const logsQ = useQuery({
     queryKey: queryKeys.serviceLogs(group, slug),
-    queryFn: () => fetchServiceLogs(group, slug, 400),
+    queryFn: ({ signal }) => fetchServiceLogs(group, slug, 400, signal),
     refetchInterval: deploying || running ? 2000 : 8000,
     staleTime: 0,
   })
 
-  useEffect(() => {
-    if (!deploying) return
-    void logsQ.refetch()
-  }, [activitySeq, deploying]) // eslint-disable-line react-hooks/exhaustive-deps -- only pull runtime logs while this service is deploying
-
   const runtimeText = logsQ.data || ''
 
+  // Parsed separately so new build lines don't re-scan the container log.
+  const runtimeLines = useMemo(() => (runtimeText.trim() ? textToLogLines(runtimeText, 'rt') : []), [runtimeText])
   const lines = useMemo((): LogLineView[] => {
-    const out: LogLineView[] = []
-    if (deploying && activityLines.length) {
-      out.push({ key: 'sec-deploy', level: 'step', text: '── deploy ──' })
-      out.push(...activityToLogLines(activityLines, 'dep'))
-    }
-    if (runtimeText.trim()) {
-      if (deploying) out.push({ key: 'sec-runtime', level: 'step', text: '── runtime ──' })
-      out.push(...textToLogLines(runtimeText, 'rt'))
-    }
+    if (!deploying || !activityLines.length) return runtimeLines
+    const out: LogLineView[] = [{ key: 'sec-deploy', level: 'step', text: 'Build' }, ...activityToLogLines(activityLines, 'dep')]
+    if (runtimeLines.length) out.push({ key: 'sec-runtime', level: 'step', text: 'Container' }, ...runtimeLines)
     return out
-  }, [deploying, activityLines, runtimeText])
+  }, [deploying, activityLines, runtimeLines])
 
   return (
     <div className="grid gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className={`text-xs m-0 ${muted}`}>
-          {deploying
-            ? 'Live deploy output + container logs for this service'
-            : running
-              ? 'Tailing container logs for this service'
-              : 'Latest container logs (start the service for a live tail)'}
-          {logsQ.isFetching ? ' · updating' : ''}
-        </p>
+        <span className={`text-xs ${muted}`}>{logsQ.isFetching ? 'Updating…' : 'Refreshes every few seconds'}</span>
         <Button
           variant="infoSoft"
           icon={<RotateCw className={`h-3.5 w-3.5 ${logsQ.isFetching ? 'animate-spin' : ''}`} />}
@@ -1569,9 +1525,10 @@ function ConsoleTab({
       ) : (
         <LogConsole
           lines={lines}
-          live={deploying}
+          live={deploying || running}
+          title={deploying ? 'Build and container output' : running ? 'Container output' : 'Last container output'}
           stickKey={`${group}/${slug}`}
-          className="min-h-[280px] max-h-[min(60vh,520px)]"
+          className="h-[min(64vh,580px)]"
           empty={
             <Empty
               compact
@@ -1658,17 +1615,22 @@ function DeploysTab({
 
   const logsQ = useQuery({
     queryKey: queryKeys.deployLogs(group, slug, deployId || ''),
-    queryFn: () => fetchDeployLogs(group, slug, deployId!),
+    queryFn: ({ signal }) => fetchDeployLogs(group, slug, deployId!, signal),
     enabled: !!deployId && !selectedLive,
-    refetchInterval: deployId && !selectedLive ? 6000 : false,
+    staleTime: 60_000,
   })
 
+  const followedLive = useRef<string | null>(null)
   // Default selection: live → building → active → newest.
   useEffect(() => {
     if (!items.length) return
-    if (liveId) {
-      if (deployId !== liveId) onSelect(liveId)
-      return
+    // Jump to a build once, when it starts; afterwards the choice is the user's.
+    if (liveId !== followedLive.current) {
+      followedLive.current = liveId
+      if (liveId) {
+        onSelect(liveId)
+        return
+      }
     }
     if (deployId && items.some((d) => d.id === deployId)) return
     const building = items.find((d) => d.status === 'building' || d.status === 'queued')
@@ -1695,11 +1657,10 @@ function DeploysTab({
     )
   }
 
-  const progress = selectedLive ? activity.progress : null
 
   return (
-    <div className="grid gap-3 2xl:grid-cols-[minmax(180px,220px)_minmax(0,1fr)] items-start">
-      <ul className="list-none m-0 p-0 grid gap-1 content-start max-h-[min(70vh,560px)] overflow-y-auto">
+    <div className="grid gap-3 lg:grid-cols-[minmax(190px,230px)_minmax(0,1fr)] items-start">
+      <ul className="list-none m-0 p-0 grid gap-1 content-start max-h-48 lg:max-h-[min(70vh,600px)] overflow-y-auto">
         {items.map((d) => {
           const live = d.id === liveId || d.status === 'building' || d.status === 'queued'
           const badge = deployBadge(d.status, live && deploying)
@@ -1713,7 +1674,7 @@ function DeploysTab({
                     ? live
                       ? 'border-info bg-info/10'
                       : 'border-primary bg-primary/10'
-                    : 'border-base-300 hover:border-primary/40'
+                    : 'border-transparent hover:bg-base-200'
                 }`}
                 onClick={() => onSelect(d.id)}
               >
@@ -1735,13 +1696,6 @@ function DeploysTab({
                   {fmtRelative(d.created_at)}
                   {d.branch ? ` · ${d.branch}` : ''}
                 </span>
-                {live && deploying && progress && activeSel ? (
-                  <progress aria-label="Deployment progress"
-                    className="progress progress-info w-full h-1 mt-1.5"
-                    value={progress.percent || 0}
-                    max={100}
-                  />
-                ) : null}
               </button>
             </li>
           )
@@ -1753,30 +1707,10 @@ function DeploysTab({
           <Empty compact title="Select a deploy" body="View build logs for a deployment." />
         ) : (
           <>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0">
-                <strong className="text-sm font-mono">{deployTitle(selected)}</strong>
-                <p className={`text-[11px] m-0 ${muted}`}>
-                  {selectedLive
-                    ? progress?.label || activity.title || 'Live deploy output'
-                    : selected.error
-                      ? selected.error
-                      : 'Stored build log'}
-                  {selectedLive && activity.seq ? ' · live' : ''}
-                </p>
-              </div>
-              {selectedLive && progress ? (
-                <span className={`text-[11px] font-mono tabular-nums ${muted}`}>
-                  {progress.percent}%
-                </span>
-              ) : null}
-            </div>
-            {selectedLive && progress ? (
-              <progress aria-label="Deployment progress"
-                className="progress progress-primary w-full h-1.5"
-                value={progress.percent || 0}
-                max={100}
-              />
+            {!selectedLive && selected.error ? (
+              <p role="alert" className="m-0 rounded-field border border-error/30 bg-error/10 px-3 py-2 text-xs text-error">
+                {selected.error}
+              </p>
             ) : null}
             {!selectedLive && logsQ.isLoading ? (
               <Spinner compact label="Loading deploy logs…" />
@@ -1790,8 +1724,9 @@ function DeploysTab({
               <LogConsole
                 lines={lines}
                 live={selectedLive}
+                title={`${deployTitle(selected)} ${selectedLive ? 'building now' : selected.message || 'build log'}`}
                 stickKey={deployId || ''}
-                className="min-h-[280px] max-h-[min(65vh,560px)]"
+                className="h-[min(68vh,620px)]"
                 empty={
                   <Empty
                     compact

@@ -1,32 +1,23 @@
-// Run with: node web-ui/tests/ui-regressions.cjs
-const assert = require('node:assert/strict')
-const fs = require('node:fs')
-const path = require('node:path')
-const ts = require('typescript')
-const React = require('react')
-const { renderToStaticMarkup } = require('react-dom/server')
-const { QueryClient } = require('@tanstack/react-query')
+// Run with: npm test (from web-ui)
+import assert from 'node:assert/strict'
+import React from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { QueryClient } from '@tanstack/react-query'
+import { createServer } from 'vite'
 
-// Compile the real TS/TSX modules with the existing compiler; no test dependency.
-function load(file, extra = '') {
-  const filename = path.resolve(__dirname, '../src', file)
-  const source = fs.readFileSync(filename, 'utf8') + extra
-  const { outputText } = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
-  })
-  const module = { exports: {} }
-  const resolve = (name) => {
-    if (!name.startsWith('@/')) return require(name)
-    const relative = name.slice(2)
-    const extension = fs.existsSync(path.resolve(__dirname, '../src', `${relative}.ts`)) ? '.ts' : '.tsx'
-    return load(relative + extension)
-  }
-  new Function('require', 'module', 'exports', outputText)(resolve, module, module.exports)
-  return module.exports
-}
+// Load the real TS/TSX modules through Vite's own transform; no test dependency.
+const vite = await createServer({
+  root: new URL('..', import.meta.url).pathname,
+  logLevel: 'error',
+  appType: 'custom',
+  server: { middlewareMode: true, ws: false, watch: null },
+  optimizeDeps: { noDiscovery: true },
+})
+const load = (file) => vite.ssrLoadModule(`/src/${file}`)
 
-const { queryKeys } = load('api/queryKeys.ts')
-const { applyStatsSnapshot } = load('hooks/realtime.tsx', '\nexport { applyStatsSnapshot }')
+try {
+const { queryKeys } = await load('api/queryKeys.ts')
+const { applyStatsSnapshot } = await load('hooks/realtime.tsx')
 const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
 const services = Array.from({ length: 100 }, (_, i) => ({ slug: `app-${i}`, name: `Application ${i}` }))
 client.setQueryData(queryKeys.services('demo'), services)
@@ -47,13 +38,13 @@ assert.equal(client.getQueryData(queryKeys.service('demo', 'app-99')), undefined
 applyStatsSnapshot(client, {})
 assert.equal(changes.length, 1, 'An empty snapshot must not clear existing data')
 
-const { Field, Input } = load('components/ui/Field/Field.tsx')
+const { Field, Input } = await load('components/ui/Field/Field.tsx')
 const markup = renderToStaticMarkup(React.createElement(Field, { label: 'SSID', tip: 'Network name' }, React.createElement(Input)))
 const labelId = markup.match(/for="([^"]+)"/)[1]
 assert.ok(markup.includes(`id="${labelId}"`), 'Generated label must target the control')
 assert.ok(markup.includes(`aria-describedby="${labelId}-tip"`), 'Help text must be associated with the control')
 client.clear()
-const { VPNRepairFlow, retryLabel } = load('features/overview/VPNRepairFlow.tsx')
+const { VPNRepairFlow, retryLabel } = await load('features/overview/VPNRepairFlow.tsx')
 const renderRepair = (repair, props = {}) => renderToStaticMarkup(React.createElement(VPNRepairFlow, { repair, healthy: false, onRetry() {}, ...props }))
 const failed = { phase: 'failed', failed_phase: 'fetching', error: 'Relay download failed', next_retry_at: '2026-10-05T12:05:00Z', attempt: 2 }
 const failedMarkup = renderRepair(failed)
@@ -75,3 +66,6 @@ assert.equal(retryLabel(failed.next_retry_at, Date.parse('2026-10-05T12:04:01Z')
 assert.equal(retryLabel(failed.next_retry_at, Date.parse('2026-10-05T12:05:01Z')), 'Checking whether another retry is needed…')
 assert.ok(!retryLabel('invalid', Date.now()).includes('NaN'))
 console.log('UI regressions passed: live stats, accessible fields, VPN failure stages, recovery, retry states, countdowns.')
+} finally {
+  await vite.close()
+}

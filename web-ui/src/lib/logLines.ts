@@ -42,24 +42,14 @@ export function normalizeLogLevel(raw: string): string {
   }
 }
 
-/** Daisy semantic text colors — one class per level. */
-export function logLevelClass(level: string): string {
-  switch (normalizeLogLevel(level)) {
-    case 'err':
-      return 'text-error'
-    case 'warn':
-      return 'text-warning'
-    case 'ok':
-      return 'text-success'
-    case 'step':
-      return 'text-primary font-semibold'
-    case 'cmd':
-      return 'text-secondary'
-    case 'info':
-      return 'text-info'
-    default:
-      return 'text-base-content/75'
-  }
+// Colour codes and cursor movement from build tools; \r redraws keep only the last frame.
+// oxlint-disable-next-line no-control-regex -- matching escape sequences is the point
+const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b[@-Z\\-_]/g
+
+export function cleanLogText(text: string): string {
+  const plain = text.includes('\u001b') ? text.replace(ANSI, '') : text
+  const cr = plain.lastIndexOf('\r', plain.length - 2)
+  return (cr >= 0 ? plain.slice(cr + 1) : plain).replace(/\r$/, '')
 }
 
 export function activityToLogLines(
@@ -69,7 +59,7 @@ export function activityToLogLines(
   return lines.map((l, i) => ({
     key: `${keyPrefix}-${l.seq ?? i}`,
     level: normalizeLogLevel(l.level),
-    text: l.text,
+    text: cleanLogText(l.text),
     at: l.at,
   }))
 }
@@ -94,18 +84,16 @@ export function inferLogLevel(line: string): string {
   )
   if (tagged) return normalizeLogLevel(tagged[1])
 
-  if (/\b(ERROR|FATAL|panic:)\b/i.test(trimmed)) return 'err'
+  if (/\b(?:ERROR|FATAL)\b|\bpanic:/i.test(trimmed)) return 'err'
   if (/\b(WARN(?:ING)?)\b/i.test(trimmed)) return 'warn'
   if (/\bINFO\b/i.test(trimmed)) return 'info'
-  if (/\bDEBUG\b/i.test(trimmed)) return 'out'
   return 'out'
 }
 
 export function textToLogLines(text: string, keyPrefix = 't'): LogLineView[] {
   if (!text) return []
-  return text.split(/\r?\n/).map((line, i) => ({
-    key: `${keyPrefix}-${i}`,
-    level: inferLogLevel(line),
-    text: line,
-  }))
+  return text.replace(/\n$/, '').split('\n').map((raw, i) => {
+    const line = cleanLogText(raw)
+    return { key: `${keyPrefix}-${i}`, level: inferLogLevel(line), text: line }
+  })
 }

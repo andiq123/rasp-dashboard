@@ -66,6 +66,14 @@ func newStatsHub() *statsHub {
 }
 
 func (h *statsHub) subscribe() (chan StatsSnapshot, func()) {
+	return h.subscribeWith(nil)
+}
+
+// subscribeWith registers a subscriber and, when initial is set, queues it as
+// the first event. The channel comes back closed when the hub is full, so the
+// bootstrap value must be sent here (while the channel is known to be open)
+// and never by the caller: a send on the closed channel would panic.
+func (h *statsHub) subscribeWith(initial *StatsSnapshot) (chan StatsSnapshot, func()) {
 	ch := make(chan StatsSnapshot, 2)
 	if h == nil {
 		close(ch)
@@ -78,6 +86,9 @@ func (h *statsHub) subscribe() (chan StatsSnapshot, func()) {
 		return ch, func() {}
 	}
 	h.subs[ch] = struct{}{}
+	if initial != nil {
+		ch <- *initial // fresh buffered channel: never blocks
+	}
 	h.mu.Unlock()
 	select {
 	case h.wake <- struct{}{}:
@@ -92,6 +103,18 @@ func (h *statsHub) subscribe() (chan StatsSnapshot, func()) {
 		h.mu.Unlock()
 	}
 	return ch, cancel
+}
+
+// invalidatePIDs forces the next sample to re-resolve container PIDs. Called
+// when containers were (re)created so stats do not read a dead PID for up to
+// statsPIDCacheTTL.
+func (h *statsHub) invalidatePIDs() {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.pidsAt = time.Time{}
+	h.mu.Unlock()
 }
 
 func (h *statsHub) interval() time.Duration {
@@ -215,10 +238,14 @@ func (m *Manager) sampleAllStats(ctx context.Context) {
 	}
 	pids := m.cachedContainerPIDs(ctx, names)
 
+	stalePID := false
 	for _, t := range seen {
 		pid := pids[t.name]
 		st, ok := m.readContainerStatsPID(t.name, pid)
 		if !ok {
+			// A cached PID that no longer resolves means the container was
+			// restarted or replaced: refresh the PID cache on the next sample.
+			stalePID = stalePID || pid > 0
 			m.stats.mu.Lock()
 			delete(m.stats.latest, t.name)
 			delete(m.stats.prev, t.name)
@@ -231,6 +258,9 @@ func (m *Manager) sampleAllStats(ctx context.Context) {
 		m.stats.mu.Lock()
 		m.stats.latest[t.name] = st
 		m.stats.mu.Unlock()
+	}
+	if stalePID {
+		m.stats.invalidatePIDs()
 	}
 	m.publishStatsSnapshot()
 }
@@ -275,13 +305,9 @@ func (m *Manager) SubscribeStats() (<-chan StatsSnapshot, func()) {
 	if m.stats == nil {
 		m.stats = newStatsHub()
 	}
-	ch, cancel := m.stats.subscribe()
 	// Immediate bootstrap so UI is not empty until the next tick.
-	select {
-	case ch <- m.StatsSnapshot():
-	default:
-	}
-	return ch, cancel
+	snap := m.StatsSnapshot()
+	return m.stats.subscribeWith(&snap)
 }
 
 // StatsSnapshot builds group→slug live usage for SSE / API consumers.
@@ -387,6 +413,11 @@ func (m *Manager) readContainerStatsPID(name string, pid int) (RuntimeStats, boo
 	cg := cgroupPathForPID(pid)
 	usage, ok := readCPUUsageUsec(cg)
 	memBytes, pids, memSrc := readMemoryBytes(cg, pid)
+	if cg == "" && memBytes == 0 {
+		// Neither /proc/<pid>/cgroup nor its RSS is readable: the process is
+		// gone (stale cached PID). Report "no stats" rather than a zero sample.
+		return RuntimeStats{}, false
+	}
 
 	now := time.Now()
 	st := RuntimeStats{

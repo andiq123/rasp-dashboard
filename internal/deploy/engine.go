@@ -30,15 +30,15 @@ type EngineSettings struct {
 
 // EngineView is the API payload for runtime management.
 type EngineView struct {
-	Settings         EngineSettings  `json:"settings"`
-	PostgresOptions  []VersionOption `json:"postgres_options"`
-	GoOptions        []VersionOption `json:"go_options"`
-	PostgresImage    string          `json:"postgres_image"`
-	PostgresRunning  bool            `json:"postgres_running"`
-	MinIOImage       string          `json:"minio_image"`
-	MinIORunning     bool            `json:"minio_running"`
-	MinIOEndpoint    string          `json:"minio_endpoint"`
-	GoResolvedHint   string          `json:"go_resolved_hint"`
+	Settings        EngineSettings  `json:"settings"`
+	PostgresOptions []VersionOption `json:"postgres_options"`
+	GoOptions       []VersionOption `json:"go_options"`
+	PostgresImage   string          `json:"postgres_image"`
+	PostgresRunning bool            `json:"postgres_running"`
+	MinIOImage      string          `json:"minio_image"`
+	MinIORunning    bool            `json:"minio_running"`
+	MinIOEndpoint   string          `json:"minio_endpoint"`
+	GoResolvedHint  string          `json:"go_resolved_hint"`
 }
 
 func (m *Manager) enginePath() string {
@@ -296,7 +296,6 @@ func (m *Manager) ResolveGoImage(goModVer, override string) (image, note string)
 	}
 	return goImageForChoice(choice, goModVer)
 }
-
 
 // StartPostgresEngine starts the shared compose Postgres with Activity logging.
 func (m *Manager) StartPostgresEngine(ctx context.Context) (EngineView, error) {

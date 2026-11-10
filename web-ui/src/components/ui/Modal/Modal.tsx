@@ -33,6 +33,11 @@ export function Modal({ open, title, sub, onClose, children, footer, size = 'sm'
       onClose={() => {
         if (open) onClose()
       }}
+      // Escape asks the owner; a dialog that refuses (mid-save) must stay modal.
+      onCancel={(e) => {
+        e.preventDefault()
+        onClose()
+      }}
       aria-labelledby={titleId}
     >
       <div className={`modal-box ${size === 'md' ? 'max-w-3xl' : 'max-w-md'}`}>

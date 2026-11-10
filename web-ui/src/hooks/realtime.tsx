@@ -14,7 +14,7 @@ type RealtimeValue = {
   live: boolean
 }
 
-export type StatsSnapshot = {
+type StatsSnapshot = {
   at?: string
   groups?: Record<string, Record<string, RuntimeStats>>
 }
@@ -35,6 +35,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     let es: EventSource | null = null
     let disposed = false
     let lastStateAt = 0
+    let retry = 0
     const watchdog = window.setInterval(() => {
       if (document.hidden) return
       if (lastStateAt > 0 && Date.now() - lastStateAt > 7000) setLive(false)
@@ -97,7 +98,16 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
         // EventSource reconnects automatically. Only a fresh state payload marks
         // the UI live; the watchdog enables HTTP fallback if the stream stalls.
         source.onopen = () => setLive(false)
-        source.onerror = () => setLive(false)
+        source.onerror = () => {
+          setLive(false)
+          // After an HTTP error (a 502 while the Pi restarts) the browser gives
+          // up for good; drop the dead source and dial again ourselves.
+          if (source.readyState === EventSource.CLOSED && es === source) {
+            es = null
+            window.clearTimeout(retry)
+            retry = window.setTimeout(connect, 3000)
+          }
+        }
       } catch {
         setLive(false)
       }
@@ -122,6 +132,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     return () => {
       disposed = true
       window.clearInterval(watchdog)
+      window.clearTimeout(retry)
       document.removeEventListener('visibilitychange', onVisibility)
       es?.close()
     }
@@ -134,7 +145,7 @@ export function useRealtime(): RealtimeValue {
   return useContext(RealtimeContext)
 }
 
-function applyStatsSnapshot(qc: QueryClient, snap: StatsSnapshot) {
+export function applyStatsSnapshot(qc: QueryClient, snap: StatsSnapshot) {
   const groups = snap.groups || {}
   for (const [group, stats] of Object.entries(groups)) {
     qc.setQueryData(queryKeys.groupStats(group), stats)
@@ -156,9 +167,12 @@ function applyStatsSnapshot(qc: QueryClient, snap: StatsSnapshot) {
   }
 }
 
+const serviceRoots = new Set(['services', 'service', 'groups', 'deployments'])
+
+/** Refresh service data on screen. Logs are skipped: they poll on their own and finished deploy logs never change. */
 function invalidateServiceCaches(qc: QueryClient) {
-  void qc.invalidateQueries({ queryKey: ['services'] })
-  void qc.invalidateQueries({ queryKey: ['service'] })
-  void qc.invalidateQueries({ queryKey: ['groups'] })
-  void qc.invalidateQueries({ queryKey: ['deployments'] })
+  void qc.invalidateQueries({
+    refetchType: 'active',
+    predicate: ({ queryKey }) => serviceRoots.has(queryKey[0] as string) && queryKey[queryKey.length - 1] !== 'logs',
+  })
 }
