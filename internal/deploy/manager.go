@@ -67,7 +67,6 @@ func NewManager(baseDir, homeDir string, pg *infra.Postgres, mn *infra.MinIO) *M
 	m.startBackground(m.BootstrapAutoDeploy)
 	m.startBackground(m.BootstrapStats)
 	m.startBackground(m.BootstrapJobWatchdog)
-	m.startBackground(m.BootstrapServiceEgress)
 	return m
 }
 

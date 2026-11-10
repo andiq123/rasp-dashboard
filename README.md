@@ -85,13 +85,19 @@ changed). The app must listen on `PORT` on all interfaces.
 
 ## Service networking
 
-Apps run on the host network as one unprivileged user (uid 64000), and the dashboard
-keeps a policy routing rule (`pref 20100 uidrange 64000-64000 lookup main`, IPv4 and
-IPv6) that sends that user's traffic out the physical uplink. Services therefore never
-use the hotspot VPN, with nothing to configure per service. Hotspot clients are
-unaffected: their traffic is forwarded, not sent by that user, and stays on the VPN
-rules the hotspot scripts install. Apps resolve names through public resolvers,
-because the host's resolver is the VPN's while the VPN is up.
+Apps run on the host network as one unprivileged user (uid 64000). A policy routing
+rule on the host (`pref 20100 uidrange 64000-64000 lookup main`, IPv4 and IPv6) sends
+that user's traffic out the physical uplink, so services never use the hotspot VPN,
+with nothing to configure per service. Hotspot clients are unaffected: their traffic
+is forwarded, not sent by that user, and stays on the VPN rules the hotspot scripts
+install. Apps resolve names through public resolvers, because the host's resolver is
+the VPN's while the VPN is up.
+
+The rule is installed by `scripts/host/firewifi-cloudflare-routing` (copied to
+`/usr/local/sbin/`), the same script that keeps Cloudflare tunnels off the VPN. The
+WireGuard config runs it with `stop` in `PreUp` and `start` in `PostUp`, because
+wg-quick puts its own rule in front of whatever is first when the VPN comes up. The
+dashboard warns in the deploy log when the rule is missing or behind the VPN's.
 
 ## Optional hardening
 

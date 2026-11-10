@@ -2,11 +2,9 @@ package deploy
 
 import (
 	"context"
-	"fmt"
 	"runtime"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // Service egress: apps reach the internet through the Pi's physical uplink, never
@@ -16,14 +14,17 @@ import (
 // routing rule sends that user's traffic to the main table. Nothing is configured per
 // service, so any service deployed later is covered automatically.
 //
+// The rule itself belongs to the host (scripts/host/firewifi-cloudflare-routing): it
+// has to be re-added each time the VPN comes up, because WireGuard puts its own rule
+// in front of whatever is first at that moment. The dashboard only puts containers
+// under the rule and says so when the rule is missing.
+//
 // Hotspot clients are not affected: their packets are forwarded, not sent by this
 // user, so they keep following the VPN rules the hotspot scripts install.
 const (
-	// serviceUID owns every app process. It needs no account: the kernel routes by number.
+	// serviceUID owns every app process. It needs no account: the kernel routes by
+	// number. Must match SERVICES_UID in the host routing script.
 	serviceUID = 64000
-	// egressRulePref sits before WireGuard's catch-all rule (32765) and after the
-	// Cloudflare tunnel rules (20000–20003).
-	egressRulePref = 20100
 )
 
 // serviceResolvers replace the host's resolv.conf, which names the VPN's resolver
@@ -40,71 +41,33 @@ func serviceEgressArgs() []string {
 	return args
 }
 
-// egressRule is the rule's selector and action, as `ip rule` takes it.
-func egressRule() []string {
+// servicesBypassVPN reads `ip rule show` output: whether a rule sends the services
+// user to the main table before any rule that could send it to the VPN's table.
+func servicesBypassVPN(rules string) bool {
 	id := strconv.Itoa(serviceUID)
-	return []string{"pref", strconv.Itoa(egressRulePref), "uidrange", id + "-" + id, "lookup", "main"}
-}
-
-// egressRulePresent reads `ip rule show` output for our rule.
-func egressRulePresent(rules string) bool {
-	id := strconv.Itoa(serviceUID)
-	prefix := strconv.Itoa(egressRulePref) + ":"
 	for _, line := range strings.Split(rules, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, prefix) && strings.Contains(line, "uidrange "+id+"-"+id) && strings.Contains(line, "lookup main") {
+		if strings.Contains(line, "uidrange "+id+"-"+id) && strings.Contains(line, "lookup main") {
 			return true
+		}
+		// A catch-all into a numbered table (WireGuard's) comes first: too late.
+		if strings.Contains(line, "fwmark") && !strings.Contains(line, "lookup main") {
+			return false
 		}
 	}
 	return false
 }
 
-// EnsureServiceEgress installs the routing rule for IPv4 and IPv6 when it is missing.
-// IPv6 matters too: the uplink has none, so apps fall back to IPv4 at once instead
-// of leaving through the VPN's IPv6 route. Safe to call repeatedly.
-func (m *Manager) EnsureServiceEgress(ctx context.Context) error {
+// warnIfServicesUseVPN tells the deploy log when apps would leave through the VPN.
+func (m *Manager) warnIfServicesUseVPN(ctx context.Context) {
 	if runtime.GOOS != "linux" {
-		return nil // development machine: no policy routing to manage
+		return // development machine: no policy routing
 	}
-	for _, family := range []string{"-4", "-6"} {
-		rules, err := runCmd(ctx, "ip", family, "rule", "show")
-		if err != nil {
-			return fmt.Errorf("read routing rules: %s", strings.TrimSpace(rules))
-		}
-		if egressRulePresent(rules) {
-			continue
-		}
-		args := append([]string{"-n", "ip", family, "rule", "add"}, egressRule()...)
-		if out, err := runCmd(ctx, "sudo", args...); err != nil {
-			return fmt.Errorf("add routing rule (%s): %s", family, strings.TrimSpace(out))
-		}
-		m.logf("ok", "Service egress rule installed (%s) — apps bypass the hotspot VPN", family)
-	}
-	return nil
-}
-
-// BootstrapServiceEgress installs the rule at startup and puts it back if anything
-// removes it, so apps never drift onto the VPN unnoticed.
-func (m *Manager) BootstrapServiceEgress() {
-	if m == nil {
+	rules, err := runCmd(ctx, "ip", "-4", "rule", "show")
+	if err != nil || servicesBypassVPN(rules) {
 		return
 	}
-	check := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := m.EnsureServiceEgress(ctx); err != nil {
-			m.logf("warn", "Service egress: %v", err)
-		}
+	if !strings.Contains(rules, "fwmark") {
+		return // no VPN rule at all: everything already uses the uplink
 	}
-	check()
-	t := time.NewTicker(time.Minute)
-	defer t.Stop()
-	for {
-		select {
-		case <-m.bgDone():
-			return
-		case <-t.C:
-			check()
-		}
-	}
+	m.logf("warn", "Services are routed through the hotspot VPN — run: sudo firewifi-cloudflare-routing start (after the VPN is up)")
 }

@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Keep traffic that must not use the hotspot VPN on the physical uplink.
+
+Two kinds of traffic are sent to the main routing table, which follows the
+uplink's DHCP gateway, while everything else keeps its VPN policy:
+
+- Cloudflare Tunnel transport (their edge networks, TCP/UDP 7844), so public
+  hostnames stay up whatever the VPN does.
+- Everything sent by the dashboard's services. Their containers all run as one
+  user (SERVICES_UID), so a single rule covers every service, present and future.
+
+Hotspot clients are untouched: their packets are forwarded, not sent by a local
+user, and stay on the VPN rules the hotspot scripts install.
+
+Order matters. wg-quick adds its catch-all rule in front of whatever rule is
+first at that moment, so these rules must be absent while the VPN comes up and
+added afterwards. The WireGuard config calls `stop` in PreUp and `start` in
+PostUp for exactly that; the systemd unit covers boots without the VPN.
+
+Installed as /usr/local/sbin/firewifi-cloudflare-routing.
+"""
+import json
+import subprocess
+import sys
+
+# Must match serviceUID in the dashboard (internal/deploy/egress.go).
+SERVICES_UID = 64000
+
+CLOUDFLARE_EDGES = ("198.41.192.0/24", "198.41.200.0/24")
+TUNNEL_PORT = 7844
+
+
+def rules():
+    """Every rule as (family, priority, `ip rule` arguments, fields that identify it)."""
+    pairs = [(network, protocol) for network in CLOUDFLARE_EDGES for protocol in ("tcp", "udp")]
+    for index, (network, protocol) in enumerate(pairs):
+        address, length = network.split("/")
+        yield (
+            "-4",
+            20000 + index,
+            ["to", network, "ipproto", protocol, "dport", str(TUNNEL_PORT), "lookup", "main"],
+            {"dst": address, "dstlen": int(length), "ipproto": protocol, "dport": TUNNEL_PORT, "table": "main"},
+        )
+    uid = f"{SERVICES_UID}-{SERVICES_UID}"
+    for family in ("-4", "-6"):
+        # IPv6 too: the uplink has none, so services fall back to IPv4 at once
+        # instead of leaving through the VPN's IPv6 route.
+        yield (
+            family,
+            20100,
+            ["uidrange", uid, "lookup", "main"],
+            {"uid_start": SERVICES_UID, "uid_end": SERVICES_UID, "table": "main"},
+        )
+
+
+def existing(family):
+    return json.loads(subprocess.check_output(["ip", "-j", family, "rule", "show"]))
+
+
+def apply(action):
+    current = {family: existing(family) for family in ("-4", "-6")}
+    planned = []
+    for family, priority, args, identity in rules():
+        at_priority = [rule for rule in current[family] if rule.get("priority") == priority]
+        ours = [rule for rule in at_priority if all(rule.get(key) == value for key, value in identity.items())]
+        if len(ours) != len(at_priority):
+            # Never touch a rule someone else put at one of our priorities.
+            raise SystemExit(f"Routing priority {priority} ({family}) is already in use; leaving everything unchanged")
+        planned.append((family, priority, args, len(ours)))
+
+    for family, priority, args, count in planned:
+        rule = ["pref", str(priority), *args]
+        if action == "start" and count == 0:
+            subprocess.run(["ip", family, "rule", "add", *rule], check=True)
+        elif action == "stop":
+            for _ in range(count):
+                subprocess.run(["ip", family, "rule", "del", *rule], check=True)
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2 or sys.argv[1] not in ("start", "stop"):
+        raise SystemExit("Usage: firewifi-cloudflare-routing start|stop")
+    apply(sys.argv[1])
