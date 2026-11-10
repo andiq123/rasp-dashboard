@@ -4,8 +4,9 @@ import (
 	"time"
 )
 
-// Longer than the longest async build/redeploy budgets (20–25m) so ARM Pi builds are not killed.
-const jobMaxAge = 30 * time.Minute
+// Longer than the longest build budget (a cold Rust build, see rustBuildTimeout) so
+// ARM Pi builds are not killed. Go deploys end by their own 20–25m budgets first.
+const jobMaxAge = rustBuildTimeout + 15*time.Minute
 
 // BootstrapJobWatchdog clears jobs that never released (crash mid-delete, hung docker, …).
 func (m *Manager) BootstrapJobWatchdog() {

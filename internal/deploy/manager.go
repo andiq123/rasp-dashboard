@@ -818,6 +818,14 @@ func (m *Manager) createGo(ctx context.Context, group string, in CreateGoRequest
 					return Service{}, "", err
 				}
 				m.logf("info", "Auto root /%s · %s", rootDir, reason)
+			} else if isRustProject(repoDir) {
+				// Cargo project at the repository root.
+			} else if rust := suggestLocalRustRoot(repoDir); rust != "" {
+				buildDir, rootDir, err = resolveRootDir(repoDir, rust)
+				if err != nil {
+					return Service{}, "", err
+				}
+				m.logf("info", "Auto root /%s · Cargo.toml found", rootDir)
 			} else if reason != "" {
 				m.logf("warn", "%s", reason)
 			}
@@ -841,24 +849,36 @@ func (m *Manager) createGo(ctx context.Context, group string, in CreateGoRequest
 			return Service{}, "", err
 		}
 	}
-	audit := auditGoModule(buildDir)
-	cmdPath := strings.TrimSpace(manifest.Cmd)
-	if cmdPath == "" {
-		cmdPath = audit.Cmd
-	}
-	if cmdPath == "" {
-		return Service{}, "", fmt.Errorf("no go main package found in repo (checked ./cmd/*, ./cmd, ., .air.toml)")
-	}
-	if strings.TrimSpace(manifest.Cmd) == "" && audit.Reason != "" {
-		m.logf("info", "Detected entrypoint %s (%s)", cmdPath, audit.Reason)
+	runtimeKind := serviceRuntime(buildDir)
+	var cmdPath string
+	if runtimeKind == RuntimeRust {
+		// Cargo decides the entrypoint and the build; Go build commands do not apply.
+		cmdPath, err = rustBinaryName(buildDir)
+		if err != nil {
+			return Service{}, "", err
+		}
+		buildCmd = ""
+		m.logf("info", "Rust project · binary %s · image %s", cmdPath, rustBuildImage)
 	} else {
-		m.logf("info", "Entrypoint %s", cmdPath)
-	}
-	if audit.GoVersion != "" {
-		m.logf("info", "Go %s · image %s", audit.GoVersion, audit.Image)
-	}
-	if buildCmd == "" {
-		buildCmd = strings.TrimSpace(manifest.BuildCmd)
+		audit := auditGoModule(buildDir)
+		cmdPath = strings.TrimSpace(manifest.Cmd)
+		if cmdPath == "" {
+			cmdPath = audit.Cmd
+		}
+		if cmdPath == "" {
+			return Service{}, "", fmt.Errorf("no go main package or Cargo.toml found in repo (checked ./cmd/*, ./cmd, ., .air.toml)")
+		}
+		if strings.TrimSpace(manifest.Cmd) == "" && audit.Reason != "" {
+			m.logf("info", "Detected entrypoint %s (%s)", cmdPath, audit.Reason)
+		} else {
+			m.logf("info", "Entrypoint %s", cmdPath)
+		}
+		if audit.GoVersion != "" {
+			m.logf("info", "Go %s · image %s", audit.GoVersion, audit.Image)
+		}
+		if buildCmd == "" {
+			buildCmd = strings.TrimSpace(manifest.BuildCmd)
+		}
 	}
 	if buildCmd != "" {
 		if err := validateBuildCmd(buildCmd); err != nil {
@@ -936,7 +956,7 @@ func (m *Manager) createGo(ctx context.Context, group string, in CreateGoRequest
 		envBody = removeLinkedRedisEnv(envBody)
 	}
 	hints := detectEnvStackHints(buildDir)
-	hints.Go = true
+	hints.Go = !hints.Rust
 	envBody = ensureProductionEnv(envBody, hints)
 	envBody, _ = materializeSecrets(envBody)
 	_ = os.WriteFile(envPath, []byte(normalizeEnv(envBody)), 0o600)
@@ -959,6 +979,7 @@ func (m *Manager) createGo(ctx context.Context, group string, in CreateGoRequest
 		Repo: repo, Branch: branch, Port: port, Cmd: cmdPath,
 		RootDir: rootDir, BuildCmd: buildCmd, MemoryMB: mem, CPUs: cpus,
 		GoToolchain:    strings.TrimSpace(in.GoToolchain),
+		Runtime:        runtimeKind,
 		LinkedDatabase: link, LinkedBucket: blink, LinkedRedis: rlink, URL: fmt.Sprintf("http://rasp.local:%d", port),
 		Status: "building", UpdatedAt: time.Now().UTC().Format(time.RFC3339),
 		AutoDeploy: true, AutoDeploySet: true,
@@ -1305,7 +1326,7 @@ func (m *Manager) UpdateSettings(ctx context.Context, group, slug string, in Set
 }
 
 func (m *Manager) finishGoDeployAsync(svc Service, buildDir, deployID, okMsg string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), deployTimeout(buildDir))
 	m.registerJobCancel(cancel)
 	go func() {
 		defer m.clearJobCancel(cancel)

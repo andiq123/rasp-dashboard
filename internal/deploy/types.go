@@ -48,6 +48,7 @@ type Service struct {
 	RootDir          string        `json:"root_dir,omitempty"`
 	BuildCmd         string        `json:"build_cmd,omitempty"`
 	GoToolchain      string        `json:"go_toolchain,omitempty"`
+	Runtime          string        `json:"runtime,omitempty"` // "" = Go, "rust" = Cargo project
 	MemoryMB         int           `json:"memory_mb,omitempty"`
 	CPUs             float64       `json:"cpus,omitempty"`
 	Running          bool          `json:"running"`

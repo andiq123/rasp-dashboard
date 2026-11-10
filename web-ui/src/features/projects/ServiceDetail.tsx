@@ -1205,7 +1205,7 @@ function ConfigTab({
         <>
           <Field
             label="Root"
-            tip="Folder that contains go.mod. Browse the repo or pick a detected module."
+            tip="Folder that contains go.mod (Go) or Cargo.toml (Rust). Browse the repo or pick a detected module."
           >
             {svc.repo && branch ? (
               <RepoRootPicker

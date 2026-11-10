@@ -69,6 +69,20 @@ FIREWIFI_CLEAN=1 FIREWIFI_FORCE=1 ./scripts/update.sh
 
 **Important:** the UI is compile-time embedded. `git pull` alone does not update a running binary — run `./scripts/update.sh`.
 
+## Deployable services
+
+A service is a GitHub repository compiled on the Pi into one static binary that runs in
+an Alpine container with `PORT` set and linked database / bucket / Redis env injected.
+
+| Source | Detected by | Build |
+|--------|-------------|-------|
+| Go | `go.mod` in the root directory | `go build` in a `golang` container (custom build command allowed) |
+| Rust | `Cargo.toml` (and no `go.mod`) | `cargo build --release --locked` in `rust:alpine`, static musl binary |
+
+Rust builds share one Cargo registry cache and keep compiled artifacts per service, so
+only the first build is slow (20–40 minutes on a Pi 4; later deploys recompile what
+changed). The app must listen on `PORT` on all interfaces.
+
 ## Optional hardening
 
 | Env | Purpose |

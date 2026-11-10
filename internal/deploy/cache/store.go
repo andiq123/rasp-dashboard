@@ -26,6 +26,8 @@ const (
 //	  go-modules/shared/          # GOMODCACHE
 //	  npm-cache/shared/           # npm_config_cache
 //	  npm-modules/<lockHash>/     # restored node_modules trees
+//	  cargo/shared/               # CARGO_HOME (registry, git checkouts)
+//	  cargo-target/<group>/<slug> # compiled Rust artifacts per service
 //	  state/<group>/<slug>.json   # last fingerprints per service
 type Store struct {
 	Root string
@@ -134,13 +136,24 @@ func (l Layer) Summary() string {
 	return fmt.Sprintf("%s %s (%s)", l.Kind, state, shortKey(l.Key))
 }
 
+// CargoHome is the Cargo registry and git checkout cache shared by all Rust builds.
+func (s *Store) CargoHome() string {
+	return filepath.Join(s.Root, "cargo", "shared")
+}
 
-// ForgetService drops per-service fingerprint state (not shared module cache).
+// CargoTarget holds one Rust service's compiled artifacts between deploys.
+func (s *Store) CargoTarget(group, slug string) string {
+	return filepath.Join(s.Root, "cargo-target", group, slug)
+}
+
+// ForgetService drops per-service state: fingerprints and compiled Rust artifacts
+// (not the shared module caches).
 func (s *Store) ForgetService(group, slug string) {
 	if s == nil {
 		return
 	}
 	_ = os.Remove(s.statePath(group, slug))
+	_ = os.RemoveAll(s.CargoTarget(group, slug))
 }
 
 // ForgetGroup drops all fingerprint state for a group.
@@ -149,4 +162,5 @@ func (s *Store) ForgetGroup(group string) {
 		return
 	}
 	_ = os.RemoveAll(filepath.Join(s.Root, "state", group))
+	_ = os.RemoveAll(filepath.Join(s.Root, "cargo-target", group))
 }
