@@ -10,7 +10,6 @@ import {
   isQueued,
   serviceTypeIcon,
   statusBorder,
-  statusDot,
   statusLabel,
   statusTone,
 } from './serviceStatus'
@@ -75,7 +74,6 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
           <div className="min-w-0 flex-1">
             <div className="flex justify-between gap-2 items-start">
               <strong className="text-sm truncate leading-snug inline-flex items-center gap-1.5 min-w-0">
-                <span className={`status ${statusDot(tone)} shrink-0`} aria-hidden />
                 <span className="truncate">{name}</span>
               </strong>
               <span className={`badge badge-sm shrink-0 gap-1 ${badge}`}>
@@ -114,9 +112,11 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
                 loading={actPending}
                 disabled={locked}
                 aria-label={`Stop ${svc.slug}`}
-                title={locked ? 'Unavailable while deploying' : 'Stop'}
+                title={locked ? 'Unavailable while deploying' : undefined}
                 onClick={() => onAction(svc.slug, 'stop')}
-              />
+              >
+                Stop
+              </Button>
             ) : (
               <Button
                 variant="successSoft"
@@ -124,9 +124,11 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
                 loading={actPending}
                 disabled={locked}
                 aria-label={`Start ${svc.slug}`}
-                title={locked ? 'Unavailable while deploying' : 'Start'}
+                title={locked ? 'Unavailable while deploying' : undefined}
                 onClick={() => onAction(svc.slug, 'start')}
-              />
+              >
+                Start
+              </Button>
             )}
             <Button
               variant="warningSoft"
@@ -134,9 +136,11 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
               loading={actPending}
               disabled={locked}
               aria-label={`${svc.type === 'redis' ? 'Restart' : 'Redeploy'} ${svc.slug}`}
-              title={svc.type === 'redis' ? 'Restart' : waiting ? 'Already queued' : busy ? 'Deploy in progress' : 'Redeploy'}
+              title={waiting ? 'Already queued' : busy ? 'Deploy in progress' : undefined}
               onClick={() => onAction(svc.slug, svc.type === 'redis' ? 'restart' : 'redeploy')}
-            />
+            >
+              {svc.type === 'redis' ? 'Restart' : 'Redeploy'}
+            </Button>
           </div>
         ) : null}
       </div>

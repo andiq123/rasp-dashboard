@@ -46,7 +46,7 @@ export function UsageMeter({
           } ${over ? 'text-error' : 'text-base-content'}`}
         >
           {usedLabel}
-          <span className={`font-medium ${muted}`}> / {limitLabel}</span>
+          <span className={`font-medium ${muted}`}>{limitLabel ? ` of ${limitLabel}` : ', no limit'}</span>
         </span>
       </div>
       <div
@@ -63,14 +63,6 @@ export function UsageMeter({
           className={`usage-fill absolute inset-y-0 left-0 rounded-full ${fillClass(tone, over, warn)}`}
           style={{ width: `${pct}%` }}
         />
-        <div
-          className="pointer-events-none absolute inset-0 rounded-full"
-          style={{
-            background:
-              'linear-gradient(90deg, transparent, color-mix(in oklab, white 22%, transparent), transparent)',
-            backgroundSize: '200% 100%',
-          }}
-        />
       </div>
       {hint && !compact ? <p className={`text-[11px] m-0 ${muted}`}>{hint}</p> : null}
     </div>
@@ -79,8 +71,8 @@ export function UsageMeter({
 
 function fmtMem(mb: number): string {
   if (!Number.isFinite(mb) || mb < 0) return '—'
-  if (mb < 10) return `${mb.toFixed(1)}MB`
-  return `${Math.round(mb)}MB`
+  if (mb < 10) return `${mb.toFixed(1)} MB`
+  return `${Math.round(mb)} MB`
 }
 
 function fmtCpu(percentOfOneCore: number): string {
@@ -187,7 +179,7 @@ function ServiceUsageMeters({
         tone="mem"
         label="Memory"
         usedLabel={fmtMem(memUsed)}
-        limitLabel={limitMem > 0 ? fmtMem(limitMem) : '—'}
+        limitLabel={limitMem > 0 ? fmtMem(limitMem) : ''}
         percent={memPct}
         hint={
           hint
@@ -204,7 +196,7 @@ function ServiceUsageMeters({
         tone="cpu"
         label="CPU"
         usedLabel={fmtCpu(cpuUsed)}
-        limitLabel={limitCpu > 0 ? `${limitCpu}×` : '—'}
+        limitLabel={limitCpu > 0 ? `${limitCpu} ${limitCpu === 1 ? 'core' : 'cores'}` : ''}
         percent={cpuPct}
         hint={hint ? 'Percent of one core, against the CPU limit' : undefined}
       />

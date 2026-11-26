@@ -502,6 +502,27 @@ button:not(:disabled), summary { cursor: pointer; }
 .svc-tab.is-active { color: var(--color-primary); }
 .svc-tab.is-active::after { transform: scaleX(1); }
 
+/* Editable title: reads as a heading, reveals an input only on hover/focus. */
+.title-input {
+  min-width: 0; max-width: 100%; margin-left: -8px; padding: 2px 8px; border: 1px solid transparent; border-radius: var(--radius-control);
+  background: transparent; font: inherit; font-size: 20px; font-weight: 650; letter-spacing: -0.02em; color: var(--color-base-content);
+  transition: border-color var(--dur-quick), background-color var(--dur-quick), box-shadow var(--dur-quick);
+}
+.title-input:hover { background: color-mix(in oklab, var(--color-base-content) 4%, transparent); }
+.title-input:focus { outline: none; border-color: var(--color-primary); background: var(--surface-panel); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 16%, transparent); }
+
+/* Switching groups: the panel content rises in, cards stagger via their own motion. */
+.group-enter { animation: rise-in var(--dur-slow) var(--ease-out-soft) both; }
+
+/* Skeletons: calm placeholders shaped like the content they stand in for. */
+.skeleton-row, .skeleton-card {
+  display: block; border-radius: var(--radius-control);
+  background: linear-gradient(90deg, var(--surface-inset) 30%, color-mix(in oklab, var(--color-base-300) 45%, var(--surface-inset)) 50%, var(--surface-inset) 70%) 0 0 / 300% 100%;
+  animation: skeleton 1.6s ease-in-out infinite;
+}
+.skeleton-row { height: 46px; }
+.skeleton-card { height: 168px; border-radius: var(--radius-inset); }
+
 /* Settings: two columns on wide screens. */
 .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
 .settings-col { display: grid; gap: 14px; min-width: 0; }

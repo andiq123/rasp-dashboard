@@ -52,16 +52,8 @@ import { ServiceCard } from './ServiceCard'
 import { ServiceDetail } from './ServiceDetail'
 import { DeployQueue } from './DeployQueue'
 import { AnimatedServiceCollection } from './AnimatedServiceCollection'
-import {
-  isBuilding,
-  isQueued,
-  phaseLabel,
-  serviceTypeIcon,
-  statusDot,
-  statusLabel,
-  statusTone,
-} from './serviceStatus'
-import { activityMatchesGroup, useActivity, activityMatchesService } from '@/hooks/useActivity'
+import { isBuilding, isQueued, phaseLabel } from './serviceStatus'
+import { activityMatchesGroup, useActivity } from '@/hooks/useActivity'
 import { useLiveState } from '@/hooks/useLiveState'
 
 type WizardStep = 'type' | 'github' | 'group' | 'go' | 'postgres' | 'bucket' | 'redis' | null
@@ -415,6 +407,9 @@ export function ProjectsPage() {
     setWizard('go')
   }
 
+  const groupName0 = group ? group.name || group.slug : ''
+  // Until the services load, trust the count the group list already has.
+  const serviceCount = servicesQ.data ? services.length : group?.service_count
   const nameDirty = group && draftName.trim() !== (group.name || group.slug).trim()
 
   return (
@@ -436,7 +431,9 @@ export function ProjectsPage() {
               </Button>
             </div>
             {groupsQ.isLoading ? (
-              <Spinner compact label="Loading groups…" />
+              <div className="grid gap-1.5" aria-label="Loading groups">
+                {[0, 1, 2].map((i) => <span key={i} className="skeleton-row" style={{ animationDelay: `${i * 120}ms` }} />)}
+              </div>
             ) : groupsQ.isError ? (
               <Empty compact title="Could not load groups" body={(groupsQ.error as Error).message} />
             ) : !(groupsQ.data || []).length ? (
@@ -467,64 +464,6 @@ export function ProjectsPage() {
               </nav>
             )}
 
-            {groupSlug ? (
-              <div className="grid gap-2 pt-3 border-t border-base-300">
-                <div className="flex items-center gap-2 px-1">
-                  <Layers3 className={`h-3.5 w-3.5 ${muted}`} aria-hidden />
-                  <h3 className="text-xs font-bold m-0">Services</h3>
-                  <span className={`text-[11px] ${muted}`}>{services.length}</span>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-xs ml-auto text-primary"
-                    onClick={openAddService}
-                  >
-                    <Plus className="h-3 w-3" aria-hidden />
-                    Add
-                  </button>
-                </div>
-                {servicesQ.isLoading ? (
-                  <Spinner compact label="Loading services…" />
-                ) : (
-                  <AnimatedServiceCollection
-                    key={`nav-${groupSlug}`}
-                    as="nav"
-                    services={services}
-                    className="grid gap-1"
-                    ariaLabel="Services in selected group"
-                    empty={<p className={`text-[11px] m-0 px-1 ${muted}`}>No services in this group yet.</p>}
-                  >
-                    {(svc) => {
-                      const Icon = serviceTypeIcon(svc.type)
-                      const busy = isBuilding(svc) || (activity.active && activityMatchesService(activity, groupSlug, svc.slug))
-                      const waiting = isQueued(svc) && !busy
-                      const tone = statusTone(svc, { busy, waiting })
-                      const label = statusLabel(svc)
-                      return (
-                        <Link
-                          to={`/projects/${encodeURIComponent(groupSlug)}/${encodeURIComponent(svc.slug)}`}
-                          className={[
-                            'group flex items-center gap-2 rounded-box border px-2.5 py-2 transition-all duration-200',
-                            svc.slug === serviceSlug
-                              ? 'border-primary/40 bg-primary/10 text-primary shadow-sm'
-                              : 'border-transparent hover:border-base-300 hover:bg-base-200/70',
-                          ].join(' ')}
-                        >
-                          <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
-                          <span className="min-w-0 flex-1">
-                            <strong className="block text-xs truncate">{svc.name || svc.slug}</strong>
-                            <span className={`flex items-center gap-1.5 text-[10px] ${muted}`}>
-                              <span className={`status ${statusDot(tone)}`} aria-hidden />
-                              {busy ? 'Deploying' : waiting ? 'Queued' : label.text}
-                            </span>
-                          </span>
-                          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin text-info" aria-hidden /> : null}
-                        </Link>
-                      )
-                    }}
-                  </AnimatedServiceCollection>
-                )}
-              </div>
-            ) : null}
           </div>
         </aside>
 
@@ -554,7 +493,7 @@ export function ProjectsPage() {
                 ) : null}
               </div>
             ) : (
-              <>
+              <div key={groupSlug} className="group-enter grid gap-4">
                 <header
                   className={`grid grid-cols-[auto_minmax(0,1fr)] sm:flex items-start gap-2.5 pb-3 border-b border-base-300 ${
                     deployingN ? 'relative after:absolute after:left-0 after:right-0 after:-bottom-px after:h-0.5 after:rounded after:bg-gradient-to-r after:from-info/20 after:via-info after:to-info/20 after:bg-[length:220%_100%] motion-safe:after:animate-pulse' : ''
@@ -568,20 +507,27 @@ export function ProjectsPage() {
                   />
                   <div className="flex-1 min-w-0 grid gap-1">
                     <div className="flex gap-2 items-center">
-                      <Input
-                        className="w-full min-w-0 max-w-[360px] h-10 text-lg font-semibold tracking-tight"
+                      <input
+                        className="title-input"
                         value={draftName}
                         onChange={(e) => setDraftName(e.target.value)}
-                        aria-label="Group name"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && nameDirty) renameMut.mutate()
+                          if (e.key === 'Escape') setDraftName(groupName0)
+                        }}
+                        aria-label="Group name (click to rename)"
+                        title="Click to rename"
+                        size={Math.max(4, draftName.length + 1)}
                       />
                       {nameDirty ? (
-                        <Button variant="primary" loading={renameMut.isPending} onClick={() => renameMut.mutate()}>
-                          Save
-                        </Button>
+                        <span className="flex gap-1 appear">
+                          <Button variant="primary" loading={renameMut.isPending} onClick={() => renameMut.mutate()}>Save</Button>
+                          <Button variant="quiet" onClick={() => setDraftName(groupName0)}>Cancel</Button>
+                        </span>
                       ) : null}
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className={`font-mono text-xs ${muted}`}>{groupSlug}</span>
+                      <span className="meta">{serviceCount != null ? <span>{serviceCount === 1 ? '1 service' : `${serviceCount} services`}</span> : null}<span>{groupSlug}</span></span>
                       {deployingN ? (
                         <span className="badge badge-info badge-sm gap-1" role="status">
                           <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
@@ -595,12 +541,13 @@ export function ProjectsPage() {
                   </div>
                   <div className="col-span-2 flex flex-wrap justify-end gap-1.5 sm:ml-auto">
                     <Button
-                      variant="dangerSoft"
+                      variant="quiet"
+                      className="text-error"
                       icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />}
                       loading={deleteGroupMut.isPending}
                       onClick={() => void onDeleteGroup()}
                     >
-                      Delete
+                      Delete group
                     </Button>
                     <Button
                       variant="primary"
@@ -616,14 +563,16 @@ export function ProjectsPage() {
                   <DeployQueue activity={activity} group={groupSlug} />
 
                 {servicesQ.isLoading ? (
-                  <Spinner compact label="Loading services…" />
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,260px),1fr))] gap-2.5" aria-label="Loading services">
+                    {[0, 1].map((i) => <span key={i} className="skeleton-card" style={{ animationDelay: `${i * 140}ms` }} />)}
+                  </div>
                 ) : servicesQ.isError ? (
                   <Empty compact title="Could not load services" body={(servicesQ.error as Error).message} />
                 ) : !selected ? (
                   <AnimatedServiceCollection
                     key={`grid-${groupSlug}`}
                     services={services}
-                    className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,240px),1fr))] gap-2.5"
+                    className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,260px),1fr))] gap-2.5"
                     itemClassName="min-w-0"
                     empty={
                       <Empty
@@ -667,7 +616,7 @@ export function ProjectsPage() {
                   />
                 ) : null}
                 </div>
-              </>
+              </div>
             )}
           </div>
         </section>
