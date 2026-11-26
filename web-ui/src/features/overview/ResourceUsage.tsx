@@ -1,6 +1,6 @@
 import { CircleCheck, Info, TriangleAlert, type LucideIcon } from 'lucide-react'
 import { AnimatedNumber } from '@/components/ui/AnimatedNumber/AnimatedNumber'
-import { SwapText } from '@/components/ui/SwapText/SwapText'
+import { SwapBlock } from '@/components/ui/SwapText/SwapText'
 import { fmtMB, type HostCapacity, type Reserved } from '@/lib/resources'
 
 type Usage = { memory_mb: number; cpus: number }
@@ -60,7 +60,7 @@ export function ResourceUsage({ host, reserved, used }: { host: HostCapacity; re
       <UsageBar label="CPU" total={host.cores} apps={used.cpus} system={cpuSystem} reserved={reserved.cpus} format={fmtCores} />
       <p className={`ru-verdict tone-${v.tone}`}>
         <v.icon aria-hidden />
-        <SwapText>{v.text}</SwapText>
+        <SwapBlock className="min-w-0 flex-1">{v.text}</SwapBlock>
       </p>
     </div>
   )

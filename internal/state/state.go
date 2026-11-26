@@ -50,6 +50,7 @@ type State struct {
 	ProxyRunning   bool          `json:"proxy_running"`
 	Uplink         Uplink        `json:"uplink"`
 	Clients        *int          `json:"clients,omitempty"`
+	Devices        []Device      `json:"devices,omitempty"`
 	DeviceMetrics  DeviceMetrics `json:"device_metrics"`
 	FilesRoot      string        `json:"files_root,omitempty"`
 	GeneratedAt    string        `json:"generated_at"`
@@ -211,7 +212,13 @@ func (r *Reader) Read() (State, error) {
 		GeneratedAt:    time.Now().Format(time.RFC3339),
 	}
 	if st.HotspotRunning {
-		st.Clients = r.readClients()
+		if devices := r.readDevices(); devices != nil {
+			n := len(devices)
+			st.Devices, st.Clients = devices, &n
+		} else {
+			zero := 0
+			st.Clients = &zero
+		}
 	}
 	st.Issues = healthIssues(st)
 	return st, nil

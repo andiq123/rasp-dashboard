@@ -9,13 +9,15 @@ type Props<T> = {
   getKey: (item: T) => string
   render: (item: T) => ReactNode
   className?: string
+  /** Stack items in one place and crossfade (for swapping one thing for another). */
+  swap?: boolean
 }
 
 /**
  * Renders a keyed list whose items animate in and out: new items rise in,
  * removed items fade and collapse before they unmount. Layout never jumps.
  */
-export function AnimatedList<T>({ items, getKey, render, className = '' }: Props<T>) {
+export function AnimatedList<T>({ items, getKey, render, className = '', swap = false }: Props<T>) {
   const keys = items.map(getKey).join('\u0000')
   const [entries, setEntries] = useState<Entry<T>[]>(() => items.map((item) => ({ key: getKey(item), item, leaving: false })))
   const [seenKeys, setSeenKeys] = useState(keys)
@@ -42,7 +44,7 @@ export function AnimatedList<T>({ items, getKey, render, className = '' }: Props
   if (!entries.length) return null
   const live = new Map(items.map((item) => [getKey(item), item]))
   return (
-    <div className={`anim-list ${className}`}>
+    <div className={`anim-list${swap ? ' anim-swap' : ''} ${className}`}>
       {entries.map((e) => (
         <div key={e.key} className={`anim-item${e.leaving ? ' is-leaving' : ''}`} aria-hidden={e.leaving || undefined}>
           <div className="anim-item-inner">{render(live.get(e.key) ?? e.item)}</div>

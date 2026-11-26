@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -36,9 +37,22 @@ type linkCache struct {
 	internet   bool
 	checked    bool
 	probeIface string
-	clientsAt  time.Time
-	clients    int
+	devicesAt  time.Time
+	devices    []Device
 }
+
+// Device is one Wi-Fi station on the hotspot, joined with its DHCP lease.
+type Device struct {
+	MAC              string `json:"mac"`
+	IP               string `json:"ip,omitempty"`
+	Name             string `json:"name,omitempty"`
+	SignalDBM        int    `json:"signal_dbm,omitempty"`
+	ConnectedSeconds int64  `json:"connected_seconds"`
+	RxBytes          uint64 `json:"rx_bytes"`
+	TxBytes          uint64 `json:"tx_bytes"`
+}
+
+const dnsmasqLeases = "/var/lib/misc/dnsmasq.leases"
 
 // readUplink never blocks on the network: a stale probe refreshes in the background
 // and the last known result is returned meanwhile.
@@ -69,20 +83,26 @@ func (r *Reader) readUplink(iface string) Uplink {
 	return u
 }
 
-// readClients counts Wi-Fi stations associated with the hotspot.
-func (r *Reader) readClients() *int {
+// readDevices lists Wi-Fi stations on the hotspot (cached briefly; iw is fast).
+func (r *Reader) readDevices() []Device {
 	c := &r.links
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if time.Since(c.clientsAt) >= clientsTTL {
-		n, err := stationCount(hotspotInterface)
+	if time.Since(c.devicesAt) >= clientsTTL {
+		out, err := stationDump(hotspotInterface)
 		if err != nil {
 			return nil
 		}
-		c.clients, c.clientsAt = n, time.Now()
+		devices := parseStations(out)
+		leases := readLeases(dnsmasqLeases)
+		for i := range devices {
+			if l, ok := leases[devices[i].MAC]; ok {
+				devices[i].IP, devices[i].Name = l.ip, l.name
+			}
+		}
+		c.devices, c.devicesAt = devices, time.Now()
 	}
-	n := c.clients
-	return &n
+	return append([]Device(nil), c.devices...)
 }
 
 func interfaceUp(iface string) bool {
@@ -90,27 +110,76 @@ func interfaceUp(iface string) bool {
 	return err == nil && strings.TrimSpace(string(b)) == "up"
 }
 
-func stationCount(iface string) (int, error) {
+func stationDump(iface string) ([]byte, error) {
 	bin := "/usr/sbin/iw"
 	if _, err := os.Stat(bin); err != nil {
 		bin = "iw"
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, "dev", iface, "station", "dump").Output()
-	if err != nil {
-		return 0, err
-	}
-	return countStations(out), nil
+	return exec.CommandContext(ctx, bin, "dev", iface, "station", "dump").Output()
 }
 
-func countStations(out []byte) int {
-	n := 0
+// parseStations reads `iw dev <if> station dump` output.
+func parseStations(out []byte) []Device {
+	var devices []Device
 	s := bufio.NewScanner(bytes.NewReader(out))
 	for s.Scan() {
-		if strings.HasPrefix(s.Text(), "Station ") {
-			n++
+		line := s.Text()
+		if strings.HasPrefix(line, "Station ") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				devices = append(devices, Device{MAC: strings.ToLower(fields[1])})
+			}
+			continue
+		}
+		if len(devices) == 0 {
+			continue
+		}
+		d := &devices[len(devices)-1]
+		key, value, ok := strings.Cut(strings.TrimSpace(line), ":")
+		if !ok {
+			continue
+		}
+		first := ""
+		if f := strings.Fields(value); len(f) > 0 {
+			first = f[0]
+		}
+		switch key {
+		case "rx bytes":
+			d.RxBytes, _ = strconv.ParseUint(first, 10, 64)
+		case "tx bytes":
+			d.TxBytes, _ = strconv.ParseUint(first, 10, 64)
+		case "signal":
+			d.SignalDBM, _ = strconv.Atoi(first)
+		case "connected time":
+			d.ConnectedSeconds, _ = strconv.ParseInt(first, 10, 64)
 		}
 	}
-	return n
+	return devices
 }
+
+type lease struct{ ip, name string }
+
+// readLeases maps MAC → lease from a dnsmasq lease file ("expiry mac ip name id").
+func readLeases(path string) map[string]lease {
+	leases := map[string]lease{}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return leases
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 4 {
+			continue
+		}
+		name := f[3]
+		if name == "*" {
+			name = ""
+		}
+		leases[strings.ToLower(f[1])] = lease{ip: f[2], name: name}
+	}
+	return leases
+}
+
+func countStations(out []byte) int { return len(parseStations(out)) }

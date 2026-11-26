@@ -33,7 +33,7 @@ import { Notice } from '@/components/ui/Notice/Notice'
 import { Panel } from '@/components/ui/Panel/Panel'
 import { Segmented } from '@/components/ui/Segmented/Segmented'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
-import { SwapText } from '@/components/ui/SwapText/SwapText'
+import { SwapBlock, SwapText } from '@/components/ui/SwapText/SwapText'
 import { StatRow } from '@/components/ui/StatRow/StatRow'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { MonitorHistory } from '@/components/monitor/MonitorHistory'
@@ -105,12 +105,6 @@ export function OverviewPage() {
     (kind) => kind !== 'offline',
   )
   const showReconnecting = useSettled(!live, SETTLE_MS, (offline) => !offline)
-  // Breaks in the flow settle before showing; repairs show at once.
-  const rawFlow = computeFlow(state, recoveringVPN)
-  const linkKey = useSettled(rawFlow.links.join(','), SETTLE_MS, (key) => !key.includes('blocked'))
-  const flow = { ...rawFlow, links: linkKey.split(',') as LinkState[] }
-  const deviceCount = state.clients ?? 0
-  const devicesText = deviceCount === 1 ? '1 device' : `${deviceCount} devices`
 
   const modeMut = useMutation({
     mutationFn: (m: Mode) => setMode(m),
@@ -192,6 +186,12 @@ export function OverviewPage() {
     if (ok && !hs.isPending && !recoveringVPN) hs.mutate('repair-vpn')
   }
 
+  // Breaks in the flow settle before showing; repairs show at once.
+  const rawFlow = computeFlow(state, recoveringVPN, modeMut.isPending ? modeMut.variables : undefined)
+  const linkKey = useSettled(rawFlow.links.join(','), SETTLE_MS, (key) => !key.includes('blocked'))
+  const flow = { ...rawFlow, links: linkKey.split(',') as LinkState[] }
+  const deviceCount = state.clients ?? 0
+  const devicesText = deviceCount === 1 ? '1 device' : `${deviceCount} devices`
   const c = configQ.data || {}
   const busy = modeMut.isPending || hs.isPending || save.isPending || recoveringVPN
   const actionsLocked = hs.isPending || modeMut.isPending
@@ -313,9 +313,7 @@ export function OverviewPage() {
               <span className="dot dot-ring" aria-hidden />
               <div className="min-w-0">
                 <h1><SwapText>{hero.title}</SwapText></h1>
-                <p>
-                  <SwapText>{`${hero.line}${showReconnecting ? ' Reconnecting to the Pi…' : ''}`}</SwapText>
-                </p>
+                <SwapBlock className="status-line">{`${hero.line}${showReconnecting ? ' Reconnecting to the Pi…' : ''}`}</SwapBlock>
               </div>
             </div>
             <div className="status-actions">
@@ -364,7 +362,7 @@ export function OverviewPage() {
               )}
             </div>
           </div>
-          <TrafficFlow flow={flow} />
+          <TrafficFlow flow={flow} state={state} />
 
           <AnimatedList
             items={vpnRepair ? [vpnRepair] : []}

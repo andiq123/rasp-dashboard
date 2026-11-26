@@ -57,6 +57,16 @@ export type Uplink = {
   checked?: boolean
 }
 
+export type ConnectedDevice = {
+  mac: string
+  ip?: string
+  name?: string
+  signal_dbm?: number
+  connected_seconds?: number
+  rx_bytes?: number
+  tx_bytes?: number
+}
+
 export type AppState = {
   mode: string
   hotspot_running: boolean
@@ -71,6 +81,7 @@ export type AppState = {
   proxy_running?: boolean
   uplink?: Uplink
   clients?: number
+  devices?: ConnectedDevice[]
   device_metrics?: DeviceMetrics
   files_root?: string
   generated_at?: string
