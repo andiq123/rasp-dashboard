@@ -21,7 +21,8 @@ export default defineConfig(({ command }) => ({
   server: {
     port: 5173,
     proxy: {
-      '/api': { target: 'http://127.0.0.1:8484', changeOrigin: true },
+      // FIREWIFI_API=http://rasp.local:8484 npm run dev  → develop the UI against the live Pi.
+      '/api': { target: process.env.FIREWIFI_API || 'http://127.0.0.1:8484', changeOrigin: true },
     },
   },
 }))

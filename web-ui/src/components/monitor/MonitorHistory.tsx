@@ -75,11 +75,14 @@ export function MonitorHistory({
   group,
   slug,
   compact = false,
+  bare = false,
 }: {
   kind: 'system' | 'service'
   group?: string
   slug?: string
   compact?: boolean
+  /** Hide the title when a surrounding section already names the chart. */
+  bare?: boolean
 }) {
   const [range, setRange] = useState<Range>('6h')
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
@@ -119,14 +122,18 @@ export function MonitorHistory({
   return (
     <section className="grid gap-2.5" aria-label={`${kind === 'system' ? 'System' : 'Service'} monitor history`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <strong className="text-sm inline-flex items-center gap-1.5">
-            <Activity className="h-3.5 w-3.5 text-primary" aria-hidden /> Monitor history
-          </strong>
-          <p className={`text-[11px] m-0 mt-0.5 ${muted}`}>
-            30-second samples · seven-day local retention · {points.length} chart {points.length === 1 ? 'point' : 'points'}
-          </p>
-        </div>
+        {bare ? (
+          <p className={`text-[11px] m-0 ${muted}`}>30-second samples, kept for seven days</p>
+        ) : (
+          <div>
+            <strong className="text-sm inline-flex items-center gap-1.5">
+              <Activity className="h-3.5 w-3.5 text-primary" aria-hidden /> Monitor history
+            </strong>
+            <p className={`text-[11px] m-0 mt-0.5 ${muted}`}>
+              30-second samples · seven-day local retention · {points.length} chart {points.length === 1 ? 'point' : 'points'}
+            </p>
+          </div>
+        )}
         <div className="join" aria-label="History range">
           {ranges.map((value) => (
             <Button

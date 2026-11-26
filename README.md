@@ -27,6 +27,12 @@ UI-only Vite dev (proxies `/api` → `:8484`):
 npm run dev
 ```
 
+Develop the UI on another machine against the live Pi:
+
+```bash
+cd web-ui && FIREWIFI_API=http://rasp.local:8484 npx vite --port 5180
+```
+
 Root-level npm commands proxy to `web-ui/`. Run `npm run build`, `npm run typecheck`,
 `npm run lint`, or `npm run check` directly from the checkout root.
 

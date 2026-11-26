@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
-import { FolderKanban, FolderOpen, LayoutDashboard, Loader2, Moon, Settings, Sun, SunMoon, Wifi } from 'lucide-react'
+import { FolderKanban, FolderOpen, LayoutDashboard, Loader2, Settings, Wifi } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { phaseLabel } from '@/features/projects/serviceStatus'
 import { useRealtime } from '@/hooks/realtime'
@@ -36,7 +35,6 @@ export function AppBar() {
       <div className="bar-status">
         <DeployChip />
         <LiveChip />
-        <ThemeToggle />
       </div>
     </header>
   )
@@ -70,49 +68,5 @@ function LiveChip() {
       <span className="hidden sm:inline">{live ? 'Live' : 'Connecting'}</span>
       <span className="sr-only sm:hidden">{live ? 'Live' : 'Connecting'}</span>
     </span>
-  )
-}
-
-type ThemeChoice = 'system' | 'fw' | 'fw-dark'
-const themeOrder: ThemeChoice[] = ['system', 'fw', 'fw-dark']
-const themeMeta: Record<ThemeChoice, { label: string; icon: LucideIcon }> = {
-  system: { label: 'Match system', icon: SunMoon },
-  fw: { label: 'Light', icon: Sun },
-  'fw-dark': { label: 'Dark', icon: Moon },
-}
-
-function storedTheme(): ThemeChoice {
-  try {
-    const v = localStorage.getItem('fw-theme')
-    return v === 'fw' || v === 'fw-dark' ? v : 'system'
-  } catch {
-    return 'system'
-  }
-}
-
-function ThemeToggle() {
-  const [theme, setTheme] = useState<ThemeChoice>(storedTheme)
-  useEffect(() => {
-    const root = document.documentElement
-    if (theme === 'system') root.removeAttribute('data-theme')
-    else root.setAttribute('data-theme', theme)
-    try {
-      if (theme === 'system') localStorage.removeItem('fw-theme')
-      else localStorage.setItem('fw-theme', theme)
-    } catch {
-      /* private mode: the choice lasts for this visit */
-    }
-  }, [theme])
-  const { label, icon: Icon } = themeMeta[theme]
-  return (
-    <button
-      type="button"
-      className="btn btn-ghost btn-sm btn-square"
-      title={`Theme: ${label}`}
-      aria-label={`Theme: ${label}. Change theme`}
-      onClick={() => setTheme(themeOrder[(themeOrder.indexOf(theme) + 1) % themeOrder.length])}
-    >
-      <Icon size={16} aria-hidden />
-    </button>
   )
 }

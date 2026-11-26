@@ -78,7 +78,7 @@ export function LogConsole({ lines, live, title, className = '', empty, stickKey
   }
 
   return (
-    <div data-theme="fw-dark" className={`log-shell ${className}`}>
+    <div className={`log-shell ${className}`}>
       <div className="log-bar">
         <span className="flex items-center gap-2 min-w-0 mr-auto">
           {live ? <span className="log-pulse shrink-0" aria-hidden /> : null}

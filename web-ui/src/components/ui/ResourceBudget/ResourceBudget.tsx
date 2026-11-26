@@ -28,7 +28,7 @@ function Bar({
     <div className="grid gap-1">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-xs font-semibold">{label}</span>
-        <span className={`text-xs font-mono ${over ? 'text-error' : muted}`}>
+        <span className={`text-xs tabular-nums ${over ? 'text-error' : muted}`}>
           {used}
           {unit} / {total || '—'}
           {unit}
@@ -71,7 +71,7 @@ export function ResourceBudget({ host, reserved, draftLabel, compact }: Props) {
             ? 'Host memory unknown'
             : memLeft < 0
               ? `Overcommitted by ${Math.abs(memLeft)}MB — limits may thrash`
-              : `${memLeft}MB headroom · live free ~${host.live_free_mb}MB`
+              : `${memLeft}MB headroom, about ${host.live_free_mb}MB free right now`
         }
       />
       <Bar
@@ -84,11 +84,11 @@ export function ResourceBudget({ host, reserved, draftLabel, compact }: Props) {
             ? 'Core count unknown'
             : cpuLeft < 0
               ? `Overcommitted by ${Math.abs(cpuLeft)} cores`
-              : `${cpuLeft} cores free · live busy ${Math.round(host.live_busy_percent)}%`
+              : `${cpuLeft} cores free, ${Math.round(host.live_busy_percent)}% busy right now`
         }
       />
       <p className={`text-[11px] m-0 ${muted}`}>
-        Reserved = Docker limits for Go apps. OS, Postgres, and Docker themselves use extra RAM/CPU.
+        Reserved means the Docker limits set on your apps. The OS, Postgres and Docker use more on top.
       </p>
     </div>
   )
