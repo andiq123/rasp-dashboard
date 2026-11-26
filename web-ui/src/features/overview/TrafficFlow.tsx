@@ -213,6 +213,41 @@ function BranchInfo({ title, line, children }: { title: string; line: string; ch
 }
 
 const BRANCH_MIN_WIDTH = 230
+const LOOP_H = 23 // track height (see .branch-track)
+// Trips around the loop are longer than one link, so each level takes longer.
+const loopDuration = ['7s', '7s', '4.5s', '2.6s']
+
+/** Rounded loop path in track coordinates: down from the Pi, across, up into Internet. */
+function loopPath(w: number): string {
+  const h = LOOP_H - 1
+  const r = 13
+  return `M ${w - 1} 0 L ${w - 1} ${h - r} Q ${w - 1} ${h} ${w - 1 - r} ${h} L ${1 + r} ${h} Q 1 ${h} 1 ${h - r} L 1 0`
+}
+
+/**
+ * Packets that travel the whole loop: requests (hollow) from the Pi through the
+ * apps and public links up into Internet; responses (solid) all the way back.
+ */
+function LoopPackets({ width, rate }: { width: number; rate: LinkRate }) {
+  const path = loopPath(width)
+  const stream = (dir: 'out' | 'in', bps: number) => {
+    const level = trafficLevel(bps)
+    return (
+      <span
+        className={`loop-stream is-${dir} level-${level}`}
+        style={{ '--loop-path': `path('${path}')`, '--loop-dur': loopDuration[level] } as React.CSSProperties}
+      >
+        {Array.from({ length: level >= 2 ? 3 : 2 }, (_, k) => <i key={k} className="loop-packet" />)}
+      </span>
+    )
+  }
+  return (
+    <span className="loop-packets" aria-hidden>
+      {stream('out', rate.up)}
+      {stream('in', rate.down)}
+    </span>
+  )
+}
 
 /**
  * Loop under the main path: from the Pi down to Your apps and Public links,
@@ -240,8 +275,15 @@ function Branch({ branch, from, to, compact }: { branch: FlowBranch; from: numbe
       style={{ '--branch-from': `${from}px`, '--branch-to': `${to}px` } as React.CSSProperties}
       aria-label="Apps and public links reach the internet directly, skipping the VPN"
     >
-      {compact ? <span className="branch-from">Apps, no VPN</span> : <span className="branch-track tone-ok" aria-hidden />}
-      <FlowLink state={branch.internet ? 'flow' : 'blocked'} rate={outRate} requester="right" />
+      {compact ? (
+        <span className="branch-from">Apps, no VPN</span>
+      ) : (
+        <>
+          <span className="branch-track tone-ok" aria-hidden title={`in ${fmtRate(outRate.down)}, out ${fmtRate(outRate.up)}`} />
+          {carry ? <LoopPackets width={to - from + 2} rate={outRate} /> : null}
+        </>
+      )}
+      {compact ? <FlowLink state={branch.internet ? 'flow' : 'blocked'} rate={outRate} requester="right" /> : <span className="loop-gap" />}
       <NodeView
         node={links}
         info={
@@ -250,7 +292,7 @@ function Branch({ branch, from, to, compact }: { branch: FlowBranch; from: numbe
           </BranchInfo>
         }
       />
-      <FlowLink state={carry && branch.links ? 'flow' : 'idle'} rate={branch.linkUse} requester="right" />
+      {compact ? <FlowLink state={carry && branch.links ? 'flow' : 'idle'} rate={branch.linkUse} requester="right" /> : <span className="loop-gap" />}
       <NodeView
         node={apps}
         info={
@@ -259,7 +301,7 @@ function Branch({ branch, from, to, compact }: { branch: FlowBranch; from: numbe
           </BranchInfo>
         }
       />
-      <FlowLink state={carry ? 'flow' : 'idle'} rate={appRate} requester="right" />
+      {compact ? <FlowLink state={carry ? 'flow' : 'idle'} rate={appRate} requester="right" /> : <span className="loop-gap" />}
     </div>
   )
 }
