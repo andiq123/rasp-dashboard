@@ -8,27 +8,42 @@ type Usage = { memory_mb: number; cpus: number }
 const fmtCores = (n: number) => `${n.toFixed(1)} cores`
 const pct = (part: number, total: number) => (total > 0 ? Math.max(0, Math.min(100, (part / total) * 100)) : 0)
 
+/**
+ * Two lanes on the same scale: what is actually in use right now, and what is
+ * promised to apps as limits. The gap between them is what new apps can reserve.
+ */
 function UsageBar({
   label, total, apps, system, reserved, format,
 }: { label: string; total: number; apps: number; system: number; reserved: number; format: (n: number) => string }) {
-  const free = Math.max(0, total - apps - system)
-  const appsPct = pct(apps, total)
-  const systemPct = pct(system, total)
+  const left = total - reserved
   return (
     <div className="ru-row">
       <div className="ru-head">
         <span className="ru-label">{label}</span>
-        <span className="ru-free"><AnimatedNumber value={free} format={format} /> free of {format(total)}</span>
+        <span className="ru-total">{format(total)} total</span>
       </div>
-      <div className="ru-bar" role="img" aria-label={`${label}: apps use ${format(apps)} of ${format(reserved)} reserved, system uses ${format(system)}, ${format(free)} free`}>
-        <span className={`ru-reserved${reserved > total ? ' is-over' : ''}`} style={{ width: `${pct(reserved, total)}%` }} />
-        <span className="ru-seg is-apps" style={{ width: `${appsPct}%` }} />
-        <span className="ru-seg is-system" style={{ left: `${appsPct}%`, width: `${systemPct}%` }} />
+      <div className="ru-lane">
+        <span className="ru-lane-label">Used now</span>
+        <div className="ru-bar" role="img" aria-label={`${label} used now: apps ${format(apps)}, system ${format(system)}, of ${format(total)}`}>
+          <span className="ru-seg is-apps" style={{ width: `${pct(apps, total)}%` }} />
+          <span className="ru-seg is-system" style={{ left: `${pct(apps, total)}%`, width: `${pct(system, total)}%` }} />
+        </div>
+        <span className="ru-lane-value"><AnimatedNumber value={apps + system} format={format} /></span>
       </div>
-      <div className="ru-meta">
-        <span><i className="ru-key is-apps" />Apps <b><AnimatedNumber value={apps} format={format} /></b> of {format(reserved)} reserved</span>
+      <div className="ru-lane">
+        <span className="ru-lane-label">Reserved</span>
+        <div className="ru-bar" role="img" aria-label={`${label} reserved for apps: ${format(reserved)} of ${format(total)}`}>
+          <span className={`ru-reserved${left < 0 ? ' is-over' : ''}`} style={{ width: `${pct(reserved, total)}%` }} />
+        </div>
+        <span className="ru-lane-value">{format(reserved)}</span>
+      </div>
+      <p className="meta ru-meta">
+        <span><i className="ru-key is-apps" />Apps <b><AnimatedNumber value={apps} format={format} /></b></span>
         <span><i className="ru-key is-system" />System <b><AnimatedNumber value={system} format={format} /></b></span>
-      </div>
+        <span className={`meta-end${left < 0 ? ' ru-over' : ''}`}>
+          {left >= 0 ? <><b>{format(left)}</b> left to reserve</> : <><b>{format(-left)}</b> over the Pi</>}
+        </span>
+      </p>
     </div>
   )
 }
@@ -44,7 +59,7 @@ function verdict(host: HostCapacity, reserved: Reserved, used: Usage): { tone: '
     return { tone: 'ok', icon: CircleCheck, text: 'No apps reserve resources yet. The Pi is all yours.' }
   return {
     tone: 'ok', icon: CircleCheck,
-    text: `Apps use ${Math.round(pct(used.memory_mb, reserved.memory_mb))}% of their memory limits, leaving room for the hotspot.`,
+    text: `Apps actually use ${Math.round(pct(used.memory_mb, reserved.memory_mb))}% of the memory reserved for them, so the hotspot has plenty of room.`,
   }
 }
 

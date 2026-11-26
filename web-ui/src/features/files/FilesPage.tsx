@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUp, Eye, EyeOff, File, Folder, Home, Trash2 } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Eye, EyeOff, File, Folder, Home, Trash2 } from 'lucide-react'
 import { fetchFilePreview, fetchFiles, filesOp } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import type { FilesEntry } from '@/api/types'
@@ -123,25 +123,6 @@ export function FilesPage() {
       <PageHeader title="Files"
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <div className="join">
-              <Button
-                variant="infoSoft"
-                className="join-item"
-                icon={<ArrowUp className="h-3.5 w-3.5" aria-hidden />}
-                disabled={!canUp}
-                onClick={() => go(parentPath(path))}
-              >
-                Up
-              </Button>
-              <Button
-                variant="infoSoft"
-                className="join-item"
-                icon={<Home className="h-3.5 w-3.5" aria-hidden />}
-                onClick={() => go(home)}
-              >
-                Home
-              </Button>
-            </div>
             <Button
               variant={showHidden ? 'primary' : 'quiet'}
               icon={
@@ -166,25 +147,26 @@ export function FilesPage() {
           </div>
         }
       >
-        <nav className={`breadcrumbs text-xs ${muted} py-0 mt-1`} aria-label="Path">
-          <ul className="font-mono">
-            <li>
-              <button type="button" className="link link-hover" onClick={() => go(home)}>
-                <Home className="h-3 w-3 inline mr-1" aria-hidden />
-                {home}
-              </button>
-            </li>
-            {relativeParts.map((name, i) => {
-              const built = '/' + [...homeParts, ...relativeParts.slice(0, i + 1)].join('/')
-              return (
-                <li key={built}>
-                  <button type="button" className="link link-hover" onClick={() => go(built)}>
-                    {name}
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
+        <nav className="crumbs" aria-label="Path">
+          <button type="button" className="crumb-back" disabled={!canUp} onClick={() => go(parentPath(path))} aria-label="Back to the parent folder" title="Back">
+            <ArrowLeft aria-hidden />
+          </button>
+          <button type="button" className="crumb" onClick={() => go(home)} title={home}>
+            <Home aria-hidden />
+            Home
+          </button>
+          {relativeParts.map((name, i) => {
+            const built = '/' + [...homeParts, ...relativeParts.slice(0, i + 1)].join('/')
+            const current = i === relativeParts.length - 1
+            return (
+              <span key={built} className="crumb-step">
+                <ChevronRight className="crumb-sep" aria-hidden />
+                <button type="button" className={`crumb${current ? ' is-current' : ''}`} aria-current={current ? 'page' : undefined} onClick={() => go(built)}>
+                  {name}
+                </button>
+              </span>
+            )
+          })}
         </nav>
       </PageHeader>
 
@@ -206,7 +188,7 @@ export function FilesPage() {
             <div className="overflow-auto flex-1">
               <table className="table table-sm table-fixed">
                 <thead className="sticky top-0 bg-base-100 z-1">
-                  <tr className="border-b border-base-300">
+                  <tr>
                     <th className="font-semibold">Name</th>
                     <th className={`font-semibold w-28 text-right ${muted}`}>Size</th>
                   </tr>
@@ -218,15 +200,13 @@ export function FilesPage() {
                     return (
                       <tr
                         key={e.path}
-                        className={`list-row border-b border-base-300/70 last:border-0 hover:bg-primary/5 ${
-                          active ? 'bg-primary/10' : ''
-                        }`}
+                        className={`list-row relative cursor-pointer border-b last:border-0${active ? ' is-active' : ''}`}
                         style={{ animationDelay: `${Math.min(i, 12) * 18}ms` }}
                       >
                         <td>
                           <button
                             type="button"
-                            className={`inline-flex items-center gap-2 font-medium min-w-0 max-w-full text-left rounded-btn focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
+                            className={`row-link inline-flex items-center gap-2 font-medium min-w-0 max-w-full text-left rounded-btn focus:outline-none ${
                               hidden ? muted : ''
                             }`}
                             onClick={() => {

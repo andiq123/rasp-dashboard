@@ -442,15 +442,15 @@ export function ProjectsPage() {
             ) : !(groupsQ.data || []).length ? (
               <Empty compact title="No groups yet" body="Create a group to deploy apps and databases." />
             ) : (
-              <nav className="menu menu-sm gap-1 p-0" aria-label="Groups">
+              <nav className="menu menu-sm w-full gap-1 p-0" aria-label="Groups">
                 {(groupsQ.data || []).map((g) => (
                   <li key={g.slug}>
                     <Link
                       to={`/projects/${encodeURIComponent(g.slug)}`}
                       className={
                         g.slug === groupSlug
-                          ? 'active bg-primary/15 text-primary border border-primary/30 transition-colors duration-200'
-                          : 'border border-transparent transition-colors duration-200'
+                          ? 'nav-row is-active'
+                          : 'nav-row'
                       }
                     >
                       <Folder className={`h-4 w-4 shrink-0 ${muted}`} aria-hidden />
