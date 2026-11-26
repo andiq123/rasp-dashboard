@@ -4,6 +4,8 @@ import type { Service } from '@/api/types'
 const EXIT_MS = 220
 const ENTER_MS = 320
 const MOVE_MS = 380
+const STAGGER_MS = 40
+const MAX_STAGGER = 8
 const moveEase = 'cubic-bezier(0.22, 1, 0.36, 1)'
 
 type Props = {
@@ -34,6 +36,8 @@ export function AnimatedServiceCollection({
 }: Props) {
   const [leaving, setLeaving] = useState<Leaving[]>([])
   const [entering, setEntering] = useState<ReadonlySet<string>>(() => new Set())
+  // First paint (opening a group, closing a service, data arriving): cards rise in, staggered.
+  const [firstPaint, setFirstPaint] = useState(true)
   const previous = useRef(services)
   const timers = useRef(new Set<number>())
   const nodes = useRef(new Map<string, HTMLDivElement>())
@@ -65,6 +69,11 @@ export function AnimatedServiceCollection({
       later(ENTER_MS, () => setEntering((v) => new Set([...v].filter((slug) => !added.includes(slug)))))
     }
   }, [membership]) // eslint-disable-line react-hooks/exhaustive-deps -- stat ticks replace `services` without changing membership
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setFirstPaint(false), ENTER_MS + STAGGER_MS * MAX_STAGGER)
+    return () => window.clearTimeout(t)
+  }, [])
 
   useEffect(() => {
     const pending = timers.current
@@ -106,14 +115,15 @@ export function AnimatedServiceCollection({
     <Tag className={className} aria-label={ariaLabel}>
       {items.length === 0 && empty ? (
         <div className="service-empty-enter col-span-full">{empty}</div>
-      ) : items.map(({ service, leaving: gone }) => (
+      ) : items.map(({ service, leaving: gone }, index) => (
         <div
           key={service.slug}
           ref={(node) => {
             if (node) nodes.current.set(service.slug, node)
             else nodes.current.delete(service.slug)
           }}
-          className={`service-motion-item ${entering.has(service.slug) ? 'service-motion-enter' : ''} ${gone ? 'service-motion-exit' : ''} ${itemClassName}`}
+          className={`service-motion-item ${firstPaint || entering.has(service.slug) ? 'service-motion-enter' : ''} ${gone ? 'service-motion-exit' : ''} ${itemClassName}`}
+          style={firstPaint ? { animationDelay: `${Math.min(index, MAX_STAGGER) * STAGGER_MS}ms` } : undefined}
           aria-hidden={gone || undefined}
           inert={gone || undefined}
         >

@@ -128,33 +128,39 @@ export function computeFlow(state: AppState, recovering: boolean, switchingTo?: 
 const linkTone: Record<LinkState, string> = { flow: 'tone-ok', blocked: 'tone-bad', busy: 'tone-busy', idle: 'tone-idle' }
 const linkLabel: Record<LinkState, string> = { flow: 'traffic flowing', blocked: 'traffic blocked', busy: 'being repaired', idle: 'no traffic' }
 
+/** One lane of a link: a line with an arrowhead and LED-like packets moving its way. */
+function Lane({ dir, bps, toward }: { dir: 'in' | 'out'; bps: number; toward: 'start' | 'end' }) {
+  const level = trafficLevel(bps)
+  return (
+    <span className={`lane is-${dir} to-${toward} level-${level}`} style={{ '--flow-dur': levelDuration[level] } as React.CSSProperties}>
+      <span className="flow-packets">
+        {Array.from({ length: levelPackets[level] }, (_, k) => <i key={k} className="flow-packet" />)}
+      </span>
+    </span>
+  )
+}
+
 /**
- * One hop with two packet streams: solid packets carry data in, toward whoever
- * asked; hollow rings carry requests out, toward the internet. Each stream moves
- * at the speed of its own direction and fades out when it goes quiet.
+ * A link drawn as a two-lane road. The top lane carries data in toward whoever
+ * asked; the bottom lane carries requests out toward the internet. Each lane
+ * moves at its own live speed and stays still when quiet.
  */
-function FlowLink({ state, rate, requester = 'right' }: { state: LinkState; rate: LinkRate; requester?: 'left' | 'right' }) {
-  const dots = (n: number) => Array.from({ length: n }, (_, k) => <i key={k} className="flow-packet" />)
+function FlowLink({ state, rate, requester = 'end', vertical = false }: { state: LinkState; rate: LinkRate; requester?: 'start' | 'end'; vertical?: boolean }) {
+  const away = requester === 'end' ? 'start' : 'end'
   if (state !== 'flow') {
     return (
-      <span className={`flow-link is-${state} ${linkTone[state]}`} aria-hidden title={linkLabel[state]}>
-        <span className="flow-packets">{dots(2)}</span>
+      <span className={`flow-link is-${state} ${linkTone[state]}${vertical ? ' is-vertical' : ''}`} aria-hidden title={linkLabel[state]}>
+        <span className="flow-packets">{[0, 1].map((k) => <i key={k} className="flow-packet" />)}</span>
         {state === 'blocked' ? <Ban className="flow-barrier" /> : null}
       </span>
     )
   }
-  const inLevel = trafficLevel(rate.down)
-  const outLevel = trafficLevel(rate.up)
-  const level = Math.max(inLevel, outLevel)
+  const level = Math.max(trafficLevel(rate.down), trafficLevel(rate.up))
   const title = level === 0 ? 'connected, idle' : `in ${fmtRate(rate.down)}, out ${fmtRate(rate.up)}`
   return (
-    <span className={`flow-link is-flow tone-ok level-${level}`} aria-hidden title={title}>
-      <span className={`flow-packets is-in level-${inLevel}${requester === 'left' ? ' rev' : ''}`} style={{ '--flow-dur': levelDuration[inLevel] } as React.CSSProperties}>
-        {dots(levelPackets[inLevel])}
-      </span>
-      <span className={`flow-packets is-out level-${outLevel}${requester === 'right' ? ' rev' : ''}`} style={{ '--flow-dur': levelDuration[outLevel] } as React.CSSProperties}>
-        {dots(levelPackets[outLevel])}
-      </span>
+    <span className={`flow-link is-flow is-road tone-ok level-${level}${vertical ? ' is-vertical' : ''}`} aria-hidden title={title}>
+      <Lane dir="in" bps={rate.down} toward={requester} />
+      <Lane dir="out" bps={rate.up} toward={away} />
     </span>
   )
 }
@@ -212,96 +218,43 @@ function BranchInfo({ title, line, children }: { title: string; line: string; ch
   )
 }
 
-const BRANCH_MIN_WIDTH = 230
-const LOOP_H = 23 // track height (see .branch-track)
-// Trips around the loop are longer than one link, so each level takes longer.
-const loopDuration = ['7s', '7s', '4.5s', '2.6s']
-
-/** Rounded loop path in track coordinates: down from the Pi, across, up into Internet. */
-function loopPath(w: number): string {
-  const h = LOOP_H - 1
-  const r = 13
-  return `M ${w - 1} 0 L ${w - 1} ${h - r} Q ${w - 1} ${h} ${w - 1 - r} ${h} L ${1 + r} ${h} Q 1 ${h} 1 ${h - r} L 1 0`
-}
-
 /**
- * Packets that travel the whole loop: requests (hollow) from the Pi through the
- * apps and public links up into Internet; responses (solid) all the way back.
+ * Spur under the Pi: deployed apps run on the Pi itself. Their internet traffic
+ * (and visitors arriving through public links via cloudflared) goes back
+ * through the Pi and out over Ethernet, never through the VPN.
  */
-function LoopPackets({ width, rate }: { width: number; rate: LinkRate }) {
-  const path = loopPath(width)
-  const stream = (dir: 'out' | 'in', bps: number) => {
-    const level = trafficLevel(bps)
-    return (
-      <span
-        className={`loop-stream is-${dir} level-${level}`}
-        style={{ '--loop-path': `path('${path}')`, '--loop-dur': loopDuration[level] } as React.CSSProperties}
-      >
-        {Array.from({ length: level >= 2 ? 3 : 2 }, (_, k) => <i key={k} className="loop-packet" />)}
-      </span>
-    )
-  }
-  return (
-    <span className="loop-packets" aria-hidden>
-      {stream('out', rate.up)}
-      {stream('in', rate.down)}
-    </span>
-  )
-}
-
-/**
- * Loop under the main path: from the Pi down to Your apps and Public links,
- * then back up into the first Internet node. These leave over Ethernet and
- * skip the VPN; requests travel left toward the internet, responses come back.
- */
-function Branch({ branch, from, to, compact }: { branch: FlowBranch; from: number; to: number; compact: boolean }) {
+function Spur({ branch, x }: { branch: FlowBranch; x: number }) {
   const appRate = branch.appUse.reduce<LinkRate>((r, u) => ({ down: r.down + u.in, up: r.up + u.out }), { down: 0, up: 0 })
-  const outRate: LinkRate = { down: appRate.down + branch.linkUse.down, up: appRate.up + branch.linkUse.up }
+  const rate: LinkRate = { down: appRate.down + branch.linkUse.down, up: appRate.up + branch.linkUse.up }
   const apps: FlowNode = {
     id: 'apps', label: 'Your apps', icon: Package,
     detail: branch.apps === 1 ? '1 running' : `${branch.apps} running`,
     state: branch.apps ? 'ok' : 'idle',
-    active: appRate.down + appRate.up >= ACTIVE_BPS,
+    active: rate.down + rate.up >= ACTIVE_BPS,
   }
-  const links: FlowNode = {
-    id: 'links', label: 'Public links', icon: Cloud,
-    detail: branch.links ? `${branch.liveLinks} of ${branch.links} live` : 'None',
-    state: !branch.links ? 'idle' : branch.liveLinks === branch.links ? 'ok' : 'bad',
-  }
-  const carry = branch.internet && branch.apps > 0
+  const linksOk = !branch.links || branch.liveLinks === branch.links
   return (
-    <div
-      className={`flow-branch${compact ? ' is-compact' : ''}`}
-      style={{ '--branch-from': `${from}px`, '--branch-to': `${to}px` } as React.CSSProperties}
-      aria-label="Apps and public links reach the internet directly, skipping the VPN"
-    >
-      {compact ? (
-        <span className="branch-from">Apps, no VPN</span>
-      ) : (
-        <>
-          <span className="branch-track tone-ok" aria-hidden title={`in ${fmtRate(outRate.down)}, out ${fmtRate(outRate.up)}`} />
-          {carry ? <LoopPackets width={to - from + 2} rate={outRate} /> : null}
-        </>
-      )}
-      {compact ? <FlowLink state={branch.internet ? 'flow' : 'blocked'} rate={outRate} requester="right" /> : <span className="loop-gap" />}
-      <NodeView
-        node={links}
-        info={
-          <BranchInfo title="Public links" line="Cloudflare tunnels publish your apps on the web and are routed around the VPN.">
-            <p className="pop-line">About ↓ {fmtRate(branch.linkUse.down)} visitors in, ↑ {fmtRate(branch.linkUse.up)} responses out (estimated from Ethernet traffic).</p>
-          </BranchInfo>
-        }
-      />
-      {compact ? <FlowLink state={carry && branch.links ? 'flow' : 'idle'} rate={branch.linkUse} requester="right" /> : <span className="loop-gap" />}
+    <div className="flow-spur" style={{ '--pi-x': `${x}px` } as React.CSSProperties} aria-label="Apps on the Pi use Ethernet directly, not the VPN">
+      <FlowLink state={branch.internet && branch.apps ? 'flow' : 'idle'} rate={rate} requester="end" vertical />
       <NodeView
         node={apps}
         info={
-          <BranchInfo title="Your apps" line="Apps reach the internet over Ethernet directly. Using the internet right now:">
+          <BranchInfo title="Your apps" line="Apps run on the Pi. Their traffic, and visitors coming in through public links, goes through the Pi and out over Ethernet, not the VPN.">
             <UseList items={branch.appUse} empty="No app is using the internet right now." />
+            {branch.links ? (
+              <p className="pop-line">
+                Public links: {branch.liveLinks} of {branch.links} live, about ↓ {fmtRate(branch.linkUse.down)} in, ↑ {fmtRate(branch.linkUse.up)} out (estimated).
+              </p>
+            ) : null}
           </BranchInfo>
         }
       />
-      {compact ? <FlowLink state={carry ? 'flow' : 'idle'} rate={appRate} requester="right" /> : <span className="loop-gap" />}
+      <span className="spur-tags">
+        {branch.links ? (
+          <span className={`spur-tag${linksOk ? '' : ' is-bad'}`}><Cloud aria-hidden />{branch.liveLinks}/{branch.links} public links</span>
+        ) : null}
+        <span className="spur-tag">Direct, no VPN</span>
+      </span>
     </div>
   )
 }
@@ -310,24 +263,17 @@ function Branch({ branch, from, to, compact }: { branch: FlowBranch; from: numbe
 export function TrafficFlow({ flow, state, branch }: { flow: Flow; state: AppState; branch?: FlowBranch }) {
   const last = flow.nodes.length - 1
   const wrap = useRef<HTMLDivElement>(null)
-  const [span, setSpan] = useState<{ from: number; to: number }>({ from: 0, to: 0 })
+  const [piX, setPiX] = useState(0)
   const hasBranch = !!branch
-  // Start the branch exactly under the Pi icon, wherever the layout puts it.
   useLayoutEffect(() => {
     const el = wrap.current
     if (!el || !hasBranch) return
-    // The loop spans from under the Internet icon to under the Pi icon.
+    // The spur hangs from the Pi icon, wherever the layout puts it.
     const measure = () => {
-      const internet = el.querySelector<HTMLElement>('.flow > .flow-step:nth-child(1) .flow-icon')
       const pi = el.querySelector<HTMLElement>('.flow > .flow-step:nth-child(3) .flow-icon')
-      if (!internet || !pi) return
-      const a = el.getBoundingClientRect().left
-      const center = (n: HTMLElement) => {
-        const r = n.getBoundingClientRect()
-        return Math.round(r.left + r.width / 2 - a)
-      }
-      const next = { from: center(internet), to: center(pi) }
-      setSpan((prev) => (prev.from === next.from && prev.to === next.to ? prev : next))
+      if (!pi) return
+      const r = pi.getBoundingClientRect()
+      setPiX(Math.round(r.left + r.width / 2 - el.getBoundingClientRect().left))
     }
     measure()
     const ro = new ResizeObserver(measure)
@@ -342,7 +288,7 @@ export function TrafficFlow({ flow, state, branch }: { flow: Flow; state: AppSta
         // the old node slides out while the new one drops into the same place.
         <li key={i} className="flow-step">
           {i > 0 ? (
-            <FlowLink state={flow.links[i - 1]} rate={flow.rates[i - 1] || { down: 0, up: 0 }} />
+            <FlowLink state={flow.links[i - 1]} rate={flow.rates[i - 1] || { down: 0, up: 0 }} requester="end" />
           ) : null}
           <AnimatedList
             swap
@@ -366,8 +312,7 @@ export function TrafficFlow({ flow, state, branch }: { flow: Flow; state: AppSta
         </li>
       ))}
     </ol>
-      {/* A loop back to Internet when there is room; otherwise a compact row. */}
-      {branch && span.to ? <Branch branch={branch} from={span.from} to={span.to} compact={span.to - span.from < BRANCH_MIN_WIDTH} /> : null}
+      {branch && piX ? <Spur branch={branch} x={piX} /> : null}
       <div className="flow-legend" aria-hidden>
         <span><i className="legend-in" />Data coming in</span>
         <span><i className="legend-out" />Requests going out</span>
