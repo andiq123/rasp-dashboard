@@ -196,18 +196,23 @@ export function OverviewPage() {
   // Apps and their public links skip the VPN (policy routing on the Pi).
   const netUsers = state.net_users || []
   const serviceName = (container: string) => allServices.find((s) => `fw-${s.group}-${s.slug}` === container)?.name || container.replace(/^fw-/, '')
+  const t = state.traffic || {}
+  const appUse = netUsers
+    .filter((u) => u.kind === 'app')
+    .map((u) => ({ name: serviceName(u.name), in: u.in_bps, out: u.out_bps, connections: u.connections }))
   const branch: FlowBranch | undefined = state.routing?.apps_direct && allServices.length
     ? {
         apps: allServices.filter((s) => (s.type === 'go' || s.type === 'redis') && s.running).length,
         links: allServices.filter((s) => s.public_url || s.tunnel_active).length,
         liveLinks: allServices.filter((s) => (s.public_url || s.tunnel_active) && (s.tunnel_connected || s.tunnel_state === 'connected')).length,
         internet: !!state.uplink?.internet,
-        appUse: netUsers
-          .filter((u) => u.kind === 'app')
-          .map((u) => ({ name: serviceName(u.name), in: u.in_bps, out: u.out_bps, connections: u.connections })),
-        linkUse: netUsers
-          .filter((u) => u.kind === 'links')
-          .reduce((r, u) => ({ down: r.down + u.in_bps, up: r.up + u.out_bps }), { down: 0, up: 0 }),
+        appUse: appUse,
+        // cloudflared speaks QUIC, which has no per-socket counters: estimate it as
+        // Ethernet traffic the tunnel and the apps' own connections don't explain.
+        linkUse: {
+          down: Math.max(0, (t.uplink_down_bps || 0) - (t.tunnel_down_bps || 0) * 1.05 - appUse.reduce((n, u) => n + u.in, 0)),
+          up: Math.max(0, (t.uplink_up_bps || 0) - (t.tunnel_up_bps || 0) * 1.05 - appUse.reduce((n, u) => n + u.out, 0)),
+        },
       }
     : undefined
   const devicesText = deviceCount === 1 ? '1 device' : `${deviceCount} devices`

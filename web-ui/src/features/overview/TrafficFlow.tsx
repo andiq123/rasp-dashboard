@@ -212,10 +212,14 @@ function BranchInfo({ title, line, children }: { title: string; line: string; ch
   )
 }
 
-const BRANCH_MIN_WIDTH = 300
+const BRANCH_MIN_WIDTH = 228
 
-/** Branch under the Pi: apps → public links → internet, directly over Ethernet. */
-function Branch({ branch, x, compact }: { branch: FlowBranch; x: number; compact: boolean }) {
+/**
+ * Loop under the main path: from the Pi down to Your apps and Public links,
+ * then back up into the first Internet node. These leave over Ethernet and
+ * skip the VPN; requests travel left toward the internet, responses come back.
+ */
+function Branch({ branch, from, to, compact }: { branch: FlowBranch; from: number; to: number; compact: boolean }) {
   const appRate = branch.appUse.reduce<LinkRate>((r, u) => ({ down: r.down + u.in, up: r.up + u.out }), { down: 0, up: 0 })
   const outRate: LinkRate = { down: appRate.down + branch.linkUse.down, up: appRate.up + branch.linkUse.up }
   const apps: FlowNode = {
@@ -229,16 +233,24 @@ function Branch({ branch, x, compact }: { branch: FlowBranch; x: number; compact
     detail: branch.links ? `${branch.liveLinks} of ${branch.links} live` : 'None',
     state: !branch.links ? 'idle' : branch.liveLinks === branch.links ? 'ok' : 'bad',
   }
-  const net: FlowNode = { id: 'direct', label: 'Internet', icon: Globe, detail: 'No VPN', state: branch.internet ? 'ok' : 'bad' }
   const carry = branch.internet && branch.apps > 0
   return (
     <div
       className={`flow-branch${compact ? ' is-compact' : ''}`}
-      style={{ '--branch-x': `${x}px` } as React.CSSProperties}
-      aria-label="Apps and public links skip the VPN"
+      style={{ '--branch-from': `${from}px`, '--branch-to': `${to}px` } as React.CSSProperties}
+      aria-label="Apps and public links reach the internet directly, skipping the VPN"
     >
-      {compact ? <span className="branch-from">From the Pi</span> : <span className="branch-elbow tone-ok" aria-hidden />}
-      <FlowLink state={carry ? 'flow' : 'idle'} rate={appRate} requester="left" />
+      {compact ? <span className="branch-from">Apps, no VPN</span> : <span className="branch-elbow is-up tone-ok" aria-hidden title="Back to the internet, no VPN" />}
+      <FlowLink state={branch.internet ? 'flow' : 'blocked'} rate={outRate} requester="right" />
+      <NodeView
+        node={links}
+        info={
+          <BranchInfo title="Public links" line="Cloudflare tunnels publish your apps on the web and are routed around the VPN.">
+            <p className="pop-line">About ↓ {fmtRate(branch.linkUse.down)} visitors in, ↑ {fmtRate(branch.linkUse.up)} responses out (estimated from Ethernet traffic).</p>
+          </BranchInfo>
+        }
+      />
+      <FlowLink state={carry && branch.links ? 'flow' : 'idle'} rate={branch.linkUse} requester="right" />
       <NodeView
         node={apps}
         info={
@@ -247,17 +259,8 @@ function Branch({ branch, x, compact }: { branch: FlowBranch; x: number; compact
           </BranchInfo>
         }
       />
-      <FlowLink state={carry && branch.links ? 'flow' : 'idle'} rate={branch.linkUse} requester="left" />
-      <NodeView
-        node={links}
-        info={
-          <BranchInfo title="Public links" line="Cloudflare tunnels publish your apps on the web and are routed around the VPN.">
-            <p className="pop-line">Visitors in ↓ {fmtRate(branch.linkUse.down)}, responses out ↑ {fmtRate(branch.linkUse.up)}</p>
-          </BranchInfo>
-        }
-      />
-      <FlowLink state={branch.internet ? 'flow' : 'blocked'} rate={outRate} requester="left" />
-      <NodeView node={net} info={<BranchInfo title="Direct internet" line="This path uses the Ethernet uplink only. Wi‑Fi devices still go through Mullvad in Romania." />} />
+      <FlowLink state={carry ? 'flow' : 'idle'} rate={appRate} requester="right" />
+      {compact ? null : <span className="branch-elbow is-down tone-ok" aria-hidden />}
     </div>
   )
 }
@@ -266,20 +269,24 @@ function Branch({ branch, x, compact }: { branch: FlowBranch; x: number; compact
 export function TrafficFlow({ flow, state, branch }: { flow: Flow; state: AppState; branch?: FlowBranch }) {
   const last = flow.nodes.length - 1
   const wrap = useRef<HTMLDivElement>(null)
-  const [piX, setPiX] = useState(0)
-  const [room, setRoom] = useState(0)
+  const [span, setSpan] = useState<{ from: number; to: number }>({ from: 0, to: 0 })
   const hasBranch = !!branch
   // Start the branch exactly under the Pi icon, wherever the layout puts it.
   useLayoutEffect(() => {
     const el = wrap.current
     if (!el || !hasBranch) return
+    // The loop spans from under the Internet icon to under the Pi icon.
     const measure = () => {
-      const icon = el.querySelector<HTMLElement>('.flow > .flow-step:nth-child(3) .flow-icon')
-      if (!icon) return
-      const a = el.getBoundingClientRect()
-      const b = icon.getBoundingClientRect()
-      setPiX(Math.round(b.left + b.width / 2 - a.left))
-      setRoom(Math.round(a.right - (b.left + b.width / 2)))
+      const internet = el.querySelector<HTMLElement>('.flow > .flow-step:nth-child(1) .flow-icon')
+      const pi = el.querySelector<HTMLElement>('.flow > .flow-step:nth-child(3) .flow-icon')
+      if (!internet || !pi) return
+      const a = el.getBoundingClientRect().left
+      const center = (n: HTMLElement) => {
+        const r = n.getBoundingClientRect()
+        return Math.round(r.left + r.width / 2 - a)
+      }
+      const next = { from: center(internet), to: center(pi) }
+      setSpan((prev) => (prev.from === next.from && prev.to === next.to ? prev : next))
     }
     measure()
     const ro = new ResizeObserver(measure)
@@ -318,8 +325,8 @@ export function TrafficFlow({ flow, state, branch }: { flow: Flow; state: AppSta
         </li>
       ))}
     </ol>
-      {/* Under the Pi when there is room for three steps; otherwise a compact row. */}
-      {branch && piX ? <Branch branch={branch} x={piX} compact={room < BRANCH_MIN_WIDTH} /> : null}
+      {/* A loop back to Internet when there is room; otherwise a compact row. */}
+      {branch && span.to ? <Branch branch={branch} from={span.from} to={span.to} compact={span.to - span.from < BRANCH_MIN_WIDTH} /> : null}
       <div className="flow-legend" aria-hidden>
         <span><i className="legend-in" />Data coming in</span>
         <span><i className="legend-out" />Requests going out</span>
