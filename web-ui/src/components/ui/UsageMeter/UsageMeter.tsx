@@ -41,7 +41,7 @@ export function UsageMeter({
           {label}
         </span>
         <span
-          className={`font-mono tabular-nums shrink-0 font-semibold ${
+          className={`tabular-nums shrink-0 font-semibold ${
             compact ? 'text-[11px]' : 'text-xs'
           } ${over ? 'text-error' : 'text-base-content'}`}
         >
@@ -137,7 +137,7 @@ export function ServiceUsage({
                 polling
               </>
             )}
-            {stats.shared ? ' · shared' : ''}
+            {stats.shared ? ', shared' : ''}
           </span>
         </div>
       ) : null}
@@ -192,9 +192,9 @@ function ServiceUsageMeters({
         hint={
           hint
             ? shared
-              ? 'Shared engine · live RSS'
+              ? 'Shared engine, live memory'
               : source
-                ? `Live · ${source}`
+                ? `Live from ${source}`
                 : 'Live vs Docker limit'
             : undefined
         }
@@ -206,7 +206,7 @@ function ServiceUsageMeters({
         usedLabel={fmtCpu(cpuUsed)}
         limitLabel={limitCpu > 0 ? `${limitCpu}×` : '—'}
         percent={cpuPct}
-        hint={hint ? 'Live · % of one core vs CPU limit' : undefined}
+        hint={hint ? 'Percent of one core, against the CPU limit' : undefined}
       />
     </div>
   )

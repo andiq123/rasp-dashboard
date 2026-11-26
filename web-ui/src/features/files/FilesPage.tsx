@@ -1,19 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ChevronRight, Eye, EyeOff, File, Folder, Home, Trash2 } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Eye, EyeOff, File, Folder, Home, Search, Trash2 } from 'lucide-react'
 import { fetchFilePreview, fetchFiles, filesOp } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import type { FilesEntry } from '@/api/types'
 import { Button } from '@/components/ui/Button/Button'
 import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { Empty } from '@/components/ui/Empty/Empty'
-import { Input } from '@/components/ui/Field/Field'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { useLiveState } from '@/hooks/useLiveState'
 import { fmtBytes } from '@/lib/format'
-import { PageHeader } from '@/components/ui/PageHeader/PageHeader'
 import { codeSurface, muted, surface } from '@/lib/ui'
 
 function parentPath(path: string): string {
@@ -120,33 +118,7 @@ export function FilesPage() {
 
   return (
     <div className="grid gap-3.5">
-      <PageHeader title="Files"
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant={showHidden ? 'primary' : 'quiet'}
-              icon={
-                showHidden ? (
-                  <Eye className="h-3.5 w-3.5" aria-hidden />
-                ) : (
-                  <EyeOff className="h-3.5 w-3.5" aria-hidden />
-                )
-              }
-              aria-pressed={showHidden}
-              onClick={() => setShowHidden((v) => !v)}
-            >
-              Hidden{hiddenCount > 0 ? ` · ${hiddenCount}` : ''}
-            </Button>
-            <Input
-              className="w-44"
-              placeholder="Filter…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              aria-label="Filter files"
-            />
-          </div>
-        }
-      >
+      <div className="toolbar">
         <nav className="crumbs" aria-label="Path">
           <button type="button" className="crumb-back" disabled={!canUp} onClick={() => go(parentPath(path))} aria-label="Back to the parent folder" title="Back">
             <ArrowLeft aria-hidden />
@@ -168,7 +140,22 @@ export function FilesPage() {
             )
           })}
         </nav>
-      </PageHeader>
+        <div className="toolbar-actions">
+          <label className="search-field">
+            <Search aria-hidden />
+            <input placeholder="Filter" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Filter files" />
+          </label>
+          <Button
+            variant={showHidden ? 'primary' : 'quiet'}
+            icon={showHidden ? <Eye className="h-3.5 w-3.5" aria-hidden /> : <EyeOff className="h-3.5 w-3.5" aria-hidden />}
+            aria-pressed={showHidden}
+            onClick={() => setShowHidden((v) => !v)}
+            title={showHidden ? 'Hide hidden files' : 'Show hidden files'}
+          >
+            Hidden{hiddenCount > 0 ? <span className="count">{hiddenCount}</span> : null}
+          </Button>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 gap-3.5 min-h-[60vh] lg:grid-cols-[minmax(0,1.25fr)_minmax(260px,0.75fr)]">
         <div className={`card ${surface} overflow-hidden min-h-[360px] flex flex-col`}>

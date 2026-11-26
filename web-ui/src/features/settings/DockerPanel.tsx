@@ -15,6 +15,7 @@ import { queryKeys } from '@/api/queryKeys'
 import type { DockerContainer, DockerImage } from '@/api/types'
 import { Button } from '@/components/ui/Button/Button'
 import { useConfirm } from '@/components/ui/Confirm/Confirm'
+import { Disclosure } from '@/components/ui/Disclosure/Disclosure'
 import { Empty } from '@/components/ui/Empty/Empty'
 import { Panel } from '@/components/ui/Panel/Panel'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
@@ -162,16 +163,7 @@ export function DockerPanel() {
   return (
     <Panel
       className="min-w-0"
-      title={
-        <span className="inline-flex items-center gap-2">
-          <Container className="h-4 w-4" aria-hidden /> Docker
-        </span>
-      }
-      hint={
-        docker?.fetched_at
-          ? `Live · ${new Date(docker.fetched_at).toLocaleTimeString()}`
-          : 'Host engine'
-      }
+      title={<span className="inline-flex items-center gap-1.5"><Container aria-hidden /> Docker</span>}
       busy={manage.isFetching || act.isPending}
     >
       {manage.isLoading ? (
@@ -189,92 +181,54 @@ export function DockerPanel() {
         />
       ) : (
         <div className="grid gap-3.5">
-          {/* Daemon */}
-          <div className={`${tile} px-3 py-2.5 flex flex-wrap items-center gap-2.5`}>
-            <StateDot running={daemon?.running} />
-            <div className="min-w-0 flex-1">
-              <strong className="text-sm block leading-tight">
-                Daemon {daemon?.running ? 'running' : daemon?.active || 'offline'}
-              </strong>
-              <p className={`text-[11px] m-0 ${muted}`}>
-                {daemon?.version ? `v${daemon.version}` : 'dockerd'}
-                {daemon?.enabled ? ' · enabled at boot' : ''}
-                {daemon?.error ? ` · ${daemon.error}` : ''}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {daemon?.running ? (
-                <Button
-                  variant="dangerSoft"
-                  loading={act.isPending && act.variables?.action === 'daemon_stop'}
-                  onClick={() => void onDaemonStop()}
-                >
-                  Stop
-                </Button>
-              ) : (
-                <Button
-                  variant="successSoft"
-                  loading={act.isPending && act.variables?.action === 'daemon_start'}
-                  onClick={() => act.mutate({ action: 'daemon_start' })}
-                >
-                  Start
-                </Button>
-              )}
-              <Button
-                variant="infoSoft"
-                icon={<RefreshCw className="h-3.5 w-3.5" aria-hidden />}
-                onClick={() => void manage.refetch()}
-              >
-                Refresh
-              </Button>
-            </div>
+          <div className="item-row">
+            <span className={`icon-chip ${daemon?.running ? 'tone-ok' : 'tone-bad'}`}><Container aria-hidden /></span>
+            <span className="item-text">
+              <strong>Docker {daemon?.running ? 'running' : daemon?.active || 'offline'}</strong>
+              <span className="meta">
+                {daemon?.version ? <span>v{daemon.version}</span> : null}
+                {daemon?.enabled ? <span>Starts at boot</span> : null}
+                {daemon?.error ? <span className="text-error truncate">{daemon.error}</span> : null}
+              </span>
+            </span>
+            <Button variant="quiet" icon={<RefreshCw className="h-3.5 w-3.5" aria-hidden />} onClick={() => void manage.refetch()} aria-label="Refresh" title="Refresh" />
+            {daemon?.running ? (
+              <Button variant="dangerSoft" loading={act.isPending && act.variables?.action === 'daemon_stop'} onClick={() => void onDaemonStop()}>Stop</Button>
+            ) : (
+              <Button variant="successSoft" loading={act.isPending && act.variables?.action === 'daemon_start'} onClick={() => act.mutate({ action: 'daemon_start' })}>Start</Button>
+            )}
           </div>
 
           {err ? (
             <Empty compact title="Docker inventory unavailable" body={err} />
           ) : (
             <>
-              {/* Disk summary */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="stat-strip">
                 {(disk.length
-                  ? disk.filter((d) =>
-                      ['Images', 'Containers', 'Local Volumes', 'Build Cache'].includes(d.type),
-                    )
+                  ? disk.filter((d) => ['Images', 'Containers', 'Local Volumes', 'Build Cache'].includes(d.type))
                   : [
                       { type: 'Images', total_count: images.length, size: '—' },
                       { type: 'Containers', total_count: containers.length, size: '—' },
                       { type: 'Local Volumes', total_count: volumes.length, size: '—' },
                     ]
                 ).map((d) => (
-                  <div key={d.type} className={`${tile} px-2.5 py-2`}>
-                    <div className={`text-[10px] font-bold ${muted}`}>
-                      {d.type.replace('Local ', '')}
-                    </div>
-                    <div className="text-sm font-bold tabular-nums leading-tight mt-0.5">
-                      {d.total_count ?? 0}
-                      <span className={`ml-1.5 text-[11px] font-medium ${muted}`}>{d.size}</span>
-                    </div>
-                    {d.reclaimable_bytes ? (
-                      <div className={`text-[10px] ${muted}`}>
-                        reclaim {d.reclaimable || fmtBytes(d.reclaimable_bytes)}
-                      </div>
-                    ) : null}
+                  <div key={d.type} className="stat-chip">
+                    <span>{d.type.replace('Local ', '')}</span>
+                    <b>{d.total_count ?? 0}</b>
+                    <small>{d.size}</small>
                   </div>
                 ))}
               </div>
-
-              <p className={`text-xs m-0 ${muted}`}>
-                {runningN}/{containers.length} running · {managedN} FireWifi-managed
-                {docker?.reclaim_bytes ? ` · ~${fmtBytes(docker.reclaim_bytes)} reclaimable` : ''}
-                {manage.data?.deploy_bytes != null
-                  ? ` · deploy ${fmtBytes(manage.data.deploy_bytes)}`
-                  : ''}
+              <p className="meta m-0">
+                <span>{runningN} of {containers.length} running</span>
+                <span>{managedN} managed by FireWifi</span>
+                {docker?.reclaim_bytes ? <span>{fmtBytes(docker.reclaim_bytes)} reclaimable</span> : null}
               </p>
 
-              {/* Containers */}
+              <div>
+              <Disclosure id="docker.containers" title="Containers" icon={Container} summary={`${runningN} of ${containers.length} running`}>
               <section className="grid gap-1.5 min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <strong className="text-sm">Containers</strong>
                   <div className="join ml-auto">
                     {(['all', 'running', 'managed'] as CtrFilter[]).map((f) => (
                       <Button
@@ -367,13 +321,10 @@ export function DockerPanel() {
                   </div>
                 )}
               </section>
-
-              {/* Images */}
+              </Disclosure>
+              <Disclosure id="docker.images" title="Images" icon={Box} summary={`${images.length} images`}>
               <section className="grid gap-1.5 min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <strong className="text-sm inline-flex items-center gap-1.5">
-                    <Box className="h-3.5 w-3.5" aria-hidden /> Images
-                  </strong>
                   <div className="join ml-auto">
                     {(['all', 'in_use', 'dangling'] as ImgFilter[]).map((f) => (
                       <Button
@@ -450,8 +401,8 @@ export function DockerPanel() {
                   </div>
                 )}
               </section>
-
-              {/* Volumes + prune */}
+              </Disclosure>
+              <Disclosure id="docker.volumes" title="Volumes and cleanup" icon={HardDrive} summary={`${volumes.length} volumes`}>
               <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(240px,0.85fr)] items-start">
                 <section className="grid gap-1.5 min-w-0">
                   <strong className="text-sm inline-flex items-center gap-1.5">
@@ -545,6 +496,8 @@ export function DockerPanel() {
                     Prune selected
                   </Button>
                 </section>
+              </div>
+              </Disclosure>
               </div>
             </>
           )}

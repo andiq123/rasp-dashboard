@@ -10,6 +10,7 @@ import {
   CloudOff,
   Copy,
   ExternalLink,
+  Gauge,
   History,
   Loader2,
   Play,
@@ -42,6 +43,7 @@ import { Empty } from '@/components/ui/Empty/Empty'
 import { Field, Input, Select, TextArea } from '@/components/ui/Field/Field'
 import { Modal } from '@/components/ui/Modal/Modal'
 import { RepoRootPicker } from '@/components/RepoRootPicker/RepoRootPicker'
+import { Disclosure } from '@/components/ui/Disclosure/Disclosure'
 import { ResourceBudget } from '@/components/ui/ResourceBudget/ResourceBudget'
 import { clampCpu, clampMem, ResourceSlider } from '@/components/ui/ResourceSlider/ResourceSlider'
 import { ServiceUsage } from '@/components/ui/UsageMeter/UsageMeter'
@@ -306,11 +308,10 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
                     : st.text}
               </span>
             </div>
-            <p className={`text-[11px] font-mono m-0 truncate ${muted}`}>
-              {svc.type}
-              {svc.port ? ` · :${svc.port}` : ''}
-              {svc.repo ? ` · ${svc.repo}` : ''}
-              {svc.branch ? `@${svc.branch}` : ''}
+            <p className="meta m-0">
+              <span>{({ go: 'Go app', postgres: 'Postgres', redis: 'Redis', bucket: 'Bucket' } as Record<string, string>)[svc.type] || svc.type}</span>
+              {svc.port ? <span>:{svc.port}</span> : null}
+              {svc.repo ? <span className="truncate">{svc.repo}{svc.branch ? ` on ${svc.branch}` : ''}</span> : null}
             </p>
             {publicUrl ? (
               <div className="flex flex-wrap items-center gap-1.5">
@@ -326,14 +327,11 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
                 </a>
                 {svc.public_url && svc.tunnel_mode === 'managed' ? (
                   <span
-                    className={`badge badge-xs ${tunnelBadge.tone}`}
-                    title={tunnelBadge.title}
+                    className={`text-xs font-medium ${tunnelBadge.tone.includes('success') ? 'text-success' : tunnelBadge.tone.includes('error') ? 'text-error' : 'text-base-content/70'}`}
+                    title={svc.tunnel_id ? `${tunnelBadge.title || tunnelBadge.text} (tunnel …${svc.tunnel_id.slice(-4)})` : tunnelBadge.title}
                   >
                     {tunnelBadge.text}
                   </span>
-                ) : null}
-                {svc.tunnel_id ? (
-                  <span className="text-[10px] font-mono text-base-content/50">Tunnel …{svc.tunnel_id.slice(-4)}</span>
                 ) : null}
               </div>
             ) : null}
@@ -445,7 +443,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
         <p className="text-error text-xs m-0 px-4 py-2 border-b border-base-300 bg-error/5">{svc.last_error}</p>
       ) : null}
 
-      <div role="tablist" aria-label="Service sections" className="flex gap-0.5 px-2 pt-2 border-b border-base-300 overflow-x-auto">
+      <div role="tablist" aria-label="Service sections" className="svc-tabs">
         {TABS.map((t) => {
           const Icon = t.icon
           const active = tab === t.id
@@ -460,12 +458,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
               aria-selected={active}
               aria-controls={panelId}
               tabIndex={active ? 0 : -1}
-              className={[
-                'inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-t-box border-b-2 -mb-px transition-colors duration-200',
-                active
-                  ? 'border-primary text-primary bg-primary/5'
-                  : `border-transparent ${muted} hover:text-base-content hover:bg-base-200/60`,
-              ].join(' ')}
+              className={`svc-tab${active ? ' is-active' : ''}`}
               onClick={() => setTab(t.id)}
             >
               <Icon className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
@@ -1090,7 +1083,6 @@ function ConfigTab({
 }) {
   const { showToast } = useToast()
   const { state } = useLiveState()
-  const { live } = useRealtime()
   const dbs = siblings.filter((s) => s.type === 'postgres')
   const buckets = siblings.filter((s) => s.type === 'bucket')
   const redises = siblings.filter((s) => s.type === 'redis')
@@ -1278,21 +1270,13 @@ function ConfigTab({
 
       {svc.type === 'go' || svc.type === 'postgres' || svc.type === 'redis' ? (
         <div className="grid gap-3">
-          {svc.running && svc.stats ? (
-            <ServiceUsage
-              stats={svc.stats}
-              fallbackMem={svc.memory_mb}
-              fallbackCpu={svc.cpus}
-              live={live}
-            />
-          ) : null}
           {svc.type === 'go' || svc.type === 'redis' ? (
             <>
-              <ResourceBudget
-                host={host}
-                reserved={reserved}
-                draftLabel={`including this ${svc.type} service`}
-              />
+              <div>
+                <Disclosure id="service.capacity" title="Pi capacity" icon={Gauge} summary={`${reserved.memory_mb} of ${host.total_mb || '—'} MB reserved`}>
+                  <ResourceBudget host={host} reserved={reserved} compact draftLabel={`including this ${svc.type} service`} />
+                </Disclosure>
+              </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <ResourceSlider
                   id="svc-mem"

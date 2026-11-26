@@ -74,6 +74,10 @@ func (m *MinIO) Status(ctx context.Context) MinIOStatus {
 	}
 	m.statusMu.Unlock()
 	st := m.statusSlow(ctx)
+	if ctx.Err() != nil {
+		// A cancelled request cannot see the container; never cache that as "stopped".
+		return st
+	}
 	m.statusMu.Lock()
 	m.statusSnap = st
 	m.statusAt = time.Now()

@@ -1,8 +1,11 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"firewifi/dashboard/internal/deploy"
 )
@@ -16,12 +19,65 @@ func (s *Server) handleManage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	ov, err := s.Deploy.ManageOverview(r.Context())
+	ov, err := manageCache.get(r.Context(), s.Deploy)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	jsonReply(w, ov)
+}
+
+const (
+	manageFresh = 15 * time.Second // serve without refreshing
+	manageStale = 2 * time.Minute  // serve instantly while refreshing in the background
+)
+
+// manageOverviewCache keeps the slow Docker overview (docker system df and
+// friends take seconds on a Pi) so the Settings page opens instantly.
+type manageOverviewCache struct {
+	mu         sync.Mutex
+	at         time.Time
+	val        deploy.ManageOverview
+	refreshing bool
+}
+
+var manageCache = &manageOverviewCache{}
+
+func (c *manageOverviewCache) get(ctx context.Context, m *deploy.Manager) (deploy.ManageOverview, error) {
+	c.mu.Lock()
+	age := time.Since(c.at)
+	if !c.at.IsZero() && age < manageStale {
+		val := c.val
+		if age >= manageFresh && !c.refreshing {
+			c.refreshing = true
+			go func() {
+				fresh, err := m.ManageOverview(context.Background())
+				c.mu.Lock()
+				if err == nil {
+					c.val, c.at = fresh, time.Now()
+				}
+				c.refreshing = false
+				c.mu.Unlock()
+			}()
+		}
+		c.mu.Unlock()
+		return val, nil
+	}
+	c.mu.Unlock()
+	val, err := m.ManageOverview(ctx)
+	if err == nil && ctx.Err() == nil {
+		c.mu.Lock()
+		c.val, c.at = val, time.Now()
+		c.mu.Unlock()
+	}
+	return val, err
+}
+
+// invalidate drops the cache after a Docker action so the next read is fresh.
+func (c *manageOverviewCache) invalidate() {
+	c.mu.Lock()
+	c.at = time.Time{}
+	c.mu.Unlock()
 }
 
 func (s *Server) handleDocker(w http.ResponseWriter, r *http.Request) {
@@ -44,6 +100,7 @@ func (s *Server) handleDocker(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		res, err := s.Deploy.DockerDo(r.Context(), act)
+		manageCache.invalidate()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return

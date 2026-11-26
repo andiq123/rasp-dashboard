@@ -433,8 +433,18 @@ button:not(:disabled), summary { cursor: pointer; }
 .nav-row:hover { background: color-mix(in oklab, var(--color-base-content) 4.5%, transparent); }
 .nav-row.is-active, .nav-row.is-active:hover { background: color-mix(in oklab, var(--color-primary) 11%, transparent); color: var(--color-primary); }
 
+/* Page toolbar: navigation on the left, tools on the right, one row. */
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; min-height: 36px; }
+.toolbar-actions { display: flex; align-items: center; gap: 6px; }
+.search-field { display: flex; align-items: center; gap: 7px; width: 220px; height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface-panel); color: var(--ink-muted); transition: border-color var(--dur-quick), box-shadow var(--dur-quick); }
+.search-field:focus-within { border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 16%, transparent); }
+.search-field svg { width: 14px; height: 14px; flex-shrink: 0; }
+.search-field input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: inherit; font-size: var(--text-label); color: var(--color-base-content); }
+.count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border-radius: 999px; font-size: 10.5px; font-weight: 650; background: color-mix(in oklab, currentColor 14%, transparent); }
+@media (max-width: 640px) { .toolbar-actions, .search-field { width: 100%; } .search-field { flex: 1; } }
+
 /* Breadcrumb with a back button beside it. */
-.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-top: 6px; font-size: var(--text-label); color: var(--ink-muted); }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin: 0; font-size: var(--text-label); color: var(--ink-muted); }
 .crumb-back { display: grid; place-items: center; width: 28px; height: 28px; margin-right: 4px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-panel); color: var(--color-base-content); transition: background-color var(--dur-quick), opacity var(--dur-base), transform var(--dur-quick); }
 .crumb-back:hover:not(:disabled) { background: color-mix(in oklab, var(--color-base-content) 5%, var(--surface-panel)); }
 .crumb-back:active:not(:disabled) { transform: scale(0.94); }
@@ -451,6 +461,34 @@ button:not(:disabled), summary { cursor: pointer; }
 :where(.card, .status-hero, .pop, .modal-box, .log-shell) :where(*),
 :where(.card, .status-hero, .pop, .modal-box) { scrollbar-width: none; }
 :where(.card, .status-hero, .pop, .modal-box, .log-shell) ::-webkit-scrollbar { display: none; }
+
+/* Item rows: icon chip, title with metadata, trailing action. */
+.item-list { display: grid; }
+.item-row { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 9px 0; }
+.item-list > .item-row + .item-row { border-top: 1px solid var(--line-soft); }
+.item-text { display: grid; gap: 2px; flex: 1; min-width: 0; line-height: 1.3; }
+.item-text strong { font-size: var(--text-label); font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.icon-chip { display: grid; place-items: center; flex-shrink: 0; width: 34px; height: 34px; border-radius: 11px; color: var(--tone); background: color-mix(in oklab, var(--tone) 12%, var(--surface-panel)); transition: color var(--dur-slow), background-color var(--dur-slow); }
+.icon-chip svg { width: 16px; height: 16px; }
+
+/* Summary chips: label, count, size in one compact strip. */
+.stat-strip { display: flex; flex-wrap: wrap; gap: 6px; }
+.stat-chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 5px 10px; border-radius: 999px; background: var(--surface-inset); font-size: var(--text-micro); color: var(--ink-muted); }
+.stat-chip b { font-weight: 650; color: var(--color-base-content); font-variant-numeric: tabular-nums; }
+.stat-chip small { font-size: inherit; font-variant-numeric: tabular-nums; }
+
+/* Section tabs: quiet labels, an underline that grows into the active one. */
+.svc-tabs { display: flex; gap: 2px; padding: 4px 8px 0; border-bottom: 1px solid var(--line-soft); overflow-x: auto; }
+.svc-tab { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 9px 12px; border: 0; background: none; border-radius: 9px 9px 0 0; font-size: var(--text-label); font-weight: 600; color: var(--ink-muted); white-space: nowrap; transition: color var(--dur-quick), background-color var(--dur-quick); }
+.svc-tab:hover { color: var(--color-base-content); background: color-mix(in oklab, var(--color-base-content) 4%, transparent); }
+.svc-tab::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--color-primary); transform: scaleX(0); transition: transform var(--dur-base) var(--ease-out-soft); }
+.svc-tab.is-active { color: var(--color-primary); }
+.svc-tab.is-active::after { transform: scaleX(1); }
+
+/* Settings: two columns on wide screens. */
+.settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.settings-col { display: grid; gap: 14px; min-width: 0; }
+@media (max-width: 900px) { .settings-grid { grid-template-columns: minmax(0, 1fr); } }
 
 /* Stretched row link: the row's button covers the whole row, focus ring included. */
 .row-link::after { content: ''; position: absolute; inset: 0; border-radius: 6px; }
@@ -501,31 +539,30 @@ button:not(:disabled), summary { cursor: pointer; }
 @keyframes swap-in { from { opacity: 0; transform: translateY(-10px) scale(0.9); } }
 @keyframes swap-out { to { opacity: 0; transform: translateY(10px) scale(0.9); } }
 
-/* ── Resource usage: used now vs reserved, same scale ─────────────── */
+/* ── Resource usage: one bar, every color named below it ─────────── */
 .ru { display: grid; gap: var(--space-4); padding-top: 2px; }
-.ru-row { display: grid; gap: 6px; }
-.ru-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); margin-bottom: 2px; }
+.ru-row { display: grid; gap: 8px; }
+.ru-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
 .ru-label { font-size: var(--text-label); font-weight: 650; }
 .ru-total { font-size: var(--text-micro); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
-.ru-lane { display: grid; grid-template-columns: 64px minmax(0, 1fr) 64px; align-items: center; gap: 10px; }
-.ru-lane-label { font-size: var(--text-micro); color: var(--ink-muted); white-space: nowrap; }
-.ru-lane-value { justify-self: end; font-size: var(--text-micro); font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.ru-bar { position: relative; height: 8px; border-radius: 5px; background: color-mix(in oklab, var(--color-base-content) 7%, transparent); overflow: hidden; }
-.ru-reserved {
-  position: absolute; inset: 0 auto 0 0; border-radius: 5px;
-  background: repeating-linear-gradient(135deg, color-mix(in oklab, var(--color-primary) 42%, transparent) 0 3px, color-mix(in oklab, var(--color-primary) 18%, transparent) 3px 6px);
-  transition: width var(--dur-slow) var(--ease-out-soft);
-}
-.ru-reserved.is-over { background: repeating-linear-gradient(135deg, color-mix(in oklab, var(--color-error) 50%, transparent) 0 3px, color-mix(in oklab, var(--color-error) 20%, transparent) 3px 6px); }
+.ru-bar { position: relative; height: 10px; border-radius: 6px; background: color-mix(in oklab, var(--color-base-content) 7%, transparent); overflow: hidden; }
 .ru-seg { position: absolute; top: 0; bottom: 0; left: 0; transition: width var(--dur-slow) var(--ease-out-soft), left var(--dur-slow) var(--ease-out-soft); }
-.ru-seg.is-apps { background: var(--color-primary); border-radius: 5px 0 0 5px; }
-.ru-seg.is-system { background: color-mix(in oklab, var(--color-base-content) 32%, transparent); }
-.ru-meta { margin: 2px 0 0; gap: 14px; }
-.ru-meta b { font-weight: 650; color: var(--color-base-content); }
-.ru-over, .ru-over b { color: var(--color-error); }
-.ru-key { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 2px; }
+.ru-seg.is-apps { background: var(--color-primary); }
+.ru-seg.is-system { background: color-mix(in oklab, var(--color-base-content) 30%, transparent); }
+.ru-limit { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px dashed color-mix(in oklab, var(--color-primary) 75%, transparent); transition: left var(--dur-slow) var(--ease-out-soft); }
+.ru-limit.is-over { border-left-color: var(--color-error); }
+.ru-legend { display: grid; margin: 0; }
+.ru-legend > div { display: grid; grid-template-columns: 92px 64px minmax(0, 1fr); align-items: baseline; gap: 10px; padding: 4px 0; font-size: var(--text-micro); }
+.ru-legend dt { display: flex; align-items: center; color: var(--color-base-content); font-weight: 600; white-space: nowrap; }
+.ru-legend dd { margin: 0; }
+.ru-legend dd b { font-weight: 650; font-variant-numeric: tabular-nums; }
+.ru-why { color: var(--ink-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ru-over { color: var(--color-error); }
+.ru-dash { display: inline-block; width: 0; height: 10px; margin-left: 4px; vertical-align: -1px; border-left: 2px dashed color-mix(in oklab, var(--color-primary) 75%, transparent); }
+.ru-key { display: inline-block; flex-shrink: 0; width: 9px; height: 9px; margin-right: 7px; border-radius: 3px; }
 .ru-key.is-apps { background: var(--color-primary); }
-.ru-key.is-system { background: color-mix(in oklab, var(--color-base-content) 32%, transparent); }
+.ru-key.is-system { background: color-mix(in oklab, var(--color-base-content) 30%, transparent); }
+.ru-key.is-free { background: color-mix(in oklab, var(--color-base-content) 7%, transparent); box-shadow: inset 0 0 0 1px var(--line); }
 .ru-verdict { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 9px 11px; border-radius: var(--radius-inset); font-size: var(--text-micro); line-height: 1.45; color: var(--ink-muted); background: color-mix(in oklab, var(--tone) 8%, var(--surface-panel)); }
 .ru-verdict svg { flex-shrink: 0; width: 14px; height: 14px; margin-top: 1px; color: var(--tone); }
 

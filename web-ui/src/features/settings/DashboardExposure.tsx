@@ -1,11 +1,12 @@
 import { writeClipboardText } from '@/lib/clipboard'
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, Cloud, CloudOff, Copy, ExternalLink, LockKeyhole, ShieldCheck } from 'lucide-react'
+import { CheckCircle2, Cloud, CloudOff, Copy, ExternalLink, LockKeyhole, ShieldCheck, TriangleAlert } from 'lucide-react'
 import { exposeDashboard, fetchDashboardTunnel, unexposeDashboard } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import { Button } from '@/components/ui/Button/Button'
-import { Empty } from '@/components/ui/Empty/Empty'
+import { Notice } from '@/components/ui/Notice/Notice'
+import { SwapText } from '@/components/ui/SwapText/SwapText'
 import { Field, Input } from '@/components/ui/Field/Field'
 import { Modal } from '@/components/ui/Modal/Modal'
 import { Panel } from '@/components/ui/Panel/Panel'
@@ -103,65 +104,55 @@ export function DashboardExposure() {
         : status.state === 'starting'
           ? { text: 'Connecting', tone: 'badge-info' }
           : { text: 'Disconnected', tone: 'badge-error' }
-  const tunnelHint = status?.tunnel_id ? `Tunnel …${status.tunnel_id.slice(-4)}` : ''
 
   return (
     <>
       <Panel
-        title={<span className="inline-flex items-center gap-1.5"><Cloud className="h-3.5 w-3.5" aria-hidden /> Remote dashboard</span>}
-        hint="Cloudflare · port 8484"
+        title={<span className="inline-flex items-center gap-1.5"><Cloud aria-hidden /> Remote dashboard</span>}
         busy={statusQ.isFetching || expose.isPending || close.isPending}
       >
         {statusQ.isLoading ? (
           <Spinner compact label="Checking Cloudflare connector…" />
         ) : statusQ.isError ? (
-          <Empty compact title="Could not check exposure" body={(statusQ.error as Error).message} />
+          <Notice icon={TriangleAlert} tone="bad" title="Could not check remote access">{(statusQ.error as Error).message}</Notice>
         ) : (
-          <div className="grid gap-2.5">
-            <div className={`${tile} p-3 flex flex-wrap items-start justify-between gap-3`}>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <strong className="text-sm">{connectorTitle}</strong>
-                  <span className={`badge badge-sm ${connectorBadge.tone}`}>
-                    {connectorBadge.text}
-                  </span>
-                  {status?.mode === 'managed' ? <span className="badge badge-info badge-sm">Persistent</span> : null}
-                  {tunnelHint ? <span className="text-[10px] font-mono text-base-content/50">{tunnelHint}</span> : null}
-                </div>
-                {status?.public_url ? (
-                  <a href={status.public_url} target="_blank" rel="noreferrer" className="link link-primary text-xs inline-flex items-center gap-1 mt-1 max-w-full">
-                    <span className="truncate">{status.public_url.replace(/^https?:\/\//, '')}</span>
-                    <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
-                  </a>
-                ) : (
-                  <p className={`text-xs m-0 mt-1 ${muted}`}>Available only on your LAN until you expose it.</p>
-                )}
-              </div>
-              <div className="flex gap-1.5">
-                {status?.public_url ? <Button variant="quiet" icon={<Copy className="h-3.5 w-3.5" />} onClick={() => void copyURL()}>Copy</Button> : null}
-                {status?.active ? (
-                  <Button variant="dangerSoft" icon={<CloudOff className="h-3.5 w-3.5" />} loading={close.isPending} onClick={() => void stopExposure()}>Unexpose</Button>
-                ) : (
-                  <Button variant="info" icon={<Cloud className="h-3.5 w-3.5" />} onClick={() => setOpen(true)}>Expose dashboard</Button>
-                )}
-              </div>
+          <>
+            <div className="item-row">
+              <span className={`icon-chip ${status?.connected ? 'tone-ok' : status?.active ? 'tone-warn' : 'tone-idle'}`}>
+                {status?.active ? <Cloud aria-hidden /> : <CloudOff aria-hidden />}
+              </span>
+              <span className="item-text">
+                <strong><SwapText>{connectorTitle}</SwapText></strong>
+                <span className="meta">
+                  {status?.public_url ? (
+                    <a href={status.public_url} target="_blank" rel="noreferrer" className="link link-primary inline-flex items-center gap-1 min-w-0">
+                      <span className="truncate">{status.public_url.replace(/^https?:\/\//, '')}</span>
+                      <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
+                    </a>
+                  ) : (
+                    <span>Only reachable on your network</span>
+                  )}
+                  <span className={connectorBadge.tone.includes('success') ? 'text-success' : ''}>{connectorBadge.text}</span>
+                </span>
+              </span>
+              {status?.public_url ? <Button variant="quiet" icon={<Copy className="h-3.5 w-3.5" />} onClick={() => void copyURL()} aria-label="Copy link" title="Copy link" /> : null}
+              {status?.active ? (
+                <Button variant="dangerSoft" loading={close.isPending} onClick={() => void stopExposure()}>Stop</Button>
+              ) : (
+                <Button variant="primary" icon={<Cloud className="h-3.5 w-3.5" />} onClick={() => setOpen(true)}>Expose</Button>
+              )}
             </div>
             {status?.active && !status.connected ? (
-              <p className="text-error text-xs m-0">
+              <Notice icon={TriangleAlert} tone="bad" title="Connector not registered">
                 {status.state === 'misconfigured'
                   ? 'The running connector does not match the saved tunnel token. Restart exposure with the correct token.'
                   : status.last_error || 'cloudflared is running but has not registered with Cloudflare yet.'}
-              </p>
+              </Notice>
             ) : status?.connected && !status.verified ? (
-              <p className={`text-xs m-0 ${muted}`}>Connected securely. Public DNS and route verification will retry automatically.</p>
+              <p className={`text-xs m-0 ${muted}`}>Connected. Public DNS and route checks retry automatically.</p>
             ) : null}
-            <div className="flex items-start gap-2 text-[11px]">
-              <ShieldCheck className="h-3.5 w-3.5 text-success shrink-0 mt-0.5" aria-hidden />
-              <p className={`m-0 ${muted}`}>
-                Stable mode stores the connector token owner-only and runs independently of dashboard updates. Public access must be protected by Cloudflare Access or HTTP authentication.
-              </p>
-            </div>
-          </div>
+            <p className="meta m-0"><ShieldCheck className="h-3.5 w-3.5 text-success shrink-0" aria-hidden /><span className="whitespace-normal">Protect public access with Cloudflare Access or HTTP authentication.</span></p>
+          </>
         )}
       </Panel>
 

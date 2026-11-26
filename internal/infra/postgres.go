@@ -55,6 +55,10 @@ func (p *Postgres) Status(ctx context.Context) Status {
 	p.statusMu.Unlock()
 
 	st := p.statusSlow(ctx)
+	if ctx.Err() != nil {
+		// A cancelled request cannot see the container; never cache that as "stopped".
+		return st
+	}
 
 	p.statusMu.Lock()
 	p.statusSnap = st

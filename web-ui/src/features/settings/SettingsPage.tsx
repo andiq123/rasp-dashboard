@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Copy, Database, FolderGit2, KeyRound } from 'lucide-react'
+import { Copy, Database, FolderGit2, HardDrive, KeyRound, Settings2, TriangleAlert } from 'lucide-react'
 import {
   clearGitHubToken,
   engineAction,
@@ -13,11 +13,13 @@ import {
 import { queryKeys } from '@/api/queryKeys'
 import { Button } from '@/components/ui/Button/Button'
 import { useConfirm } from '@/components/ui/Confirm/Confirm'
-import { Empty } from '@/components/ui/Empty/Empty'
+import { Disclosure } from '@/components/ui/Disclosure/Disclosure'
 import { Field, Input } from '@/components/ui/Field/Field'
+import { Notice } from '@/components/ui/Notice/Notice'
 import { Panel } from '@/components/ui/Panel/Panel'
 import { PageHeader, PageSub } from '@/components/ui/PageHeader/PageHeader'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
+import { SwapText } from '@/components/ui/SwapText/SwapText'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { usePendingAddGo } from '@/features/projects/pendingAddGo'
 import { DashboardExposure } from '@/features/settings/DashboardExposure'
@@ -145,227 +147,157 @@ export function SettingsPage() {
     (pgVersion !== (engine.data.settings.postgres_version || '') ||
       goToolchain !== (engine.data.settings.go_toolchain || ''))
 
+  const pgLabel = (engine.data?.postgres_options || []).find((o) => o.id === pgVersion)?.label || pgVersion || 'Latest'
+  const goLabel = (engine.data?.go_options || []).find((o) => o.id === goToolchain)?.label || goToolchain || 'From go.mod'
+  const login = gh.data?.user?.login || 'GitHub'
+
   return (
     <div className="grid gap-3.5">
       <PageHeader title="Settings">
         <PageSub>GitHub, remote access, shared engines and Docker on this Pi</PageSub>
       </PageHeader>
 
-      <div className="grid gap-3.5 xl:grid-cols-[minmax(280px,0.9fr)_minmax(0,1.1fr)] items-start">
-        <Panel
-          title={
-            <span className="inline-flex items-center gap-2">
-              <FolderGit2 className="h-4 w-4" aria-hidden /> GitHub
-            </span>
-          }
-          hint="Deploy from your repos"
-        >
-          {gh.isLoading ? (
-            <Spinner compact label="Checking GitHub…" />
-          ) : gh.isError ? (
-            <Empty
-              compact
-              title="Could not check GitHub"
-              body={(gh.error as Error).message}
-              action={
-                <Button variant="infoSoft" onClick={() => void gh.refetch()}>
-                  Retry
+      <div className="settings-grid">
+        <div className="settings-col">
+          <Panel
+            title={<span className="inline-flex items-center gap-1.5"><FolderGit2 aria-hidden /> GitHub</span>}
+            actions={
+              gh.data?.connected ? (
+                <Button variant="quiet" loading={disconnect.isPending} onClick={() => void onDisconnect()}>
+                  Disconnect
                 </Button>
-              }
-            />
-          ) : gh.data?.connected ? (
-            <div className="grid w-full gap-3 justify-items-start">
-              <div className="badge badge-success badge-lg gap-2">
-                <span className="status status-success" />
-                {(gh.data.user && gh.data.user.login) || 'GitHub'}
-              </div>
-              <p className={`text-sm ${muted} m-0`}>
-                Connected. Add this Pi’s SSH public key on GitHub, then disconnect only to switch
-                accounts.
-              </p>
-
-              <div className="w-full grid gap-2">
-                <div className="flex items-center justify-between gap-2">
-                  <strong className="text-sm inline-flex items-center gap-1.5">
-                    <KeyRound className="h-4 w-4" aria-hidden /> SSH public key
-                  </strong>
-                  <Button
-                    variant="infoSoft"
-                    icon={<Copy className="h-3.5 w-3.5" aria-hidden />}
-                    disabled={!sshKey.data?.exists || !sshKey.data.public_key}
-                    onClick={() => void copySSHKey()}
-                  >
-                    Copy
+              ) : undefined
+            }
+          >
+            {gh.isLoading ? (
+              <Spinner compact label="Checking GitHub…" />
+            ) : gh.isError ? (
+              <Notice icon={TriangleAlert} tone="bad" title="Could not check GitHub" action={<Button variant="infoSoft" onClick={() => void gh.refetch()}>Retry</Button>}>
+                {(gh.error as Error).message}
+              </Notice>
+            ) : gh.data?.connected ? (
+              <>
+                <div className="item-row">
+                  <span className="icon-chip tone-ok"><FolderGit2 aria-hidden /></span>
+                  <span className="item-text">
+                    <strong>Connected as {login}</strong>
+                    <span className="meta"><span>Deploys clone your repos with this token</span></span>
+                  </span>
+                </div>
+                {sshKey.data?.exists && sshKey.data.public_key ? (
+                  <div>
+                    <Disclosure id="settings.ssh" title="SSH public key" icon={KeyRound} summary="For git over SSH">
+                      <div className="grid gap-2">
+                        <pre className={`${codeSurface} select-all max-h-28`} tabIndex={0}>{sshKey.data.public_key}</pre>
+                        <div className="flex justify-end">
+                          <Button variant="infoSoft" icon={<Copy className="h-3.5 w-3.5" aria-hidden />} onClick={() => void copySSHKey()}>
+                            Copy key
+                          </Button>
+                        </div>
+                      </div>
+                    </Disclosure>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className="grid gap-3">
+                <p className={`text-sm ${muted} m-0`}>Connect GitHub to deploy apps from your repos.</p>
+                <Field label="Personal access token" tip="Needs repo read access. Stored only on this Pi." htmlFor="settings-gh-token">
+                  <Input
+                    id="settings-gh-token"
+                    type="password"
+                    autoComplete="off"
+                    placeholder="github_pat_… or ghp_…"
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && token.trim()) connect.mutate()
+                    }}
+                  />
+                </Field>
+                <div className="flex justify-end">
+                  <Button variant="primary" icon={<FolderGit2 className="h-4 w-4" />} loading={connect.isPending} disabled={!token.trim()} onClick={() => connect.mutate()}>
+                    Connect GitHub
                   </Button>
                 </div>
-                {sshKey.isLoading ? (
-                  <Spinner compact label="Loading SSH key…" />
-                ) : sshKey.isError ? (
-                  <Empty compact title="Could not load SSH key" body={(sshKey.error as Error).message} />
-                ) : !sshKey.data?.exists ? (
-                  <Empty
-                    compact
-                    title="No GitHub SSH key on this Pi"
-                    body={`Expected ${sshKey.data?.path || '~/.ssh/id_ed25519_github.pub'}.`}
-                  />
-                ) : (
-                  <pre className={`${codeSurface} select-all max-h-28`} tabIndex={0}>
-                    {sshKey.data.public_key}
-                  </pre>
-                )}
-                {sshKey.data?.path ? (
-                  <p className={`text-xs ${muted} m-0 font-mono`}>{sshKey.data.path}</p>
-                ) : null}
               </div>
+            )}
+          </Panel>
 
-              <Button variant="dangerSoft" loading={disconnect.isPending} onClick={() => void onDisconnect()}>
-                Disconnect
-              </Button>
-            </div>
-          ) : (
-            <div className="grid w-full gap-3 justify-items-start">
-              <p className={`text-sm ${muted} m-0`}>
-                Paste a personal access token with repo read. Stored on this Pi only.
-              </p>
-              <Field
-                label="Personal access token"
-                meta="github_pat_…"
-                tip="Needs repo read. Stored only on this Pi."
-                htmlFor="settings-gh-token"
-              >
-                <Input
-                  id="settings-gh-token"
-                  type="password"
-                  autoComplete="off"
-                  placeholder="github_pat_… or ghp_…"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && token.trim()) connect.mutate()
-                  }}
-                />
-              </Field>
-              <Button
-                variant="primary"
-                icon={<FolderGit2 className="h-4 w-4" />}
-                loading={connect.isPending}
-                disabled={!token.trim()}
-                onClick={() => connect.mutate()}
-              >
-                Connect
-              </Button>
-            </div>
-          )}
-        </Panel>
+          <DashboardExposure />
+        </div>
 
         <Panel
-          title={
-            <span className="inline-flex items-center gap-2">
-              <Database className="h-4 w-4" aria-hidden /> Engines
-            </span>
-          }
-          hint="Shared Postgres + Go build image"
+          title={<span className="inline-flex items-center gap-1.5"><Database aria-hidden /> Engines</span>}
           busy={engine.isFetching}
         >
           {engine.isLoading ? (
             <Spinner compact label="Loading engines…" />
           ) : engine.isError ? (
-            <Empty
-              compact
-              title="Could not load engines"
-              body={(engine.error as Error).message}
-              action={
-                <Button variant="infoSoft" onClick={() => void engine.refetch()}>
-                  Retry
-                </Button>
-              }
-            />
+            <Notice icon={TriangleAlert} tone="bad" title="Could not load engines" action={<Button variant="infoSoft" onClick={() => void engine.refetch()}>Retry</Button>}>
+              {(engine.error as Error).message}
+            </Notice>
           ) : (
-            <div className="grid gap-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <strong className="text-sm block">Shared Postgres</strong>
-                  <p className={`text-xs ${muted} m-0 mt-0.5 font-mono truncate`}>
-                    {engine.data?.postgres_running ? 'Running' : 'Stopped'}
-                    {engine.data?.postgres_image ? ` · ${engine.data.postgres_image}` : ''}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
+            <>
+              <div className="item-list">
+                <div className="item-row">
+                  <span className={`icon-chip ${engine.data?.postgres_running ? 'tone-ok' : 'tone-idle'}`}><Database aria-hidden /></span>
+                  <span className="item-text">
+                    <strong>Shared Postgres</strong>
+                    <span className="meta">
+                      <span><SwapText>{engine.data?.postgres_running ? 'Running' : 'Stopped'}</SwapText></span>
+                      {engine.data?.postgres_image ? <span className="truncate">{engine.data.postgres_image}</span> : null}
+                    </span>
+                  </span>
                   {engine.data?.postgres_running ? (
-                    <Button
-                      variant="dangerSoft"
-                      loading={engStop.isPending}
-                      onClick={() => void onStopPostgres()}
-                    >
-                      Stop
-                    </Button>
+                    <Button variant="dangerSoft" loading={engStop.isPending} onClick={() => void onStopPostgres()}>Stop</Button>
                   ) : (
-                    <Button variant="successSoft" loading={engStart.isPending} onClick={() => engStart.mutate()}>
-                      Start
-                    </Button>
+                    <Button variant="successSoft" loading={engStart.isPending} onClick={() => engStart.mutate()}>Start</Button>
                   )}
                 </div>
+                {engine.data?.minio_image ? (
+                  <div className="item-row">
+                    <span className={`icon-chip ${engine.data.minio_running ? 'tone-ok' : 'tone-idle'}`}><HardDrive aria-hidden /></span>
+                    <span className="item-text">
+                      <strong>MinIO storage</strong>
+                      <span className="meta">
+                        <span>{engine.data.minio_running ? 'Running' : 'Stopped'}</span>
+                        {engine.data.minio_endpoint ? <span className="truncate">{engine.data.minio_endpoint.replace(/^https?:\/\//, '')}</span> : null}
+                      </span>
+                    </span>
+                  </div>
+                ) : null}
               </div>
-
-              <div className="grid gap-2 sm:grid-cols-2">
-                <Field label="Postgres version" htmlFor="settings-pg-version">
-                  <select
-                    id="settings-pg-version"
-                    className="select select-bordered select-sm w-full"
-                    value={pgVersion}
-                    onChange={(e) => setPgVersion(e.target.value)}
-                  >
-                    {(engine.data?.postgres_options || []).map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.label || o.id}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field
-                  label="Go toolchain"
-                  htmlFor="settings-go-toolchain"
-                  tip={engine.data?.go_resolved_hint}
-                >
-                  <select
-                    id="settings-go-toolchain"
-                    className="select select-bordered select-sm w-full"
-                    value={goToolchain}
-                    onChange={(e) => setGoToolchain(e.target.value)}
-                  >
-                    {(engine.data?.go_options || []).map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.label || o.id}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
+              <div>
+                <Disclosure id="settings.build" title="Build settings" icon={Settings2} summary={`Postgres ${pgLabel}, Go ${goLabel}`}>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Field label="Postgres version" htmlFor="settings-pg-version">
+                      <select id="settings-pg-version" className="select select-bordered select-sm w-full" value={pgVersion} onChange={(e) => setPgVersion(e.target.value)}>
+                        {(engine.data?.postgres_options || []).map((o) => (
+                          <option key={o.id} value={o.id}>{o.label || o.id}</option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Go toolchain" htmlFor="settings-go-toolchain" tip={engine.data?.go_resolved_hint}>
+                      <select id="settings-go-toolchain" className="select select-bordered select-sm w-full" value={goToolchain} onChange={(e) => setGoToolchain(e.target.value)}>
+                        {(engine.data?.go_options || []).map((o) => (
+                          <option key={o.id} value={o.id}>{o.label || o.id}</option>
+                        ))}
+                      </select>
+                    </Field>
+                    <div className="sm:col-span-2 flex justify-end">
+                      <Button variant="primary" disabled={!engineDirty} loading={engSave.isPending} onClick={() => engSave.mutate()}>
+                        Save changes
+                      </Button>
+                    </div>
+                  </div>
+                </Disclosure>
               </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  variant="primary"
-                  disabled={!engineDirty}
-                  loading={engSave.isPending}
-                  onClick={() => engSave.mutate()}
-                >
-                  Save engine
-                </Button>
-              </div>
-
-              {engine.data?.minio_image ? (
-                <p className={`text-xs ${muted} m-0`}>
-                  MinIO {engine.data.minio_running ? 'running' : 'stopped'}
-                  {engine.data.minio_endpoint ? ` · ${engine.data.minio_endpoint}` : ''}
-                  {` · ${engine.data.minio_image}`}
-                </p>
-              ) : null}
-            </div>
+            </>
           )}
         </Panel>
       </div>
 
-      <DashboardExposure />
       <DockerPanel />
     </div>
   )
