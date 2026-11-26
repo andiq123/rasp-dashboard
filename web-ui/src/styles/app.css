@@ -764,6 +764,23 @@ button:not(:disabled), summary { cursor: pointer; }
   .flow-link { flex: 0 0 16px; min-width: 16px; }
 }
 
+/* Branch under the Pi: apps and public links leave over Ethernet, skipping the VPN. */
+.flow-wrap { display: grid; gap: 2px; }
+.flow-branch { display: flex; align-items: flex-start; padding-left: calc(var(--branch-x) - 1px); animation: rise-in var(--dur-slow) var(--ease-out-soft) both; }
+.branch-elbow {
+  flex: none; width: 20px; height: 30px; margin-top: -12px;
+  border-left: 2px solid color-mix(in oklab, var(--tone) 35%, transparent);
+  border-bottom: 2px solid color-mix(in oklab, var(--tone) 35%, transparent);
+  border-bottom-left-radius: 12px;
+}
+.flow-branch > .flow-link { flex: 1 1 auto; min-width: 10px; }
+.flow-branch > .flow-link:first-of-type { margin-left: 0; }
+.flow-branch .flow-node { width: 74px; }
+@media (max-width: 520px) {
+  .flow-branch { flex-wrap: wrap; justify-content: center; padding-left: 0; row-gap: 10px; }
+  .branch-elbow { display: none; }
+}
+
 /* Text and numbers that change animate in place; unchanged text never moves. */
 .swap-text { display: inline-block; }
 .swap-text.is-new { animation: text-swap var(--dur-base) var(--ease-out-soft) both; }

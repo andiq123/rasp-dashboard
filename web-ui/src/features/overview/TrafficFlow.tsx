@@ -1,4 +1,5 @@
-import { Ban, Cable, Cpu, Globe, ShieldCheck, Smartphone, Waypoints, Wifi, type LucideIcon } from 'lucide-react'
+import { useLayoutEffect, useRef, useState } from 'react'
+import { Ban, Cable, Cloud, Cpu, Globe, Package, ShieldCheck, Smartphone, Waypoints, Wifi, type LucideIcon } from 'lucide-react'
 import type { AppState } from '@/api/types'
 import { AnimatedList } from '@/components/ui/AnimatedList/AnimatedList'
 import { Popover } from '@/components/ui/Popover/Popover'
@@ -124,10 +125,79 @@ function FlowLink({ state, bps }: { state: LinkState; bps: number }) {
   )
 }
 
-/** Animated diagram of where traffic flows and where it stops. Every step opens an info popup. */
-export function TrafficFlow({ flow, state }: { flow: Flow; state: AppState }) {
-  const last = flow.nodes.length - 1
+/** Apps and their public links, which leave over Ethernet and skip the VPN. */
+export type FlowBranch = { apps: number; links: number; liveLinks: number; bps: number; internet: boolean }
+
+function NodeView({ node, info }: { node: FlowNode; info: React.ReactNode }) {
   return (
+    <Popover label={`${node.label} details`} align="center" content={info}>
+      <span className={`flow-node tone-${node.state}`}>
+        <span className="flow-icon"><node.icon aria-hidden /></span>
+        <span className="flow-text">
+          <span className="flow-label">{node.label}</span>
+          <span className="flow-detail"><SwapText>{node.detail}</SwapText></span>
+        </span>
+      </span>
+    </Popover>
+  )
+}
+
+function BranchInfo({ title, line }: { title: string; line: string }) {
+  return (
+    <div className="pop-body">
+      <div className="pop-head"><strong>{title}</strong><span className="pop-state tone-ok">Skips the VPN</span></div>
+      <p className="pop-line">{line}</p>
+    </div>
+  )
+}
+
+/** Branch under the Pi: apps → public links → internet, directly over Ethernet. */
+function Branch({ branch, x }: { branch: FlowBranch; x: number }) {
+  const apps: FlowNode = { id: 'apps', label: 'Your apps', icon: Package, detail: branch.apps === 1 ? '1 running' : `${branch.apps} running`, state: branch.apps ? 'ok' : 'idle' }
+  const links: FlowNode = {
+    id: 'links', label: 'Public links', icon: Cloud,
+    detail: branch.links ? `${branch.liveLinks} of ${branch.links} live` : 'None',
+    state: !branch.links ? 'idle' : branch.liveLinks === branch.links ? 'ok' : 'bad',
+  }
+  const net: FlowNode = { id: 'direct', label: 'Internet', icon: Globe, detail: 'Direct, no VPN', state: branch.internet ? 'ok' : 'bad' }
+  const carry = branch.internet && branch.apps > 0
+  return (
+    <div className="flow-branch" style={{ '--branch-x': `${x}px` } as React.CSSProperties} aria-label="Apps and public links skip the VPN">
+      <span className="branch-elbow tone-ok" aria-hidden />
+      <FlowLink state={carry ? 'flow' : 'idle'} bps={branch.bps} />
+      <NodeView node={apps} info={<BranchInfo title="Your apps" line="Deployed apps run on the Pi as their own user and reach the internet over Ethernet directly, so they never depend on the Mullvad tunnel." />} />
+      <FlowLink state={carry && branch.links ? 'flow' : 'idle'} bps={branch.bps} />
+      <NodeView node={links} info={<BranchInfo title="Public links" line="Cloudflare tunnels publish your apps on the web. Their traffic is routed around the VPN so links stay up even while the tunnel is repairing." />} />
+      <FlowLink state={branch.internet ? 'flow' : 'blocked'} bps={branch.bps} />
+      <NodeView node={net} info={<BranchInfo title="Direct internet" line="This path uses the Ethernet uplink only. Wi‑Fi devices still go through Mullvad in Romania." />} />
+    </div>
+  )
+}
+
+/** Animated diagram of where traffic flows and where it stops. Every step opens an info popup. */
+export function TrafficFlow({ flow, state, branch }: { flow: Flow; state: AppState; branch?: FlowBranch }) {
+  const last = flow.nodes.length - 1
+  const wrap = useRef<HTMLDivElement>(null)
+  const [piX, setPiX] = useState(0)
+  const hasBranch = !!branch
+  // Start the branch exactly under the Pi icon, wherever the layout puts it.
+  useLayoutEffect(() => {
+    const el = wrap.current
+    if (!el || !hasBranch) return
+    const measure = () => {
+      const icon = el.querySelector<HTMLElement>('.flow > .flow-step:nth-child(3) .flow-icon')
+      if (!icon) return
+      const a = el.getBoundingClientRect()
+      const b = icon.getBoundingClientRect()
+      setPiX(Math.round(b.left + b.width / 2 - a.left))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [hasBranch])
+  return (
+    <div className="flow-wrap" ref={wrap}>
     <ol className="flow" aria-label="Traffic path">
       {flow.nodes.map((node, i) => (
         // Steps are keyed by position: when the gate changes (Mullvad ⇄ Residential)
@@ -158,5 +228,7 @@ export function TrafficFlow({ flow, state }: { flow: Flow; state: AppState }) {
         </li>
       ))}
     </ol>
+      {branch && piX ? <Branch branch={branch} x={piX} /> : null}
+    </div>
   )
 }

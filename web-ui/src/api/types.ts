@@ -91,6 +91,7 @@ export type AppState = {
   uplink?: Uplink
   clients?: number
   traffic?: { uplink_bps?: number; tunnel_bps?: number; hotspot_bps?: number }
+  routing?: { apps_direct?: boolean; tunnels_direct?: boolean }
   devices?: ConnectedDevice[]
   mullvad_account?: MullvadAccount
   device_metrics?: DeviceMetrics

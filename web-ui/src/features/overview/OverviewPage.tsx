@@ -45,7 +45,7 @@ import { MULLVAD_ACCOUNT_URL } from '@/lib/mullvad'
 import { appUsage, fmtMB, hostCapacity, reservedFromServices } from '@/lib/resources'
 import { MullvadTime } from './MullvadTime'
 import { ResourceUsage } from './ResourceUsage'
-import { computeFlow, TrafficFlow, type LinkState } from './TrafficFlow'
+import { computeFlow, TrafficFlow, type FlowBranch, type LinkState } from './TrafficFlow'
 import { VPNRepairFlow } from './VPNRepairFlow'
 
 type Mode = 'mullvad' | 'residential'
@@ -193,6 +193,17 @@ export function OverviewPage() {
   const linkKey = useSettled(rawFlow.links.join(','), SETTLE_MS, (key) => !key.includes('blocked'))
   const flow = { ...rawFlow, links: linkKey.split(',') as LinkState[] }
   const deviceCount = state.clients ?? 0
+  // Apps and their public links skip the VPN (policy routing on the Pi).
+  const branch: FlowBranch | undefined = state.routing?.apps_direct && allServices.length
+    ? {
+        apps: allServices.filter((s) => (s.type === 'go' || s.type === 'redis') && s.running).length,
+        links: allServices.filter((s) => s.public_url || s.tunnel_active).length,
+        liveLinks: allServices.filter((s) => (s.public_url || s.tunnel_active) && (s.tunnel_connected || s.tunnel_state === 'connected')).length,
+        // Ethernet traffic not explained by the encrypted tunnel is app/link traffic.
+        bps: Math.max(0, (state.traffic?.uplink_bps || 0) - (state.traffic?.tunnel_bps || 0) * 1.1),
+        internet: !!state.uplink?.internet,
+      }
+    : undefined
   const devicesText = deviceCount === 1 ? '1 device' : `${deviceCount} devices`
   const c = configQ.data || {}
   const busy = modeMut.isPending || hs.isPending || save.isPending || recoveringVPN
@@ -365,7 +376,7 @@ export function OverviewPage() {
               )}
             </div>
           </div>
-          <TrafficFlow flow={flow} state={state} />
+          <TrafficFlow flow={flow} state={state} branch={branch} />
 
           <AnimatedList
             items={vpnRepair ? [vpnRepair] : []}
