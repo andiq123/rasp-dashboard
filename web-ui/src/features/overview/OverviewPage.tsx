@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import { fetchConfig, fetchGroups, fetchServices, hotspotAction, saveConfig, setMode } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
-import type { AppState, Service } from '@/api/types'
+import type { Service } from '@/api/types'
 import { AnimatedNumber } from '@/components/ui/AnimatedNumber/AnimatedNumber'
 import { Button } from '@/components/ui/Button/Button'
 import { useConfirm } from '@/components/ui/Confirm/Confirm'
@@ -34,6 +34,7 @@ import { Panel } from '@/components/ui/Panel/Panel'
 import { ResourceBudget } from '@/components/ui/ResourceBudget/ResourceBudget'
 import { Segmented } from '@/components/ui/Segmented/Segmented'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
+import { SwapText } from '@/components/ui/SwapText/SwapText'
 import { StatRow } from '@/components/ui/StatRow/StatRow'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { MonitorHistory } from '@/components/monitor/MonitorHistory'
@@ -42,7 +43,7 @@ import { useSettled } from '@/hooks/useSettled'
 import { actionDoneLabel } from '@/lib/actions'
 import { fmtBytes, fmtPct, fmtRate } from '@/lib/format'
 import { hostCapacity, reservedFromServices } from '@/lib/resources'
-import { RouteTrace, type Hop } from './RouteTrace'
+import { computeFlow, TrafficFlow, type LinkState } from './TrafficFlow'
 import { VPNRepairFlow } from './VPNRepairFlow'
 
 type Mode = 'mullvad' | 'residential'
@@ -56,38 +57,6 @@ const modeOptions: { value: Mode; label: string }[] = [
   { value: 'mullvad', label: 'Mullvad' },
   { value: 'residential', label: 'Residential' },
 ]
-
-function routeHops(state: AppState, mode: Mode): Hop[] {
-  const vpn = state.vpn_health || {}
-  const hotspot: Hop = {
-    label: state.ssid || 'Hotspot',
-    detail: state.hotspot_running ? state.hotspot_ip || 'Broadcasting' : 'Stopped',
-    state: state.hotspot_running ? 'ok' : 'bad',
-  }
-  if (mode === 'residential') {
-    return [
-      hotspot,
-      { label: 'Proxy', detail: state.proxy_running ? 'Redirecting TCP' : 'Not running', state: state.proxy_running ? 'ok' : 'bad' },
-      { label: 'Residential exit', detail: state.proxy_running ? 'IPRoyal' : 'Unreachable', state: state.proxy_running ? 'ok' : 'idle' },
-    ]
-  }
-  const tunnelOk = !!(vpn.interface_up && vpn.handshake_healthy)
-  const exitOk = tunnelOk && !!vpn.egress_ok
-  return [
-    hotspot,
-    {
-      label: 'WireGuard',
-      detail: !vpn.interface_up ? 'Tunnel down' : vpn.handshake_healthy ? `Handshake ${Number(vpn.handshake_age_seconds || 0)}s ago` : 'No handshake',
-      state: tunnelOk ? 'ok' : 'bad',
-    },
-    { label: 'Mullvad', detail: vpn.relay || 'No relay', state: exitOk ? 'ok' : tunnelOk ? 'bad' : 'idle' },
-    {
-      label: 'Romania',
-      detail: !vpn.country_allowed ? 'Blocked by policy' : exitOk ? 'Exit verified' : 'Not verified',
-      state: exitOk && vpn.country_allowed ? 'ok' : exitOk ? 'bad' : 'idle',
-    },
-  ]
-}
 
 export function OverviewPage() {
   const { state, live } = useLiveState()
@@ -135,11 +104,13 @@ export function OverviewPage() {
     (kind) => kind !== 'offline',
   )
   const showReconnecting = useSettled(!live, SETTLE_MS, (offline) => !offline)
-  const rawHops = state.generated_at
-    ? routeHops(state, mode)
-    : routeHops(state, mode).map((hop) => ({ ...hop, state: 'idle' as const, detail: 'Checking…' }))
-  const hopStates = useSettled(rawHops.map((h) => h.state).join(','), SETTLE_MS, (key) => !key.includes('bad')).split(',')
-  const hops = rawHops.map((hop, i) => ({ ...hop, state: (hopStates[i] as Hop['state']) || hop.state }))
+  // Breaks in the flow settle before showing; repairs show at once.
+  const rawFlow = computeFlow(state, recoveringVPN)
+  const linkKey = useSettled(rawFlow.links.join(','), SETTLE_MS, (key) => !key.includes('blocked'))
+  const flow = { ...rawFlow, links: linkKey.split(',') as LinkState[] }
+  const uplinkDown = !!(state.uplink?.checked && !state.uplink.internet)
+  const deviceCount = state.clients ?? 0
+  const devicesText = deviceCount === 1 ? '1 device' : `${deviceCount} devices`
 
   const modeMut = useMutation({
     mutationFn: (m: Mode) => setMode(m),
@@ -230,22 +201,24 @@ export function OverviewPage() {
     : heroKind === 'recovering'
     ? { tone: 'busy', title: 'Recovering', line: 'Repairing the Mullvad tunnel. Internet stays blocked until Romania is verified.' }
     : heroKind === 'stopped'
-      ? { tone: 'warn', title: 'Hotspot stopped', line: `Start the hotspot to bring ${state.ssid || 'Wi‑Fi'} back.` }
+      ? { tone: 'warn', title: 'Hotspot stopped', line: `The Pi is online. Start the hotspot to share it on ${state.ssid || 'Wi‑Fi'}.` }
       : heroKind === 'online'
         ? {
             tone: 'ok',
             title: 'Online',
             line: mode === 'mullvad'
-              ? `Devices on ${state.ssid || 'the hotspot'} reach the internet through Mullvad in Romania.`
-              : `Devices on ${state.ssid || 'the hotspot'} reach the internet through the residential proxy.`,
+              ? `Internet comes in over Ethernet and leaves through Mullvad in Romania${deviceCount ? ` to ${devicesText}` : ''}.`
+              : `Internet comes in over Ethernet and leaves through the residential proxy${deviceCount ? ` to ${devicesText}` : ''}.`,
           }
-        : {
-            tone: 'bad',
-            title: 'Offline',
-            line: mode === 'mullvad'
-              ? 'Internet is blocked until the Romanian tunnel is verified.'
-              : 'The residential proxy is not running.',
-          }
+        : uplinkDown
+          ? { tone: 'bad', title: 'No internet', line: 'The Pi has no internet over Ethernet, so nothing can reach the Wi‑Fi.' }
+          : {
+              tone: 'bad',
+              title: 'Wi‑Fi blocked',
+              line: mode === 'mullvad'
+                ? 'The Pi is online, but Wi‑Fi devices are held back until the Romanian tunnel is verified.'
+                : 'The Pi is online, but Wi‑Fi devices are held back while the residential proxy is stopped.',
+            }
 
   const showRepairButton =
     mode === 'mullvad' &&
@@ -277,13 +250,12 @@ export function OverviewPage() {
     <div className="overview">
       <section className={`status-hero tone-${hero.tone}`} aria-label="Hotspot status">
         <div className="status-head">
-          <div className="status-title status-swap" key={hero.title} role="status">
+          <div className="status-title" role="status">
             <span className="dot dot-ring" aria-hidden />
             <div className="min-w-0">
-              <h1>{hero.title}</h1>
+              <h1><SwapText>{hero.title}</SwapText></h1>
               <p>
-                {hero.line}
-                {showReconnecting ? ' Reconnecting to the Pi…' : ''}
+                <SwapText>{`${hero.line}${showReconnecting ? ' Reconnecting to the Pi…' : ''}`}</SwapText>
               </p>
             </div>
           </div>
@@ -321,7 +293,7 @@ export function OverviewPage() {
             )}
           </div>
         </div>
-        <RouteTrace hops={hops} recovering={recoveringVPN} />
+        <TrafficFlow flow={flow} />
       </section>
 
       <div className="overview-cols">

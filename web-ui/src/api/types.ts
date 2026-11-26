@@ -50,6 +50,13 @@ export type HealthIssue = {
   action?: 'repair-vpn' | 'restart-hotspot' | string
 }
 
+export type Uplink = {
+  interface?: string
+  link_up?: boolean
+  internet?: boolean
+  checked?: boolean
+}
+
 export type AppState = {
   mode: string
   hotspot_running: boolean
@@ -62,6 +69,8 @@ export type AppState = {
   vpn_repair?: VPNRepair
   issues?: HealthIssue[]
   proxy_running?: boolean
+  uplink?: Uplink
+  clients?: number
   device_metrics?: DeviceMetrics
   files_root?: string
   generated_at?: string

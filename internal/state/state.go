@@ -48,6 +48,8 @@ type State struct {
 	VPNRepair      *VPNRepair    `json:"vpn_repair,omitempty"`
 	Issues         []HealthIssue `json:"issues"`
 	ProxyRunning   bool          `json:"proxy_running"`
+	Uplink         Uplink        `json:"uplink"`
+	Clients        *int          `json:"clients,omitempty"`
 	DeviceMetrics  DeviceMetrics `json:"device_metrics"`
 	FilesRoot      string        `json:"files_root,omitempty"`
 	GeneratedAt    string        `json:"generated_at"`
@@ -132,13 +134,14 @@ type NetworkMetrics struct {
 
 // Config holds editable hotspot settings persisted in config/env.
 type Config struct {
-	SSID        string `json:"ssid"`
-	Password    string `json:"password,omitempty"`
-	PasswordSet bool   `json:"password_set,omitempty"`
-	HotspotIP   string `json:"hotspot_ip"`
-	DHCPStart   string `json:"dhcp_start"`
-	DHCPEnd     string `json:"dhcp_end"`
-	WGInterface string `json:"-"`
+	SSID         string `json:"ssid"`
+	Password     string `json:"password,omitempty"`
+	PasswordSet  bool   `json:"password_set,omitempty"`
+	HotspotIP    string `json:"hotspot_ip"`
+	DHCPStart    string `json:"dhcp_start"`
+	DHCPEnd      string `json:"dhcp_end"`
+	WGInterface  string `json:"-"`
+	WANInterface string `json:"-"`
 }
 
 const shellStateCacheTTL = time.Second
@@ -166,6 +169,7 @@ type Reader struct {
 	vpnEgressOK       bool
 	vpnEgressServer   string
 	vpnEgressError    string
+	links             linkCache
 }
 
 type metricsSample struct {
@@ -202,8 +206,12 @@ func (r *Reader) Read() (State, error) {
 		WGUp:           vpn.InterfaceUp,
 		VPNHealth:      vpn,
 		ProxyRunning:   processRunning("redsocks.*redsocks-hotspot"),
+		Uplink:         r.readUplink(cfg.WANInterface),
 		DeviceMetrics:  metrics,
 		GeneratedAt:    time.Now().Format(time.RFC3339),
+	}
+	if st.HotspotRunning {
+		st.Clients = r.readClients()
 	}
 	st.Issues = healthIssues(st)
 	return st, nil
@@ -621,6 +629,13 @@ func healthIssues(st State) []HealthIssue {
 	if !st.HotspotRunning {
 		issues = append(issues, HealthIssue{Code: "hotspot-down", Severity: "critical", Title: "Hotspot is down", Detail: "hostapd or dnsmasq is not running.", Action: "restart-hotspot"})
 	}
+	if st.Uplink.Checked && !st.Uplink.Internet {
+		detail := fmt.Sprintf("%s cannot reach the internet, so nothing can leave the Pi. Check the cable or router.", st.Uplink.Interface)
+		if !st.Uplink.LinkUp {
+			detail = fmt.Sprintf("%s has no link. Check the cable or router.", st.Uplink.Interface)
+		}
+		issues = append(issues, HealthIssue{Code: "uplink-offline", Severity: "critical", Title: "The Pi has no internet", Detail: detail})
+	}
 	if st.Mode == ModeMullvad {
 		switch {
 		case !st.VPNHealth.CountryAllowed:
@@ -745,6 +760,8 @@ func parseEnv(f *os.File) (c Config) {
 			c.DHCPEnd = v
 		case "WG_IF":
 			c.WGInterface = v
+		case "WAN_IF":
+			c.WANInterface = v
 		}
 	}
 	return c

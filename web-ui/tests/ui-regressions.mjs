@@ -65,7 +65,22 @@ assert.ok(/<button[^>]*disabled/.test(pendingMarkup), 'Retry must disable while 
 assert.equal(retryLabel(failed.next_retry_at, Date.parse('2026-10-05T12:04:01Z')), 'Automatic retry in 59s, if the connection is still unhealthy.')
 assert.equal(retryLabel(failed.next_retry_at, Date.parse('2026-10-05T12:05:01Z')), 'Checking whether another retry is needed…')
 assert.ok(!retryLabel('invalid', Date.now()).includes('NaN'))
-console.log('UI regressions passed: live stats, accessible fields, VPN failure stages, recovery, retry states, countdowns.')
+const { computeFlow } = await load('features/overview/TrafficFlow.tsx')
+const base = {
+  generated_at: '2026-11-26T18:00:00Z', mode: 'mullvad', hotspot_running: true, ssid: 'FireWifi', clients: 2,
+  uplink: { interface: 'eth0', link_up: true, internet: true, checked: true },
+  vpn_health: { country_allowed: true, interface_up: true, handshake_healthy: true, egress_ok: true, relay: 'ro-buh-wg-012' },
+}
+const links = (state, recovering = false) => computeFlow(state, recovering).links.join(',')
+assert.equal(links(base), 'flow,flow,flow,flow,flow', 'Healthy route flows end to end')
+assert.equal(links({ ...base, vpn_health: { ...base.vpn_health, egress_ok: false } }), 'flow,flow,blocked,idle,idle', 'A failed tunnel holds traffic at the Mullvad gate while the Pi stays online')
+assert.equal(links({ ...base, vpn_health: { ...base.vpn_health, egress_ok: false } }, true), 'flow,flow,busy,idle,idle', 'A running repair shows progress, not a break')
+assert.equal(links({ ...base, uplink: { ...base.uplink, internet: false } }), 'idle,idle,idle,idle,idle', 'No uplink internet means nothing flows')
+assert.equal(links({ ...base, hotspot_running: false }), 'flow,flow,flow,blocked,idle', 'A stopped hotspot stops traffic at the Wi-Fi output')
+assert.equal(links({ ...base, clients: 0 }), 'flow,flow,flow,flow,idle', 'No connected devices: nothing to deliver')
+assert.equal(links({ ...base, mode: 'residential', proxy_running: false }), 'flow,flow,blocked,idle,idle', 'Residential mode gates on the proxy')
+assert.equal(links({ mode: 'mullvad', hotspot_running: false }), 'idle,idle,idle,idle,idle', 'Before the first state nothing claims to flow')
+console.log('UI regressions passed: live stats, accessible fields, VPN failure stages, recovery, retry states, countdowns, traffic flow scenarios.')
 } finally {
   await vite.close()
 }

@@ -182,7 +182,7 @@ export function MonitorHistory({ kind, group, slug, compact = false, bare = fals
               >
                 <span className={`series-swatch${s.dashed ? ' is-dashed' : ''}`} aria-hidden />
                 {s.label}
-                <b>{latest ? <AnimatedNumber value={num(active ?? latest, s.key)} format={s.format} duration={220} /> : '—'}</b>
+                <b>{latest ? <AnimatedNumber value={num(active ?? latest, s.key)} format={s.format} /> : '—'}</b>
               </button>
             )
           })}

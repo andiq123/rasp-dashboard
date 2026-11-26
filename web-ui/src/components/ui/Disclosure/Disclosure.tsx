@@ -1,5 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { ChevronRight, type LucideIcon } from 'lucide-react'
+import { SwapText } from '@/components/ui/SwapText/SwapText'
 
 type Props = {
   /** Stable key; the open state is remembered per browser. */
@@ -64,7 +65,9 @@ export function Disclosure({ id, title, icon: Icon, summary, defaultOpen = false
       <button type="button" className="disclosure-trigger" aria-expanded={open || opening} aria-controls={regionId} onClick={toggle}>
         {Icon ? <Icon aria-hidden /> : null}
         <span>{title}</span>
-        <span className="disclosure-summary" aria-hidden={open}>{summary}</span>
+        <span className="disclosure-summary" aria-hidden={open}>
+          {typeof summary === 'string' ? <SwapText>{summary}</SwapText> : summary}
+        </span>
         <ChevronRight className="disclosure-chevron" aria-hidden />
       </button>
       <div id={regionId} className="disclosure-region" role="region" aria-label={title}>
