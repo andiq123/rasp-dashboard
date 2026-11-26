@@ -82,6 +82,10 @@ assert.equal(links({ ...base, mode: 'residential', proxy_running: false }), 'flo
 assert.equal(links({ mode: 'mullvad', hotspot_running: false }), 'idle,idle,idle,idle,idle', 'Before the first state nothing claims to flow')
 const busyPi = computeFlow({ ...base, traffic: { uplink_bps: 900_000, tunnel_bps: 850_000, hotspot_bps: 0 } }, false).rates
 assert.deepEqual(busyPi, [900_000, 900_000, 850_000, 0, 0], 'Pi updates speed up Ethernet and the tunnel only; the Wi-Fi side follows Wi-Fi traffic')
+const activeIds = (traffic) => computeFlow({ ...base, traffic }, false).nodes.filter((n) => n.active).map((n) => n.id).join(',')
+assert.equal(activeIds({ uplink_bps: 900_000, tunnel_bps: 850_000, hotspot_bps: 0 }), 'pi', 'The Pi is highlighted when it is the one downloading')
+assert.equal(activeIds({ uplink_bps: 600_000, tunnel_bps: 550_000, hotspot_bps: 540_000 }), 'devices', 'Devices are highlighted when Wi-Fi traffic explains the tunnel traffic')
+assert.equal(activeIds({ uplink_bps: 500, tunnel_bps: 300, hotspot_bps: 0 }), '', 'Nothing is highlighted while idle')
 const { appsAt, findSpikes, summarizeApps } = await load('lib/appHistory.ts')
 const appA = { group: 'g', slug: 'a', name: 'api', type: 'go', points: [{ at: 100, cpu_percent: 80, memory_mb: 50 }, { at: 130, cpu_percent: 10, memory_mb: 40 }] }
 const appB = { group: 'g', slug: 'b', name: 'db', type: 'postgres', points: [{ at: 100, cpu_percent: 20, memory_mb: 200 }, { at: 130, cpu_percent: 40, memory_mb: 210 }] }

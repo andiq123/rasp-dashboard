@@ -714,6 +714,13 @@ button:not(:disabled), summary { cursor: pointer; }
 }
 .flow-icon svg { width: 15px; height: 15px; }
 .flow-node.tone-busy .flow-icon svg { animation: flow-breathe 1.6s ease-in-out infinite; }
+/* The node requesting data gets a calm breathing ring; it fades with the traffic. */
+.flow-icon { position: relative; }
+.flow-icon::after { content: ''; position: absolute; inset: -4px; border-radius: 14px; box-shadow: 0 0 0 2px color-mix(in oklab, var(--tone) 45%, transparent); opacity: 0; transition: opacity 500ms var(--ease-standard); pointer-events: none; }
+.flow-node.is-active .flow-icon::after { opacity: 1; animation: request-breathe 2.2s ease-in-out infinite; }
+.flow-node.is-active .flow-label { color: var(--tone); }
+.flow-label { transition: color 500ms var(--ease-standard); }
+@keyframes request-breathe { 0%, 100% { transform: scale(1); box-shadow: 0 0 0 2px color-mix(in oklab, var(--tone) 45%, transparent); } 50% { transform: scale(1.08); box-shadow: 0 0 0 4px color-mix(in oklab, var(--tone) 18%, transparent); } }
 .flow-node.tone-bad .flow-icon { animation: flow-alert 2.4s ease-in-out infinite; }
 .flow-text { display: grid; justify-items: center; gap: 1px; width: 100%; min-width: 0; line-height: 1.2; }
 .flow-label { font-size: var(--text-label); font-weight: 650; white-space: nowrap; }
@@ -724,10 +731,14 @@ button:not(:disabled), summary { cursor: pointer; }
 .flow-packet { position: absolute; top: 50%; left: 0; width: 5px; height: 5px; margin-top: -2.5px; border-radius: 50%; background: var(--tone); opacity: 0; }
 .flow-link.is-flow .flow-packet { animation: packet-flow var(--flow-dur, 1.9s) linear infinite; }
 /* Packets spread evenly along the link; busier links carry more, faster ones. */
-.flow-link.is-flow.level-1 .flow-packet:nth-child(2) { animation-delay: calc(var(--flow-dur) * -0.5); }
+.flow-link.is-flow:is(.level-0, .level-1) .flow-packet:nth-child(2) { animation-delay: calc(var(--flow-dur) * -0.5); }
 .flow-link.is-flow:is(.level-2, .level-3) .flow-packet:nth-child(2) { animation-delay: calc(var(--flow-dur) * -0.33); }
 .flow-link.is-flow:is(.level-2, .level-3) .flow-packet:nth-child(3) { animation-delay: calc(var(--flow-dur) * -0.66); }
 .flow-link.is-flow.level-0 { background: color-mix(in oklab, var(--tone) 20%, transparent); }
+/* Packets cross-fade with traffic: invisible when idle, fading in as data flows. */
+.flow-packets { position: absolute; inset: 0; opacity: 1; transition: opacity 600ms var(--ease-standard); }
+.flow-link.level-0 .flow-packets, .flow-link.is-idle .flow-packets { opacity: 0; }
+.flow-link.level-0.is-flow .flow-packet { animation-duration: 2.8s; }
 .flow-link.is-flow.level-3 { background: color-mix(in oklab, var(--tone) 42%, transparent); }
 .flow-link.is-flow.level-3 .flow-packet { box-shadow: 0 0 6px 1px color-mix(in oklab, var(--tone) 55%, transparent); }
 .flow-link.is-flow, .flow-link.is-blocked, .flow-link.is-busy { animation: link-wake var(--dur-slow) var(--ease-standard); }
