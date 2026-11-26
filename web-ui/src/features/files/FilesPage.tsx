@@ -108,11 +108,7 @@ export function FilesPage() {
   }, [selected])
 
   // Drop selection when the file leaves the visible list (e.g. hide toggled off).
-  useEffect(() => {
-    if (!selected) return
-    const stillVisible = entries.some((e) => e.path === selected)
-    if (!stillVisible) setSelected(null)
-  }, [entries, selected])
+  if (selected && listingQ.data && !entries.some((e) => e.path === selected)) setSelected(null)
 
   const withinHome = home === '/' || path === home || path.startsWith(`${home.replace(/\/+$/, '')}/`)
   const canUp = path !== home && withinHome

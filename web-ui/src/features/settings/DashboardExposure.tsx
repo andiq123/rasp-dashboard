@@ -1,5 +1,5 @@
 import { writeClipboardText } from '@/lib/clipboard'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, Cloud, CloudOff, Copy, ExternalLink, LockKeyhole, ShieldCheck, TriangleAlert } from 'lucide-react'
 import { exposeDashboard, fetchDashboardTunnel, unexposeDashboard } from '@/api/endpoints'
@@ -31,10 +31,14 @@ export function DashboardExposure() {
   })
   const status = statusQ.data
 
-  useEffect(() => {
+  // Prefill the form from the saved tunnel whenever it changes (adjust during render).
+  const statusKey = `${status?.hostname || ''}|${status?.access_guarded ? 1 : 0}`
+  const [seenStatus, setSeenStatus] = useState('')
+  if (statusKey !== seenStatus) {
+    setSeenStatus(statusKey)
     if (status?.hostname) setHostname(status.hostname)
     if (status?.access_guarded) setAccessGuarded(true)
-  }, [status?.hostname, status?.access_guarded])
+  }
 
   const expose = useMutation({
     mutationFn: () =>

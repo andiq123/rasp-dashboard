@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronRight, Folder, FolderOpen, Loader2 } from 'lucide-react'
 import { fetchDirs } from '@/api/endpoints'
@@ -36,10 +36,13 @@ function crumbs(path: string): Array<{ label: string; path: string }> {
 /** Navigable GitHub directory picker for service root_dir. */
 export function RepoRootPicker({ repo, branch, value, onChange, disabled }: Props) {
   const [browse, setBrowse] = useState(value || '')
-
-  useEffect(() => {
+  // Reset browsing when the repo, branch or saved value changes (adjust during render).
+  const resetKey = `${repo}|${branch}|${value}`
+  const [seenKey, setSeenKey] = useState(resetKey)
+  if (seenKey !== resetKey) {
+    setSeenKey(resetKey)
     setBrowse(value || '')
-  }, [repo, branch, value])
+  }
 
   const dirsQ = useQuery({
     queryKey: queryKeys.githubDirs(repo, branch, browse),

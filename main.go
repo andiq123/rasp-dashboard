@@ -26,6 +26,11 @@ func main() {
 	r := runner.New(baseDir)
 	pg := infra.NewPostgres(baseDir)
 	mn := infra.NewMinIO(baseDir)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		mn.CleanupStaleClients(ctx)
+	}()
 	dep := deploy.NewManager(baseDir, homeDir, pg, mn)
 	dep.RecoverInterruptedDeploys(nil)
 

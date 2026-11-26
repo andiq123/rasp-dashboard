@@ -54,7 +54,15 @@ export function LogConsole({ lines, live, title, className = '', empty, stickKey
     if (el) el.scrollTop = el.scrollHeight
   }
 
-  useEffect(() => setFollow(true), [stickKey])
+  // A new log stream starts following again (adjust during render; the ref syncs in layout).
+  const [seenStick, setSeenStick] = useState(stickKey)
+  if (seenStick !== stickKey) {
+    setSeenStick(stickKey)
+    setFollowing(true)
+  }
+  useLayoutEffect(() => {
+    follow.current = true
+  }, [stickKey])
 
   useLayoutEffect(() => {
     if (follow.current) toBottom()

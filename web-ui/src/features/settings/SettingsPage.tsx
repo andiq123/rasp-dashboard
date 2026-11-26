@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Copy, Database, FolderGit2, HardDrive, KeyRound, Settings2, TriangleAlert } from 'lucide-react'
 import {
@@ -45,12 +45,14 @@ export function SettingsPage() {
   })
   const engine = useQuery({ queryKey: queryKeys.engine, queryFn: fetchEngine })
 
-  useEffect(() => {
-    const s = engine.data?.settings
-    if (!s) return
-    setPgVersion(s.postgres_version || '')
-    setGoToolchain(s.go_toolchain || '')
-  }, [engine.data?.settings])
+  // Fill the form when saved engine settings arrive or change (adjust during render).
+  const savedEngine = engine.data?.settings
+  const [seenEngine, setSeenEngine] = useState<typeof savedEngine>(undefined)
+  if (savedEngine && savedEngine !== seenEngine) {
+    setSeenEngine(savedEngine)
+    setPgVersion(savedEngine.postgres_version || '')
+    setGoToolchain(savedEngine.go_toolchain || '')
+  }
 
   const connect = useMutation({
     mutationFn: () => saveGitHubToken(token.trim()),

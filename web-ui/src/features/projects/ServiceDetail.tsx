@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { createElement, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { LucideIcon } from 'lucide-react'
 import {
@@ -125,14 +125,14 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
   const deployingHere = activityMatchesService(activity, group, slug) && (activity.active || building)
 
   // Follow a build to its logs when it starts. The parent remounts this per service.
-  const wasDeploying = useRef(false)
-  useEffect(() => {
-    if (deployingHere && !wasDeploying.current) {
+  const [wasDeploying, setWasDeploying] = useState(false)
+  if (deployingHere !== wasDeploying) {
+    setWasDeploying(deployingHere)
+    if (deployingHere) {
       setTab('deploys')
       if (activity.deployment_id) setDeployId(activity.deployment_id)
     }
-    wasDeploying.current = deployingHere
-  }, [deployingHere, activity.deployment_id])
+  }
 
   const invalidate = async () => {
     await Promise.all([
@@ -257,7 +257,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
   }
 
   const st = statusLabel(svc)
-  const TypeIcon = serviceTypeIcon(svc.type)
+  const typeIcon = serviceTypeIcon(svc.type)
   const publicUrl = svc.public_url || svc.url || ''
   const tunnelExposed =
     !!svc.tunnel_active ||
@@ -289,7 +289,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
       <header className="flex flex-wrap items-start justify-between gap-3 px-3 sm:px-4 py-3 border-b border-base-300">
         <div className="min-w-0 flex gap-3">
           <div className={iconWell(tone)}>
-            <TypeIcon className="h-5 w-5" strokeWidth={1.75} aria-hidden />
+            {createElement(typeIcon, { className: 'h-5 w-5', strokeWidth: 1.75, 'aria-hidden': true })}
           </div>
           <div className="min-w-0 grid gap-0.5">
             <div className="flex flex-wrap items-center gap-2">
@@ -1096,7 +1096,11 @@ function ConfigTab({
   const [redis, setRedis] = useState(svc.linked_redis || '')
   const [autoDeploy, setAutoDeploy] = useState(!!svc.auto_deploy)
 
-  useEffect(() => {
+  // Refill only when the saved service changes; live stats replace `svc` every tick.
+  const savedKey = `${svc.slug}|${svc.updated_at || ''}`
+  const [seenSaved, setSeenSaved] = useState(savedKey)
+  if (seenSaved !== savedKey) {
+    setSeenSaved(savedKey)
     setName(svc.name || '')
     setBranch(svc.branch || '')
     setRoot(svc.root_dir || '')
@@ -1107,8 +1111,7 @@ function ConfigTab({
     setBucket(svc.linked_bucket || '')
     setRedis(svc.linked_redis || '')
     setAutoDeploy(!!svc.auto_deploy)
-    // Refill only when the saved service changes; live stats replace `svc` every tick.
-  }, [svc.slug, svc.updated_at]) // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   const mem = clampMem(memory)
   const cpu = clampCpu(cpus)
@@ -1336,9 +1339,13 @@ function VariablesTab({ group, slug, svc }: { group: string; slug: string; svc: 
   })
   const [draft, setDraft] = useState('')
 
-  useEffect(() => {
-    if (envQ.data?.env != null) setDraft(envQ.data.env)
-  }, [envQ.data?.env, group, slug])
+  // Load the saved variables into the editor when they arrive or change.
+  const savedEnv = envQ.data?.env
+  const [seenEnv, setSeenEnv] = useState<string | undefined>(undefined)
+  if (savedEnv != null && savedEnv !== seenEnv) {
+    setSeenEnv(savedEnv)
+    setDraft(savedEnv)
+  }
 
   const save = useMutation({
     mutationFn: () => updateServiceSettings(group, slug, { env: draft }),

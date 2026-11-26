@@ -1,3 +1,4 @@
+import { createElement } from 'react'
 import { Link } from 'react-router-dom'
 import { CircleStop, Loader2, Play, RotateCw } from 'lucide-react'
 import type { ActivitySnapshot, Service } from '@/api/types'
@@ -35,7 +36,7 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
   const busy = building || liveHere
   const waiting = queued && !busy
   const queuePos = (activity.queue || []).find((q) => q.group === group && q.slug === svc.slug)?.position
-  const TypeIcon = serviceTypeIcon(svc.type)
+  const typeIcon = serviceTypeIcon(svc.type)
   const name = svc.name || svc.slug
   const to = `/projects/${encodeURIComponent(group)}/${encodeURIComponent(svc.slug)}`
   const statusText =
@@ -69,7 +70,7 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
       <div className="relative z-[1] grid gap-2.5 p-3 pointer-events-none">
         <div className="flex gap-2.5 items-start min-w-0">
           <div className={iconWell(tone, 'sm')}>
-            <TypeIcon className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+            {createElement(typeIcon, { className: 'h-4 w-4', strokeWidth: 1.75, 'aria-hidden': true })}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex justify-between gap-2 items-start">

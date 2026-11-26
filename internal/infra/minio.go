@@ -368,6 +368,15 @@ func (m *MinIO) ensureRootCreds() error {
 	return writeDotEnv(m.EnvFile, env)
 }
 
+// mcLabel tags one-off mc client containers so stragglers can be found.
+const mcLabel = "firewifi.role=mc"
+
+// CleanupStaleClients removes mc containers left in "created" or "exited"
+// state when a run was interrupted before --rm could take effect.
+func (m *MinIO) CleanupStaleClients(ctx context.Context) {
+	_ = exec.CommandContext(ctx, "sudo", "-n", "docker", "container", "prune", "-f", "--filter", "label="+mcLabel).Run()
+}
+
 func (m *MinIO) compose(ctx context.Context, args ...string) *exec.Cmd {
 	all := append([]string{"-n", "docker", "compose", "-f", m.ComposeFile}, args...)
 	return exec.CommandContext(ctx, "sudo", all...)
@@ -380,7 +389,7 @@ func (m *MinIO) mc(ctx context.Context, user, pass string, args ...string) error
 
 func (m *MinIO) mcOut(ctx context.Context, user, pass string, args ...string) ([]byte, error) {
 	script := "mc alias set local " + minioEndpoint + " " + shellQuote(user) + " " + shellQuote(pass) + " >/dev/null && mc " + strings.Join(shellQuoteAll(args), " ")
-	cmd := exec.CommandContext(ctx, "sudo", "-n", "docker", "run", "--rm", "--network", "host",
+	cmd := exec.CommandContext(ctx, "sudo", "-n", "docker", "run", "--rm", "--label", mcLabel, "--network", "host",
 		"--entrypoint", "/bin/sh", "minio/mc", "-c", script)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -471,7 +480,7 @@ func (m *MinIO) mcPolicyCreate(ctx context.Context, user, pass, policyName, poli
 	script := "mc alias set local " + minioEndpoint + " " + shellQuote(user) + " " + shellQuote(pass) +
 		" >/dev/null && printf %s " + shellQuote(policyJSON) + " > /tmp/fwb-policy.json && " +
 		"mc admin policy create local " + shellQuote(policyName) + " /tmp/fwb-policy.json"
-	cmd := exec.CommandContext(ctx, "sudo", "-n", "docker", "run", "--rm", "--network", "host",
+	cmd := exec.CommandContext(ctx, "sudo", "-n", "docker", "run", "--rm", "--label", mcLabel, "--network", "host",
 		"--entrypoint", "/bin/sh", "minio/mc", "-c", script)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

@@ -680,7 +680,6 @@ button:not(:disabled), summary { cursor: pointer; }
 .swap-block .swap-text { display: block; }
 .status-title .dot { height: 12px; width: 12px; }
 .status-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.status-swap { animation: fade-in var(--dur-base) var(--ease-standard); }
 
 /* Traffic flow, in reading order: Internet → Ethernet → Pi → gate → Wi‑Fi → devices.
    Steps wrap onto new lines when space runs out; packets move along working links

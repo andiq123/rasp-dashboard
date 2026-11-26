@@ -71,19 +71,23 @@ func (m *Manager) tunnelConnectionStatusForProcess(group, slug string, active bo
 		return tunnelConnectionStatus{Active: true, State: "starting", TunnelID: tokenID}
 	}
 	text := string(b)
-	start := strings.LastIndex(text, "Starting tunnel tunnelID=")
-	if start >= 0 {
-		current := text[start:]
+	// A long-running tunnel's startup line scrolls out of the log tail; its
+	// connection events in the tail still tell whether it is up.
+	current := text
+	if start := strings.LastIndex(text, "Starting tunnel tunnelID="); start >= 0 {
+		current = text[start:]
 		if tokenID != "" && !strings.Contains(current, "Starting tunnel tunnelID="+tokenID) {
 			return tunnelConnectionStatus{Active: true, State: "misconfigured", TunnelID: tokenID}
 		}
-		if config := strings.LastIndex(current, "Updated to new configuration"); config >= 0 {
-			match := cloudflareConfigHostnamePattern.FindStringSubmatch(current[config:])
-			expected := strings.TrimPrefix(strings.TrimSuffix(m.readTunnelURL(group, slug), "/"), "https://")
-			if expected != "" && (len(match) < 2 || !strings.EqualFold(match[1], expected)) {
-				return tunnelConnectionStatus{Active: true, State: "misconfigured", TunnelID: tokenID}
-			}
+	}
+	if config := strings.LastIndex(current, "Updated to new configuration"); config >= 0 {
+		match := cloudflareConfigHostnamePattern.FindStringSubmatch(current[config:])
+		expected := strings.TrimPrefix(strings.TrimSuffix(m.readTunnelURL(group, slug), "/"), "https://")
+		if expected != "" && (len(match) < 2 || !strings.EqualFold(match[1], expected)) {
+			return tunnelConnectionStatus{Active: true, State: "misconfigured", TunnelID: tokenID}
 		}
+	}
+	{
 		connections := map[string]bool{}
 		registered := false
 		for _, line := range strings.Split(current, "\n") {
@@ -120,7 +124,45 @@ func (m *Manager) tunnelConnectionStatusForProcess(group, slug string, active bo
 	return tunnelConnectionStatus{Active: true, State: "disconnected", TunnelID: tokenID}
 }
 
+const (
+	tunnelLogMaxBytes  int64 = 16 << 20 // trim a tunnel log once it passes 16 MB
+	tunnelLogKeepBytes int64 = 1 << 20  // keeping its last 1 MB
+)
+
+// trimTunnelLogs caps cloudflared logs, which systemd appends to forever.
+// Truncating in place is safe: the writer uses O_APPEND.
+func (m *Manager) trimTunnelLogs() {
+	paths, _ := filepath.Glob(filepath.Join(m.DeployDir, "groups", "*", "*", "tunnel", "cloudflared.log"))
+	paths = append(paths, m.dashboardTunnelPath("cloudflared.log"))
+	for _, path := range paths {
+		trimLogFile(path, tunnelLogMaxBytes, tunnelLogKeepBytes)
+	}
+}
+
+func trimLogFile(path string, maxBytes, keepBytes int64) {
+	info, err := os.Stat(path)
+	if err != nil || info.Size() <= maxBytes {
+		return
+	}
+	tail, _, err := readFileTail(path, keepBytes)
+	if err != nil {
+		return
+	}
+	if i := strings.IndexByte(string(tail), '\n'); i >= 0 {
+		tail = tail[i+1:] // start on a whole line
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	if f.Truncate(0) == nil {
+		_, _ = f.WriteAt(tail, 0)
+	}
+}
+
 func (m *Manager) BootstrapTunnelVerification() {
+	m.trimTunnelLogs()
 	pending := m.refreshPendingTunnelVerification()
 	timer := time.NewTimer(tunnelVerificationInterval(pending))
 	defer timer.Stop()

@@ -97,7 +97,7 @@ func (m *Manager) knownPublicURL(svc Service) string {
 }
 
 func (m *Manager) publicURLFromLog(group, slug string) string {
-	b, err := os.ReadFile(filepath.Join(m.tunnelDir(group, slug), "cloudflared.log"))
+	b, _, err := readFileTail(filepath.Join(m.tunnelDir(group, slug), "cloudflared.log"), tunnelLogTailBytes)
 	if err != nil {
 		return ""
 	}

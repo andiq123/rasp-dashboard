@@ -38,15 +38,19 @@ export function VPNRepairFlow({ repair, healthy, onRetry, loading, disabled }: P
 
   useEffect(() => {
     const target = Date.parse(repair.next_retry_at || '')
-    setNow(Date.now())
-    if (!repair.active && (!waiting || !Number.isFinite(target) || target <= Date.now())) return
+    // Sync the clock on the next frame (not synchronously inside the effect).
+    const sync = requestAnimationFrame(() => setNow(Date.now()))
+    if (!repair.active && (!waiting || !Number.isFinite(target) || target <= Date.now())) return () => cancelAnimationFrame(sync)
     // One timer in this card; never rerender the entire live dashboard per second.
     const timer = window.setInterval(() => {
       const current = Date.now()
       setNow(current)
       if (!repair.active && current >= target) window.clearInterval(timer)
     }, 1000)
-    return () => window.clearInterval(timer)
+    return () => {
+      cancelAnimationFrame(sync)
+      window.clearInterval(timer)
+    }
   }, [repair.active, repair.started_at, repair.next_retry_at, waiting])
 
   const phase = failed ? repair.failed_phase : repair.phase

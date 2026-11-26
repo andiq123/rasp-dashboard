@@ -204,18 +204,23 @@ export function ProjectsPage() {
   const liveDeploying = activity.active && activityMatchesGroup(activity, groupSlug)
   const deployingN = Math.max(buildingN + queuedN, liveDeploying ? 1 : 0)
 
-  useEffect(() => {
-    if (group) setDraftName(group.name || group.slug)
-  }, [group])
+  // Show the saved name whenever the group (or its saved name) changes.
+  const savedName = group ? group.name || group.slug : ''
+  const [seenName, setSeenName] = useState<string | null>(null)
+  if (group && savedName !== seenName) {
+    setSeenName(savedName)
+    setDraftName(savedName)
+  }
 
+  // ?wizard=go opens the Go wizard once; the URL is cleaned in an effect (external sync).
+  const wantsGoWizard = search.get('wizard') === 'go' && !!groupSlug
+  if (wantsGoWizard && wizard !== 'go') setWizard('go')
   useEffect(() => {
-    if (search.get('wizard') === 'go' && groupSlug) {
-      setWizard('go')
-      const next = new URLSearchParams(search)
-      next.delete('wizard')
-      setSearch(next, { replace: true })
-    }
-  }, [search, groupSlug, setSearch])
+    if (!wantsGoWizard) return
+    const next = new URLSearchParams(search)
+    next.delete('wizard')
+    setSearch(next, { replace: true })
+  }, [wantsGoWizard, search, setSearch])
 
   const reposQ = useQuery({
     queryKey: queryKeys.githubRepos,
@@ -233,11 +238,11 @@ export function ProjectsPage() {
     enabled: wizard === 'go' || wizard === 'redis',
   })
 
-  useEffect(() => {
-    if (!goForm.repo || !branchesQ.data?.length) return
+  // Pick the repo's default branch once branches load (adjust during render).
+  if (goForm.repo && !goForm.branch && branchesQ.data?.length) {
     const def = branchesQ.data.find((b) => b.default) || branchesQ.data[0]
-    if (def && !goForm.branch) setGoForm((f) => ({ ...f, branch: def.name }))
-  }, [goForm.repo, goForm.branch, branchesQ.data])
+    if (def) setGoForm((f) => ({ ...f, branch: def.name }))
+  }
 
   const createGroupMut = useMutation({
     mutationFn: () => createGroup(groupName.trim()),

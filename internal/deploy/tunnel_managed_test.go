@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -178,4 +179,42 @@ func infoMode(t *testing.T, path string) os.FileMode {
 		t.Fatal(err)
 	}
 	return info.Mode().Perm()
+}
+
+func TestTunnelConnectionStatusWithoutStartupLineInTail(t *testing.T) {
+	m := &Manager{DeployDir: t.TempDir()}
+	id := "2eb79c61-fe97-4e68-a8e0-39e9b0eb678c"
+	if err := m.writeManagedTunnelToken("find-vibe", "app", testManagedTunnelToken(t, id)); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(m.tunnelDir("find-vibe", "app"), "cloudflared.log")
+	// A month-old tunnel: the startup line has scrolled out, connections are registered, the log is quiet.
+	log := "Registered tunnel connection connIndex=0\nRegistered tunnel connection connIndex=2\nWRN Your version is outdated\n"
+	if err := os.WriteFile(logPath, []byte(log), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(logPath, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.tunnelConnectionStatusForProcess("find-vibe", "app", true); !got.Connected || got.State != "connected" {
+		t.Fatalf("status = %+v, want connected", got)
+	}
+}
+
+func TestTrimLogFileKeepsTail(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cloudflared.log")
+	var b strings.Builder
+	for i := 0; i < 400; i++ {
+		b.WriteString("line\n")
+	}
+	b.WriteString("last line\n")
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	trimLogFile(path, 100, 30)
+	got, _ := os.ReadFile(path)
+	if len(got) > 30 || !strings.HasSuffix(string(got), "last line\n") || strings.HasPrefix(string(got), "ine") {
+		t.Fatalf("trimmed = %q", got)
+	}
 }
