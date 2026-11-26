@@ -41,6 +41,7 @@ import { useLiveState } from '@/hooks/useLiveState'
 import { useSettled } from '@/hooks/useSettled'
 import { actionDoneLabel } from '@/lib/actions'
 import { fmtBytes, fmtPct, fmtRate } from '@/lib/format'
+import { MULLVAD_ACCOUNT_URL } from '@/lib/mullvad'
 import { appUsage, fmtMB, hostCapacity, reservedFromServices } from '@/lib/resources'
 import { ResourceUsage } from './ResourceUsage'
 import { computeFlow, TrafficFlow, type LinkState } from './TrafficFlow'
@@ -397,6 +398,8 @@ export function OverviewPage() {
                     >
                       Restart
                     </Button>
+                  ) : issue.action === 'mullvad-renew' ? (
+                    <a className="btn btn-sm btn-primary" href={MULLVAD_ACCOUNT_URL} target="_blank" rel="noreferrer">Add time</a>
                   ) : issue.action === 'repair-vpn' && !vpnRepair ? (
                     <Button
                       variant="dangerSoft"

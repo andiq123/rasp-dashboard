@@ -3,6 +3,7 @@ import type {
   ActivitySnapshot,
   ActivityLine,
   AppState,
+  MullvadAccount,
   Config,
   Deployment,
   DockerAction,
@@ -48,6 +49,10 @@ export const fetchGitHubStatus = () => api<GitHubStatus>('/api/github/status')
 export const saveGitHubToken = (token: string) =>
   api('/api/github/token', { method: 'POST', body: { token } })
 export const clearGitHubToken = () => api('/api/github/token', { method: 'DELETE' })
+export const fetchMullvadAccount = () => api<MullvadAccount>('/api/mullvad/account')
+export const saveMullvadAccount = (accountNumber: string) =>
+  api<MullvadAccount>('/api/mullvad/account', { method: 'POST', body: { account_number: accountNumber } })
+export const clearMullvadAccount = () => api<MullvadAccount>('/api/mullvad/account', { method: 'DELETE' })
 export const fetchRepos = () =>
   api<{ repos: GitHubRepo[] }>('/api/github/repos').then((r) => r.repos || [])
 export const fetchBranches = (repo: string) =>

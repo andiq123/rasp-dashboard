@@ -67,6 +67,15 @@ export type ConnectedDevice = {
   tx_bytes?: number
 }
 
+export type MullvadAccount = {
+  configured: boolean
+  masked?: string
+  expires_at?: string
+  days_left?: number
+  checked_at?: string
+  error?: string
+}
+
 export type AppState = {
   mode: string
   hotspot_running: boolean
@@ -82,6 +91,7 @@ export type AppState = {
   uplink?: Uplink
   clients?: number
   devices?: ConnectedDevice[]
+  mullvad_account?: MullvadAccount
   device_metrics?: DeviceMetrics
   files_root?: string
   generated_at?: string

@@ -37,23 +37,24 @@ func ValidMode(m string) bool {
 
 // State is the full runtime snapshot of the system.
 type State struct {
-	Mode           string        `json:"mode"`
-	HotspotRunning bool          `json:"hotspot_running"`
-	SSID           string        `json:"ssid"`
-	HotspotIP      string        `json:"hotspot_ip"`
-	DHCPStart      string        `json:"dhcp_start"`
-	DHCPEnd        string        `json:"dhcp_end"`
-	WGUp           bool          `json:"wg_up"`
-	VPNHealth      VPNHealth     `json:"vpn_health"`
-	VPNRepair      *VPNRepair    `json:"vpn_repair,omitempty"`
-	Issues         []HealthIssue `json:"issues"`
-	ProxyRunning   bool          `json:"proxy_running"`
-	Uplink         Uplink        `json:"uplink"`
-	Clients        *int          `json:"clients,omitempty"`
-	Devices        []Device      `json:"devices,omitempty"`
-	DeviceMetrics  DeviceMetrics `json:"device_metrics"`
-	FilesRoot      string        `json:"files_root,omitempty"`
-	GeneratedAt    string        `json:"generated_at"`
+	Mode           string          `json:"mode"`
+	HotspotRunning bool            `json:"hotspot_running"`
+	SSID           string          `json:"ssid"`
+	HotspotIP      string          `json:"hotspot_ip"`
+	DHCPStart      string          `json:"dhcp_start"`
+	DHCPEnd        string          `json:"dhcp_end"`
+	WGUp           bool            `json:"wg_up"`
+	VPNHealth      VPNHealth       `json:"vpn_health"`
+	VPNRepair      *VPNRepair      `json:"vpn_repair,omitempty"`
+	Issues         []HealthIssue   `json:"issues"`
+	ProxyRunning   bool            `json:"proxy_running"`
+	Uplink         Uplink          `json:"uplink"`
+	Clients        *int            `json:"clients,omitempty"`
+	Devices        []Device        `json:"devices,omitempty"`
+	MullvadAccount *MullvadAccount `json:"mullvad_account,omitempty"`
+	DeviceMetrics  DeviceMetrics   `json:"device_metrics"`
+	FilesRoot      string          `json:"files_root,omitempty"`
+	GeneratedAt    string          `json:"generated_at"`
 }
 
 type VPNRepair struct {
@@ -171,6 +172,7 @@ type Reader struct {
 	vpnEgressServer   string
 	vpnEgressError    string
 	links             linkCache
+	account           accountCache
 }
 
 type metricsSample struct {
@@ -219,6 +221,9 @@ func (r *Reader) Read() (State, error) {
 			zero := 0
 			st.Clients = &zero
 		}
+	}
+	if acct := r.ReadMullvadAccount(); acct.Configured {
+		st.MullvadAccount = &acct
 	}
 	st.Issues = healthIssues(st)
 	return st, nil
@@ -642,6 +647,20 @@ func healthIssues(st State) []HealthIssue {
 			detail = fmt.Sprintf("%s has no link. Check the cable or router.", st.Uplink.Interface)
 		}
 		issues = append(issues, HealthIssue{Code: "uplink-offline", Severity: "critical", Title: "The Pi has no internet", Detail: detail})
+	}
+	if a := st.MullvadAccount; a != nil && a.DaysLeft != nil && *a.DaysLeft <= 7 {
+		days := *a.DaysLeft
+		sev, title := "warning", fmt.Sprintf("Mullvad time runs out in %d days", days)
+		switch {
+		case days < 0:
+			sev, title = "critical", "Mullvad subscription has expired"
+		case days <= 1:
+			sev, title = "critical", "Mullvad time runs out tomorrow"
+			if days == 0 {
+				title = "Mullvad time runs out today"
+			}
+		}
+		issues = append(issues, HealthIssue{Code: "mullvad-expiring", Severity: sev, Title: title, Detail: "Add time on mullvad.net. When it runs out, the Romanian tunnel stops and the hotspot has no internet.", Action: "mullvad-renew"})
 	}
 	if st.Mode == ModeMullvad {
 		switch {
