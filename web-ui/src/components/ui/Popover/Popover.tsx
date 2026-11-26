@@ -11,6 +11,10 @@ type Props = {
 const OPEN_DELAY = 110
 const CLOSE_DELAY = 140
 const EXIT_MS = 150
+const POP_WIDTH = 300
+const POP_HEIGHT = 280
+
+type Placement = { x: 'start' | 'center' | 'end'; y: 'below' | 'above' }
 
 /**
  * Info popup for any element. Opens on mouse hover (with intent delay), click,
@@ -19,12 +23,21 @@ const EXIT_MS = 150
 export function Popover({ label, content, children, align = 'center' }: Props) {
   const [open, setOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [place, setPlace] = useState<Placement>({ x: align, y: 'below' })
   const anchor = useRef<HTMLDivElement>(null)
   const timer = useRef<number | undefined>(undefined)
   const id = useId()
 
   const show = () => {
     window.clearTimeout(timer.current)
+    // Pick the side with room, so the popup never runs off screen.
+    const r = anchor.current?.getBoundingClientRect()
+    if (r) {
+      const mid = r.left + r.width / 2
+      const x = mid - POP_WIDTH / 2 < 8 ? 'start' : mid + POP_WIDTH / 2 > window.innerWidth - 8 ? 'end' : align
+      const y = window.innerHeight - r.bottom < POP_HEIGHT && r.top > window.innerHeight - r.bottom ? 'above' : 'below'
+      setPlace({ x, y })
+    }
     setMounted(true)
     setOpen(true)
   }
@@ -77,7 +90,7 @@ export function Popover({ label, content, children, align = 'center' }: Props) {
         {children}
       </button>
       {mounted ? (
-        <div id={id} role="dialog" aria-label={label} className={`pop pop-${align}${open ? ' is-open' : ''}`}>
+        <div id={id} role="dialog" aria-label={label} className={`pop pop-${place.x} pop-${place.y}${open ? ' is-open' : ''}`}>
           {content}
         </div>
       ) : null}

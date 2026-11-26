@@ -419,6 +419,8 @@ button:not(:disabled), summary { cursor: pointer; }
 
 /* ── Popover ───────────────────────────────────────────────────────── */
 .pop-anchor { position: relative; display: inline-flex; }
+/* Lift the open popup's step above its neighbours (animations create stacking contexts). */
+.pop-anchor:has(.pop), .anim-item:has(.pop), .flow-step:has(.pop) { position: relative; z-index: 30; }
 .pop-trigger { display: inline-flex; padding: 4px; margin: -4px; border: 0; background: none; color: inherit; font: inherit; text-align: inherit; border-radius: 12px; transition: background-color var(--dur-quick) var(--ease-standard); }
 .pop-trigger:hover, .pop-trigger[aria-expanded='true'] { background: color-mix(in oklab, var(--color-base-content) 5%, transparent); }
 .pop {
@@ -431,6 +433,7 @@ button:not(:disabled), summary { cursor: pointer; }
 .pop-center { left: 50%; translate: -50% 0; }
 .pop-start { left: 0; transform-origin: top left; }
 .pop-end { right: 0; transform-origin: top right; }
+.pop-above { top: auto; bottom: calc(100% + 10px); transform-origin: bottom center; }
 @keyframes pop-in { from { opacity: 0; transform: translateY(-4px) scale(0.97); } }
 @keyframes pop-out { to { opacity: 0; transform: translateY(-4px) scale(0.97); } }
 .pop-body { display: grid; gap: 8px; }
@@ -564,12 +567,12 @@ button:not(:disabled), summary { cursor: pointer; }
 .swap-text { display: inline-block; }
 .swap-text.is-new { animation: text-swap var(--dur-base) var(--ease-out-soft) both; }
 @keyframes text-swap { from { opacity: 0; transform: translateY(4px); filter: blur(2px); } }
-.roll { display: inline-flex; font-variant-numeric: tabular-nums; }
+.roll { display: inline-flex; overflow: hidden; vertical-align: top; font-variant-numeric: tabular-nums; }
 .roll-ch { display: inline-block; }
-.roll-ch.is-new[data-dir='up'] { animation: roll-up 380ms var(--ease-out-soft) both; }
-.roll-ch.is-new[data-dir='down'] { animation: roll-down 380ms var(--ease-out-soft) both; }
-@keyframes roll-up { from { opacity: 0; transform: translateY(55%); } }
-@keyframes roll-down { from { opacity: 0; transform: translateY(-55%); } }
+.roll-ch.is-new[data-dir='up'] { animation: roll-up 320ms var(--ease-out-soft) both; }
+.roll-ch.is-new[data-dir='down'] { animation: roll-down 320ms var(--ease-out-soft) both; }
+@keyframes roll-up { from { opacity: 0; transform: translateY(70%); } }
+@keyframes roll-down { from { opacity: 0; transform: translateY(-70%); } }
 
 /* ── Motion: only where something changed ──────────────────────────── */
 @keyframes rise-in {
