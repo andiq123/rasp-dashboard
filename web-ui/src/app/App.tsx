@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { fetchState } from '@/api/endpoints'
@@ -6,13 +6,29 @@ import { queryKeys } from '@/api/queryKeys'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { OverviewPage } from '@/features/overview/OverviewPage'
 import { useRealtime } from '@/hooks/realtime'
-import { ScrollMain } from '@/shell/PageTransition'
+import { ScrollMain, useAppSection } from '@/shell/PageTransition'
 import { AppBar } from '@/shell/Shell'
 import { useIntro } from '@/shell/useIntro'
 
-const ProjectsPage = lazy(() => import('@/features/projects/ProjectsPage').then((m) => ({ default: m.ProjectsPage })))
-const SettingsPage = lazy(() => import('@/features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })))
-const FilesPage = lazy(() => import('@/features/files/FilesPage').then((m) => ({ default: m.FilesPage })))
+const loadProjects = () => import('@/features/projects/ProjectsPage')
+const loadSettings = () => import('@/features/settings/SettingsPage')
+const loadFiles = () => import('@/features/files/FilesPage')
+const ProjectsPage = lazy(() => loadProjects().then((m) => ({ default: m.ProjectsPage })))
+const SettingsPage = lazy(() => loadSettings().then((m) => ({ default: m.SettingsPage })))
+const FilesPage = lazy(() => loadFiles().then((m) => ({ default: m.FilesPage })))
+
+/** Fetch the other pages once the first one is idle, so switching never waits on a download. */
+function usePreloadPages() {
+  useEffect(() => {
+    const run = () => void Promise.all([loadProjects(), loadFiles(), loadSettings()]).catch(() => {})
+    if ('requestIdleCallback' in window) {
+      const id = window.requestIdleCallback(run, { timeout: 3000 })
+      return () => window.cancelIdleCallback(id)
+    }
+    const t = setTimeout(run, 1500)
+    return () => clearTimeout(t)
+  }, [])
+}
 
 /** Only re-renders when reachability flips, not on every live state tick. */
 function OfflineNotice() {
@@ -33,6 +49,8 @@ function OfflineNotice() {
 
 export function App() {
   useIntro()
+  usePreloadPages()
+  const section = useAppSection()
   return (
     <div className="app-shell flex min-h-svh flex-col">
       <a href="#app-main" className="skip-link">Skip to content</a>
@@ -41,6 +59,8 @@ export function App() {
         <ScrollMain />
         <OfflineNotice />
         <Suspense fallback={<Spinner label="Loading page…" />}>
+          {/* Keyed by section: each page rises in once its content is ready, even after a lazy load. */}
+          <div key={section} className="page-enter">
           <Routes>
             <Route path="/" element={<Navigate to="/overview" replace />} />
             <Route path="/overview" element={<OverviewPage />} />
@@ -50,6 +70,7 @@ export function App() {
             <Route path="/activity/*" element={<Navigate to="/files" replace />} />
             <Route path="*" element={<Navigate to="/overview" replace />} />
           </Routes>
+          </div>
         </Suspense>
       </main>
     </div>

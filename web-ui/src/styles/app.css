@@ -714,7 +714,10 @@ button:not(:disabled), summary { cursor: pointer; }
 .flow-step { display: flex; flex: 1 1 0; align-items: flex-start; min-width: 0; }
 .flow-step:first-child { flex: 0 0 auto; }
 /* Icon on top, label and state centered underneath. */
-.flow-node { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 74px; min-width: 0; text-align: center; }
+.flow-node { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: none; min-width: 64px; text-align: center; }
+/* While one step's popup is open, the rest of the diagram steps back so nothing competes with it. */
+.flow-wrap :is(.pop-trigger, .flow-link, .spur-tags, .flow-legend) { transition: opacity var(--dur-base) var(--ease-standard), background-color var(--dur-quick) var(--ease-standard); }
+.flow-wrap:has(.pop-trigger[aria-expanded='true']) :is(.pop-trigger:not([aria-expanded='true']), .flow-link, .spur-tags, .flow-legend) { opacity: 0.3; }
 .flow-icon {
   display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px; border-radius: 11px;
   color: var(--tone); background: color-mix(in oklab, var(--tone) 13%, var(--surface-panel));
@@ -736,7 +739,7 @@ button:not(:disabled), summary { cursor: pointer; }
 .flow-detail { max-width: 100%; font-size: var(--text-micro); color: var(--ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .flow-node.tone-bad .flow-detail { color: var(--color-error); }
 
-.flow-link { position: relative; flex: 1 1 auto; min-width: 10px; height: 2px; margin: 16px 2px 0; border-radius: 2px; background: color-mix(in oklab, var(--tone) 28%, transparent); transition: background-color var(--dur-slow) var(--ease-standard); }
+.flow-link { position: relative; flex: 1 1 auto; min-width: 16px; height: 2px; margin: 16px 10px 0; border-radius: 2px; background: color-mix(in oklab, var(--tone) 28%, transparent); transition: background-color var(--dur-slow) var(--ease-standard); }
 .flow-packet { position: absolute; top: 50%; left: 0; width: 5px; height: 5px; margin-top: -2.5px; border-radius: 50%; background: var(--tone); opacity: 0; }
 .flow-link.is-flow .flow-packet { animation: packet-flow var(--flow-dur, 3.4s) linear infinite; }
 .flow-link.is-flow.level-0 { background: color-mix(in oklab, var(--tone) 20%, transparent); }
@@ -905,8 +908,11 @@ button:not(:disabled), summary { cursor: pointer; }
 ::view-transition-new(root) { animation: none; }
 ::view-transition-group(page) { animation: none; }
 ::view-transition-old(page) { animation: page-out 120ms var(--ease-standard) both; }
-::view-transition-new(page) { animation: page-in 320ms var(--ease-out-soft) both; }
-@keyframes page-out { to { opacity: 0; transform: translateY(-3px); } }
+::view-transition-new(page) { animation: none; }
+@keyframes page-out { to { opacity: 0; } }
+/* The new page animates itself on mount, so lazy pages rise in when ready. */
+.page-enter { animation: page-in 340ms var(--ease-out-soft) backwards; }
+.is-intro .page-enter { animation: none; }
 @keyframes page-in { from { opacity: 0; transform: translateY(8px); } }
 ::view-transition-group(nav-pill) {
   animation-duration: 340ms;
