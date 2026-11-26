@@ -443,21 +443,21 @@ button:not(:disabled), summary { cursor: pointer; }
 .count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border-radius: 999px; font-size: 10.5px; font-weight: 650; background: color-mix(in oklab, currentColor 14%, transparent); }
 @media (max-width: 640px) { .toolbar-actions, .search-field { width: 100%; } .search-field { flex: 1; } }
 
-/* Files: the list fills the width; the preview slides in beside it when a file opens. */
-.files-layout {
-  display: grid; grid-template-columns: minmax(0, 1fr) 0fr; column-gap: 0; min-height: 60vh; align-items: stretch;
-  transition: grid-template-columns 420ms var(--ease-out-soft), column-gap 420ms var(--ease-out-soft);
-}
-.files-layout[data-preview='true'] { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr); column-gap: 14px; }
+/* Files: the list keeps one width; the preview space beside it stays reserved,
+   and the preview fades and slides into it when a file opens. */
+.files-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr); gap: 14px; min-height: 60vh; align-items: start; }
 .files-layout > .card:first-child { min-height: 360px; display: flex; flex-direction: column; overflow: hidden; }
-.files-preview { min-width: 0; overflow: hidden; opacity: 0; transform: translateX(16px); transition: opacity 280ms var(--ease-standard), transform 420ms var(--ease-out-soft); }
-.files-layout[data-preview='true'] .files-preview { opacity: 1; transform: none; }
-.files-preview-inner { display: grid; grid-template-rows: auto 1fr; gap: 10px; height: 100%; min-width: 280px; padding: 14px; }
+.files-preview {
+  position: sticky; top: calc(var(--bar-h) + 14px); min-width: 0; max-height: calc(100svh - var(--bar-h) - 40px); overflow: hidden;
+  opacity: 0; visibility: hidden; transform: translateX(14px) scale(0.99);
+  transition: opacity 260ms var(--ease-standard), transform 380ms var(--ease-out-soft), visibility 0s linear 380ms;
+}
+.files-layout[data-preview='true'] .files-preview { opacity: 1; visibility: visible; transform: none; transition: opacity 260ms var(--ease-standard), transform 380ms var(--ease-out-soft), visibility 0s; }
+.files-preview-inner { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 10px; height: 100%; max-height: inherit; padding: 14px; }
 @media (max-width: 1023px) {
-  .files-layout, .files-layout[data-preview='true'] { grid-template-columns: minmax(0, 1fr); row-gap: 14px; }
-  .files-preview { display: none; }
+  .files-layout { grid-template-columns: minmax(0, 1fr); }
+  .files-preview { position: static; max-height: none; display: none; }
   .files-layout[data-preview='true'] .files-preview { display: block; animation: rise-in var(--dur-slow) var(--ease-out-soft) both; }
-  .files-preview-inner { min-width: 0; }
 }
 
 /* Breadcrumb with a back button beside it. */
@@ -555,6 +555,20 @@ button:not(:disabled), summary { cursor: pointer; }
 .anim-swap > .anim-item.is-leaving { animation: swap-out 240ms var(--ease-standard) both; }
 @keyframes swap-in { from { opacity: 0; transform: translateY(-10px) scale(0.9); } }
 @keyframes swap-out { to { opacity: 0; transform: translateY(10px) scale(0.9); } }
+
+/* Mullvad time chip: ring of time left, tone cross-fades with urgency. */
+.time-chip {
+  position: relative; display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px 0 6px;
+  border-radius: 999px; font-size: var(--text-label); font-weight: 550; color: var(--color-base-content);
+  background: color-mix(in oklab, var(--tone) 10%, var(--surface-panel)); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone) 22%, transparent);
+  transition: --tone var(--dur-slow) var(--ease-standard), background-color var(--dur-slow), box-shadow var(--dur-slow);
+}
+.time-chip b { font-weight: 700; color: var(--tone); }
+.time-ring { width: 22px; height: 22px; transform: rotate(-90deg); flex-shrink: 0; }
+.time-ring-track { fill: none; stroke: color-mix(in oklab, var(--tone) 18%, transparent); stroke-width: 2.5; }
+.time-ring-fill { fill: none; stroke: var(--tone); stroke-width: 2.5; stroke-linecap: round; transition: stroke-dashoffset 900ms var(--ease-out-soft), stroke var(--dur-slow); }
+.time-icon { position: absolute; left: 10px; width: 12px; height: 12px; color: var(--tone); }
+.time-chip.tone-bad { animation: flow-alert 2.4s ease-in-out infinite; }
 
 /* ── Resource usage: one bar, every color named below it ─────────── */
 .ru { display: grid; gap: var(--space-4); padding-top: 2px; }

@@ -43,6 +43,7 @@ import { actionDoneLabel } from '@/lib/actions'
 import { fmtBytes, fmtPct, fmtRate } from '@/lib/format'
 import { MULLVAD_ACCOUNT_URL } from '@/lib/mullvad'
 import { appUsage, fmtMB, hostCapacity, reservedFromServices } from '@/lib/resources'
+import { MullvadTime } from './MullvadTime'
 import { ResourceUsage } from './ResourceUsage'
 import { computeFlow, TrafficFlow, type LinkState } from './TrafficFlow'
 import { VPNRepairFlow } from './VPNRepairFlow'
@@ -318,6 +319,7 @@ export function OverviewPage() {
               </div>
             </div>
             <div className="status-actions">
+              <MullvadTime account={state.mullvad_account} />
               {showRepairButton ? (
                 <Button
                   variant="quiet"
