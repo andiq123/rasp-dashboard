@@ -14,7 +14,6 @@ import {
   Play,
   RotateCw,
   Settings2,
-  Shield,
   Thermometer,
   TriangleAlert,
   Wrench,
@@ -22,6 +21,7 @@ import {
 import { fetchConfig, fetchGroups, fetchServices, hotspotAction, saveConfig, setMode } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import type { Service } from '@/api/types'
+import { AnimatedList } from '@/components/ui/AnimatedList/AnimatedList'
 import { AnimatedNumber } from '@/components/ui/AnimatedNumber/AnimatedNumber'
 import { Button } from '@/components/ui/Button/Button'
 import { useConfirm } from '@/components/ui/Confirm/Confirm'
@@ -31,7 +31,6 @@ import { Field, Input } from '@/components/ui/Field/Field'
 import { KeyValues, type KeyValue } from '@/components/ui/KeyValues/KeyValues'
 import { Notice } from '@/components/ui/Notice/Notice'
 import { Panel } from '@/components/ui/Panel/Panel'
-import { ResourceBudget } from '@/components/ui/ResourceBudget/ResourceBudget'
 import { Segmented } from '@/components/ui/Segmented/Segmented'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { SwapText } from '@/components/ui/SwapText/SwapText'
@@ -42,12 +41,13 @@ import { useLiveState } from '@/hooks/useLiveState'
 import { useSettled } from '@/hooks/useSettled'
 import { actionDoneLabel } from '@/lib/actions'
 import { fmtBytes, fmtPct, fmtRate } from '@/lib/format'
-import { hostCapacity, reservedFromServices } from '@/lib/resources'
+import { appUsage, fmtMB, hostCapacity, reservedFromServices } from '@/lib/resources'
+import { ResourceUsage } from './ResourceUsage'
 import { computeFlow, TrafficFlow, type LinkState } from './TrafficFlow'
 import { VPNRepairFlow } from './VPNRepairFlow'
 
 type Mode = 'mullvad' | 'residential'
-type HeroKind = 'checking' | 'recovering' | 'stopped' | 'online' | 'offline'
+type HeroKind = 'checking' | 'recovering' | 'no-internet' | 'stopped' | 'online' | 'offline'
 
 /** Brief blips (one failed probe, a stream reconnect) settle for this long before showing. */
 const SETTLE_MS = 4000
@@ -75,6 +75,7 @@ export function OverviewPage() {
   const allServices: Service[] = svcQueries.flatMap((q) => q.data || [])
   const host = hostCapacity(state.device_metrics)
   const reserved = reservedFromServices(allServices)
+  const used = appUsage(allServices)
 
   const mode: Mode = state.mode === 'residential' ? 'residential' : 'mullvad'
   const d = state.device_metrics || {}
@@ -99,7 +100,7 @@ export function OverviewPage() {
     : !!state.wg_up
   const healthy = !!(state.hotspot_running && (mode === 'mullvad' ? vpnHealthy : state.proxy_running))
   const heroKind = useSettled<HeroKind>(
-    !state.generated_at ? 'checking' : recoveringVPN ? 'recovering' : !state.hotspot_running ? 'stopped' : healthy ? 'online' : 'offline',
+    !state.generated_at ? 'checking' : recoveringVPN ? 'recovering' : state.uplink?.checked && !state.uplink.internet ? 'no-internet' : !state.hotspot_running ? 'stopped' : healthy ? 'online' : 'offline',
     SETTLE_MS,
     (kind) => kind !== 'offline',
   )
@@ -108,7 +109,6 @@ export function OverviewPage() {
   const rawFlow = computeFlow(state, recoveringVPN)
   const linkKey = useSettled(rawFlow.links.join(','), SETTLE_MS, (key) => !key.includes('blocked'))
   const flow = { ...rawFlow, links: linkKey.split(',') as LinkState[] }
-  const uplinkDown = !!(state.uplink?.checked && !state.uplink.internet)
   const deviceCount = state.clients ?? 0
   const devicesText = deviceCount === 1 ? '1 device' : `${deviceCount} devices`
 
@@ -200,6 +200,8 @@ export function OverviewPage() {
     ? { tone: 'idle', title: 'Checking', line: 'Reading the hotspot status from the Pi.' }
     : heroKind === 'recovering'
     ? { tone: 'busy', title: 'Recovering', line: 'Repairing the Mullvad tunnel. Internet stays blocked until Romania is verified.' }
+    : heroKind === 'no-internet'
+      ? { tone: 'bad', title: 'No internet', line: 'The Pi has no internet over Ethernet, so nothing can reach the Wi‑Fi. Check the cable or router.' }
     : heroKind === 'stopped'
       ? { tone: 'warn', title: 'Hotspot stopped', line: `The Pi is online. Start the hotspot to share it on ${state.ssid || 'Wi‑Fi'}.` }
       : heroKind === 'online'
@@ -210,9 +212,7 @@ export function OverviewPage() {
               ? `Internet comes in over Ethernet and leaves through Mullvad in Romania${deviceCount ? ` to ${devicesText}` : ''}.`
               : `Internet comes in over Ethernet and leaves through the residential proxy${deviceCount ? ` to ${devicesText}` : ''}.`,
           }
-        : uplinkDown
-          ? { tone: 'bad', title: 'No internet', line: 'The Pi has no internet over Ethernet, so nothing can reach the Wi‑Fi.' }
-          : {
+        : {
               tone: 'bad',
               title: 'Wi‑Fi blocked',
               line: mode === 'mullvad'
@@ -248,53 +248,6 @@ export function OverviewPage() {
 
   return (
     <div className="overview">
-      <section className={`status-hero tone-${hero.tone}`} aria-label="Hotspot status">
-        <div className="status-head">
-          <div className="status-title" role="status">
-            <span className="dot dot-ring" aria-hidden />
-            <div className="min-w-0">
-              <h1><SwapText>{hero.title}</SwapText></h1>
-              <p>
-                <SwapText>{`${hero.line}${showReconnecting ? ' Reconnecting to the Pi…' : ''}`}</SwapText>
-              </p>
-            </div>
-          </div>
-          <div className="status-actions">
-            {state.hotspot_running ? (
-              <>
-                <Button
-                  icon={<RotateCw className="h-3.5 w-3.5" aria-hidden />}
-                  loading={hs.isPending && hs.variables === 'restart'}
-                  disabled={actionsLocked || recoveringVPN}
-                  onClick={() => void onHotspot('restart')}
-                >
-                  Restart
-                </Button>
-                <Button
-                  variant="dangerSoft"
-                  icon={<CircleStop className="h-3.5 w-3.5" aria-hidden />}
-                  loading={hs.isPending && hs.variables === 'stop'}
-                  disabled={actionsLocked}
-                  onClick={() => void onHotspot('stop')}
-                >
-                  Stop
-                </Button>
-              </>
-            ) : (
-              <Button
-                variant="primary"
-                icon={<Play className="h-3.5 w-3.5" aria-hidden />}
-                loading={hs.isPending && hs.variables === 'start'}
-                disabled={actionsLocked || recoveringVPN}
-                onClick={() => void onHotspot('start')}
-              >
-                Start hotspot
-              </Button>
-            )}
-          </div>
-        </div>
-        <TrafficFlow flow={flow} />
-      </section>
 
       <div className="overview-cols">
         <Panel
@@ -344,9 +297,9 @@ export function OverviewPage() {
               id="overview.resources"
               title="App resources"
               icon={Gauge}
-              summary={host.total_mb ? `${reserved.memory_mb} of ${host.total_mb} MB reserved` : undefined}
+              summary={reserved.dedicated_services ? `${fmtMB(used.memory_mb)} used of ${fmtMB(reserved.memory_mb)} reserved` : 'No limits set'}
             >
-              <ResourceBudget host={host} reserved={reserved} compact />
+              <ResourceUsage host={host} reserved={reserved} used={used} />
             </Disclosure>
             <Disclosure id="overview.history" title="History" icon={ChartLine} summary="CPU, memory, temperature">
               <MonitorHistory kind="system" bare />
@@ -354,71 +307,125 @@ export function OverviewPage() {
           </div>
         </Panel>
 
-        <Panel
-          title={<span className="inline-flex items-center gap-1.5"><Shield aria-hidden /> Route</span>}
-          busy={busy}
-          actions={
-            showRepairButton ? (
-              <Button
-                variant="quiet"
-                icon={<Wrench className="h-3.5 w-3.5" aria-hidden />}
+        <section className={`status-hero connection tone-${hero.tone}`} aria-label="Connection" aria-busy={busy || undefined}>
+          <div className="status-head">
+            <div className="status-title" role="status">
+              <span className="dot dot-ring" aria-hidden />
+              <div className="min-w-0">
+                <h1><SwapText>{hero.title}</SwapText></h1>
+                <p>
+                  <SwapText>{`${hero.line}${showReconnecting ? ' Reconnecting to the Pi…' : ''}`}</SwapText>
+                </p>
+              </div>
+            </div>
+            <div className="status-actions">
+              {showRepairButton ? (
+                <Button
+                  variant="quiet"
+                  icon={<Wrench className="h-3.5 w-3.5" aria-hidden />}
+                  loading={hs.isPending && hs.variables === 'repair-vpn'}
+                  disabled={actionsLocked || !state.hotspot_running}
+                  onClick={() => void onRepairVPN()}
+                  title="Refresh the relay and verify the Romanian exit"
+                >
+                  Repair
+                </Button>
+              ) : null}
+              {state.hotspot_running ? (
+                <>
+                  <Button
+                    icon={<RotateCw className="h-3.5 w-3.5" aria-hidden />}
+                    loading={hs.isPending && hs.variables === 'restart'}
+                    disabled={actionsLocked || recoveringVPN}
+                    onClick={() => void onHotspot('restart')}
+                  >
+                    Restart
+                  </Button>
+                  <Button
+                    variant="dangerSoft"
+                    icon={<CircleStop className="h-3.5 w-3.5" aria-hidden />}
+                    loading={hs.isPending && hs.variables === 'stop'}
+                    disabled={actionsLocked}
+                    onClick={() => void onHotspot('stop')}
+                  >
+                    Stop
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="primary"
+                  icon={<Play className="h-3.5 w-3.5" aria-hidden />}
+                  loading={hs.isPending && hs.variables === 'start'}
+                  disabled={actionsLocked || recoveringVPN}
+                  onClick={() => void onHotspot('start')}
+                >
+                  Start hotspot
+                </Button>
+              )}
+            </div>
+          </div>
+          <TrafficFlow flow={flow} />
+
+          <AnimatedList
+            items={vpnRepair ? [vpnRepair] : []}
+            getKey={() => 'vpn-repair'}
+            render={(repair) => (
+              <VPNRepairFlow
+                repair={repair}
+                healthy={healthy}
                 loading={hs.isPending && hs.variables === 'repair-vpn'}
                 disabled={actionsLocked || !state.hotspot_running}
-                onClick={() => void onRepairVPN()}
-              >
-                Repair VPN
-              </Button>
-            ) : undefined
-          }
-        >
-          <Segmented
-            label="Traffic route"
-            options={modeOptions}
-            value={mode}
-            onChange={(next) => void onMode(next)}
-            disabled={actionsLocked}
-            pending={modeMut.isPending ? modeMut.variables : undefined}
+                onRetry={() => void onRepairVPN()}
+              />
+            )}
           />
 
-          {vpnRepair ? (
-            <div className="appear">
-            <VPNRepairFlow
-              repair={vpnRepair}
-              healthy={healthy}
-              loading={hs.isPending && hs.variables === 'repair-vpn'}
-              disabled={actionsLocked || !state.hotspot_running}
-              onRetry={() => void onRepairVPN()}
+          <AnimatedList
+            className="grid gap-2"
+            items={visibleIssues}
+            getKey={(issue) => issue.code}
+            render={(issue) => (
+              <Notice
+                icon={TriangleAlert}
+                tone={issue.severity === 'critical' ? 'bad' : 'warn'}
+                title={issue.title}
+                action={
+                  issue.action === 'restart-hotspot' ? (
+                    <Button
+                      variant="warningSoft"
+                      loading={hs.isPending && hs.variables === 'restart'}
+                      disabled={actionsLocked || recoveringVPN}
+                      onClick={() => void onHotspot('restart')}
+                    >
+                      Restart
+                    </Button>
+                  ) : issue.action === 'repair-vpn' && !vpnRepair ? (
+                    <Button
+                      variant="dangerSoft"
+                      loading={hs.isPending && hs.variables === 'repair-vpn'}
+                      disabled={actionsLocked || !state.hotspot_running}
+                      onClick={() => void onRepairVPN()}
+                    >
+                      Repair
+                    </Button>
+                  ) : undefined
+                }
+              >
+                {issue.detail}
+              </Notice>
+            )}
+          />
+
+          <div className="connection-route">
+            <Segmented
+              label="Traffic route"
+              options={modeOptions}
+              value={mode}
+              onChange={(next) => void onMode(next)}
+              disabled={actionsLocked}
+              pending={modeMut.isPending ? modeMut.variables : undefined}
             />
-            </div>
-          ) : null}
-
-          {visibleIssues.length > 0 ? (
-            <div className="grid gap-2 appear" aria-label="Detected issues">
-              {visibleIssues.map((issue) => (
-                <Notice
-                  key={issue.code}
-                  icon={TriangleAlert}
-                  tone={issue.severity === 'critical' ? 'bad' : 'warn'}
-                  title={issue.title}
-                  action={
-                    issue.action === 'restart-hotspot' ? (
-                      <Button
-                        variant="warningSoft"
-                        loading={hs.isPending && hs.variables === 'restart'}
-                        disabled={actionsLocked || recoveringVPN}
-                        onClick={() => void onHotspot('restart')}
-                      >
-                        Restart
-                      </Button>
-                    ) : undefined
-                  }
-                >
-                  {issue.detail}
-                </Notice>
-              ))}
-            </div>
-          ) : null}
-
+          </div>
           <div>
             <Disclosure
               id="overview.details"
@@ -476,7 +483,7 @@ export function OverviewPage() {
               )}
             </Disclosure>
           </div>
-        </Panel>
+        </section>
       </div>
 
     </div>

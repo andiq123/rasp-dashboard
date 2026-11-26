@@ -34,19 +34,19 @@ export function computeFlow(state: AppState, recovering: boolean): Flow {
     },
     {
       id: 'uplink', label: 'Ethernet in', icon: Cable,
-      detail: !known ? 'Checking…' : uplink?.link_up ? `${uplink.interface || 'eth0'} connected` : 'No link',
+      detail: !known ? 'Checking…' : uplink?.link_up ? uplink.interface || 'eth0' : 'No link',
       state: !known ? 'idle' : uplink?.link_up ? 'ok' : 'bad',
     },
     { id: 'pi', label: 'Pi', icon: Cpu, detail: state.hotspot_ip || 'This device', state: known ? 'ok' : 'idle' },
     mode === 'mullvad'
       ? {
           id: 'gate', label: 'Mullvad', icon: ShieldCheck,
-          detail: recovering ? 'Repairing tunnel' : gateOk ? `${vpn.relay || 'Romania'}` : !vpn.country_allowed ? 'Outside Romania' : vpn.interface_up ? 'Romania not verified' : 'Tunnel down',
+          detail: recovering ? 'Repairing' : gateOk ? vpn.relay || 'Romania' : !vpn.country_allowed ? 'Not Romania' : vpn.interface_up ? 'Not verified' : 'Tunnel down',
           state: !known ? 'idle' : recovering ? 'busy' : gateOk ? 'ok' : 'bad',
         }
       : {
           id: 'gate', label: 'Residential', icon: Waypoints,
-          detail: gateOk ? 'Proxy running' : 'Proxy stopped',
+          detail: gateOk ? 'Running' : 'Stopped',
           state: !known ? 'idle' : gateOk ? 'ok' : 'bad',
         },
     {
@@ -56,7 +56,7 @@ export function computeFlow(state: AppState, recovering: boolean): Flow {
     },
     {
       id: 'devices', label: 'Devices', icon: Smartphone,
-      detail: !state.hotspot_running ? 'Not connected' : clients === 1 ? '1 connected' : clients ? `${clients} connected` : 'None connected',
+      detail: !state.hotspot_running ? 'Offline' : clients === 1 ? '1 device' : clients ? `${clients} devices` : 'None yet',
       state: state.hotspot_running && clients > 0 ? 'ok' : 'idle',
     },
   ]
@@ -86,16 +86,16 @@ export function TrafficFlow({ flow }: { flow: Flow }) {
   return (
     <ol className="flow" aria-label="Traffic path">
       {flow.nodes.map((node, i) => (
-        <li key={node.id} className="contents">
+        // Each step keeps its incoming link and its node together, so a wrapped line never splits them.
+        <li key={node.id} className="flow-step">
           {i > 0 ? (
             <span className={`flow-link is-${flow.links[i - 1]} ${linkTone[flow.links[i - 1]]}`} aria-hidden title={linkLabel[flow.links[i - 1]]}>
-              <i className="flow-packet" />
               <i className="flow-packet" />
               <i className="flow-packet" />
               {flow.links[i - 1] === 'blocked' ? <Ban className="flow-barrier" /> : null}
             </span>
           ) : null}
-          <div className={`flow-node tone-${node.state === 'busy' ? 'busy' : node.state}`}>
+          <div className={`flow-node tone-${node.state}`}>
             <span className="flow-icon"><node.icon aria-hidden /></span>
             <span className="flow-text">
               <span className="flow-label">{node.label}</span>

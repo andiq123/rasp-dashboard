@@ -417,18 +417,44 @@ button:not(:disabled), summary { cursor: pointer; }
 .chart-skeleton.is-compact { height: 148px; }
 @keyframes skeleton { from { background-position: 100% 0; } to { background-position: 0 0; } }
 
+/* ── Resource usage: real use vs reserved limits ──────────────────── */
+.ru { display: grid; gap: var(--space-4); padding-top: 2px; }
+.ru-row { display: grid; gap: 7px; }
+.ru-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.ru-label { font-size: var(--text-label); font-weight: 650; }
+.ru-free { font-size: var(--text-micro); color: var(--ink-muted); }
+.ru-bar { position: relative; height: 10px; border-radius: 6px; background: color-mix(in oklab, var(--color-base-content) 7%, transparent); overflow: hidden; }
+.ru-reserved {
+  position: absolute; inset: 0 auto 0 0; border-right: 2px solid color-mix(in oklab, var(--color-primary) 70%, transparent);
+  background: repeating-linear-gradient(135deg, color-mix(in oklab, var(--color-primary) 16%, transparent) 0 4px, transparent 4px 8px);
+  transition: width var(--dur-slow) var(--ease-out-soft);
+}
+.ru-reserved.is-over { border-right-color: var(--color-error); background: repeating-linear-gradient(135deg, color-mix(in oklab, var(--color-error) 16%, transparent) 0 4px, transparent 4px 8px); }
+.ru-seg { position: absolute; top: 0; bottom: 0; left: 0; transition: width var(--dur-slow) var(--ease-out-soft), left var(--dur-slow) var(--ease-out-soft); }
+.ru-seg.is-apps { background: var(--color-primary); border-radius: 6px 0 0 6px; }
+.ru-seg.is-system { background: color-mix(in oklab, var(--color-base-content) 30%, transparent); }
+.ru-meta { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: var(--text-micro); color: var(--ink-muted); }
+.ru-meta b { font-weight: 650; color: var(--color-base-content); }
+.ru-key { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 2px; vertical-align: 0; }
+.ru-key.is-apps { background: var(--color-primary); }
+.ru-key.is-system { background: color-mix(in oklab, var(--color-base-content) 30%, transparent); }
+.ru-verdict { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 9px 11px; border-radius: var(--radius-inset); font-size: var(--text-micro); line-height: 1.45; color: var(--ink-muted); background: color-mix(in oklab, var(--tone) 8%, var(--surface-panel)); }
+.ru-verdict svg { flex-shrink: 0; width: 14px; height: 14px; margin-top: 1px; color: var(--tone); }
+
 /* ── Overview ──────────────────────────────────────────────────────── */
 .overview { display: grid; gap: 14px; }
+.connection-route { padding-top: 2px; }
+.connection .disclosure:first-child { margin-top: -4px; }
 .overview-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
 @media (max-width: 900px) { .overview-cols { grid-template-columns: minmax(0, 1fr); } }
 
 /* Status hero: the one place on the page with presence. */
 .status-hero {
-  display: grid; gap: var(--space-5); padding: var(--space-5) 22px;
+  display: grid; gap: var(--space-4); padding: var(--space-4) 18px 18px;
   border-radius: var(--radius-panel); border: 1px solid var(--line-soft); box-shadow: var(--shadow-card);
-  background: radial-gradient(110% 160% at 0% 0%, color-mix(in oklab, var(--tone) 11%, transparent), transparent 58%), var(--surface-panel);
+  background: radial-gradient(120% 70% at 0% 0%, color-mix(in oklab, var(--tone) 12%, transparent), transparent 60%), var(--surface-panel);
 }
-.status-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.status-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
 .status-title { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
 .status-title h1 { margin: 0; font-size: var(--text-hero); font-weight: 650; letter-spacing: -0.025em; line-height: 1.1; }
 .status-title p { margin: 3px 0 0; font-size: var(--text-body); color: var(--ink-muted); }
@@ -436,63 +462,57 @@ button:not(:disabled), summary { cursor: pointer; }
 .status-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .status-swap { animation: fade-in var(--dur-base) var(--ease-standard); }
 
-/* Traffic flow: Internet → Ethernet → Pi → gate → Wi‑Fi → devices.
-   Packets move along working links and stop at the barrier where traffic is held. */
-.flow { display: flex; align-items: flex-start; margin: 0; padding: 0; list-style: none; }
-.flow-node { display: flex; align-items: center; gap: 9px; min-width: 0; flex: 0 1 auto; }
+/* Traffic flow, in reading order: Internet → Ethernet → Pi → gate → Wi‑Fi → devices.
+   Steps wrap onto new lines when space runs out; packets move along working links
+   and stop at the barrier where traffic is held. */
+.flow { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: center; row-gap: 14px; margin: 0; padding: 4px 0 2px; list-style: none; }
+.flow-step { display: flex; align-items: flex-start; min-width: 0; }
+/* Icon on top, label and state centered underneath. */
+.flow-node { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 86px; min-width: 0; text-align: center; }
 .flow-icon {
-  display: grid; place-items: center; flex-shrink: 0; width: 34px; height: 34px; border-radius: 11px;
+  display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px; border-radius: 11px;
   color: var(--tone); background: color-mix(in oklab, var(--tone) 13%, var(--surface-panel));
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone) 22%, transparent);
   transition: color var(--dur-slow) var(--ease-standard), background-color var(--dur-slow) var(--ease-standard), box-shadow var(--dur-slow) var(--ease-standard);
 }
-.flow-icon svg { width: 17px; height: 17px; }
+.flow-icon svg { width: 15px; height: 15px; }
 .flow-node.tone-busy .flow-icon svg { animation: flow-breathe 1.6s ease-in-out infinite; }
 .flow-node.tone-bad .flow-icon { animation: flow-alert 2.4s ease-in-out infinite; }
-.flow-text { display: grid; min-width: 0; line-height: 1.25; }
+.flow-text { display: grid; justify-items: center; gap: 1px; width: 100%; min-width: 0; line-height: 1.2; }
 .flow-label { font-size: var(--text-label); font-weight: 650; white-space: nowrap; }
-.flow-detail { font-size: var(--text-micro); color: var(--ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 128px; }
+.flow-detail { max-width: 100%; font-size: var(--text-micro); color: var(--ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .flow-node.tone-bad .flow-detail { color: var(--color-error); }
 
-.flow-link { position: relative; flex: 1 1 20px; min-width: 20px; height: 2px; margin: 16px 10px 0; border-radius: 2px; background: color-mix(in oklab, var(--tone) 28%, transparent); transition: background-color var(--dur-slow) var(--ease-standard); }
-.flow-packet { position: absolute; top: 50%; left: 0; width: 6px; height: 6px; margin-top: -3px; border-radius: 50%; background: var(--tone); opacity: 0; }
-.flow-link.is-flow .flow-packet { animation: packet-flow 2.1s linear infinite; }
+.flow-link { position: relative; flex: none; width: 26px; height: 2px; margin: 16px 2px 0; border-radius: 2px; background: color-mix(in oklab, var(--tone) 28%, transparent); transition: background-color var(--dur-slow) var(--ease-standard); }
+.flow-packet { position: absolute; top: 50%; left: 0; width: 5px; height: 5px; margin-top: -2.5px; border-radius: 50%; background: var(--tone); opacity: 0; }
+.flow-link.is-flow .flow-packet { animation: packet-flow 1.4s linear infinite; }
 .flow-link.is-flow .flow-packet:nth-child(2) { animation-delay: 0.7s; }
-.flow-link.is-flow .flow-packet:nth-child(3) { animation-delay: 1.4s; }
+.flow-link.is-flow, .flow-link.is-blocked, .flow-link.is-busy { animation: link-wake var(--dur-slow) var(--ease-standard); }
 /* Held traffic: packets arrive, hit the barrier and fade. */
-.flow-link.is-blocked { background: repeating-linear-gradient(90deg, var(--tone) 0 5px, transparent 5px 9px); opacity: 0.85; }
-.flow-link.is-blocked .flow-packet { background: var(--color-success); animation: packet-held 2.1s var(--ease-standard) infinite; }
+.flow-link.is-blocked { background: repeating-linear-gradient(90deg, var(--tone) 0 4px, transparent 4px 7px); }
+.flow-link.is-blocked .flow-packet { background: var(--color-success); animation: packet-held 1.4s var(--ease-standard) infinite; }
 .flow-link.is-blocked .flow-packet:nth-child(2) { animation-delay: 0.7s; }
-.flow-link.is-blocked .flow-packet:nth-child(3) { animation-delay: 1.4s; }
-.flow-barrier { position: absolute; left: 55%; top: 50%; width: 16px; height: 16px; translate: -50% -50%; color: var(--tone); background: var(--surface-panel); border-radius: 50%; animation: barrier-pulse 2.1s ease-in-out infinite; }
-.flow-link.is-busy::after { content: ''; position: absolute; inset: 0; width: 30%; border-radius: inherit; background: var(--tone); animation: busy-sweep 1.2s ease-in-out infinite; }
+.flow-barrier { position: absolute; left: 62%; top: 50%; width: 15px; height: 15px; translate: -50% -50%; color: var(--tone); background: var(--surface-panel); border-radius: 50%; animation: barrier-in var(--dur-slow) var(--ease-out-soft) both, barrier-pulse 1.4s ease-in-out var(--dur-slow) infinite; }
+.flow-link.is-busy::after { content: ''; position: absolute; inset: 0; width: 35%; border-radius: inherit; background: var(--tone); animation: busy-sweep 1s ease-in-out infinite; }
 
 @keyframes packet-flow {
   0% { left: 0; opacity: 0; }
-  12% { opacity: 1; }
-  88% { opacity: 1; }
-  100% { left: calc(100% - 6px); opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { left: calc(100% - 5px); opacity: 0; }
 }
 @keyframes packet-held {
   0% { left: 0; opacity: 0; }
   15% { opacity: 1; }
-  55% { left: calc(55% - 14px); opacity: 1; transform: scale(1); }
-  70%, 100% { left: calc(55% - 14px); opacity: 0; transform: scale(0.4); }
+  50% { left: calc(62% - 12px); opacity: 1; transform: scale(1); }
+  70%, 100% { left: calc(62% - 12px); opacity: 0; transform: scale(0.4); }
 }
-@keyframes barrier-pulse { 0%, 50% { scale: 1; } 62% { scale: 1.18; } 80%, 100% { scale: 1; } }
-@keyframes busy-sweep { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+@keyframes link-wake { from { opacity: 0.4; } }
+@keyframes barrier-in { from { opacity: 0; scale: 0.4; } }
+@keyframes barrier-pulse { 0%, 45% { scale: 1; } 58% { scale: 1.18; } 75%, 100% { scale: 1; } }
+@keyframes busy-sweep { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
 @keyframes flow-breathe { 50% { opacity: 0.45; } }
 @keyframes flow-alert { 0%, 100% { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone) 22%, transparent); } 50% { box-shadow: inset 0 0 0 1px var(--tone), 0 0 0 4px color-mix(in oklab, var(--tone) 14%, transparent); } }
-
-@media (max-width: 1100px) { .flow-detail { max-width: 96px; } .flow-link { margin-inline: 6px; } }
-@media (max-width: 860px) {
-  .flow { display: grid; grid-template-columns: 1fr; gap: 0; }
-  .flow-link { width: 2px; height: 16px; min-width: 0; margin: 2px 0 2px 16px; }
-  .flow-detail { max-width: none; }
-  .flow-link.is-flow .flow-packet, .flow-link.is-blocked .flow-packet { display: none; }
-  .flow-link.is-blocked { background: repeating-linear-gradient(180deg, var(--tone) 0 4px, transparent 4px 7px); }
-  .flow-barrier { left: 50%; }
-}
 @media (max-width: 640px) { .status-hero { padding: var(--space-4); } }
 
 /* Text and numbers that change animate in place; unchanged text never moves. */
@@ -521,6 +541,16 @@ button:not(:disabled), summary { cursor: pointer; }
 
 .tab-enter { animation: fade-in 180ms ease-out both; }
 .appear { animation: rise-in var(--dur-base) var(--ease-out-soft) both; }
+/* AnimatedList: items rise in; leaving items fade, lift and collapse their height. */
+.anim-list { display: grid; }
+.anim-item { display: grid; grid-template-rows: 1fr; animation: rise-in var(--dur-base) var(--ease-out-soft) both; }
+.anim-item-inner { min-height: 0; overflow: hidden; }
+.anim-item.is-leaving { pointer-events: none; animation: item-out 240ms var(--ease-standard) both; }
+@keyframes item-out { to { opacity: 0; transform: translateY(-4px); grid-template-rows: 0fr; margin-bottom: -8px; } }
+.toast-card { animation: toast-in var(--dur-base) var(--ease-out-soft) both; }
+.toast-card.is-leaving { animation: toast-out 220ms var(--ease-standard) both; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(10px) scale(0.98); } }
+@keyframes toast-out { to { opacity: 0; transform: translateY(6px) scale(0.98); } }
 .queue-enter { animation: rise-in 260ms var(--ease-out-soft) both; }
 .queue-row, .list-row { animation: rise-in 220ms var(--ease-out-soft) both; }
 .list-row { transition: background-color 140ms; }

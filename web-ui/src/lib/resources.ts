@@ -68,3 +68,19 @@ export function hostCapacity(metrics?: DeviceMetrics | null): HostCapacity {
     live_busy_percent: Number(metrics?.cpu?.busy_percent || 0),
   }
 }
+
+/** What dedicated apps actually use right now (live Docker stats), not their limits. */
+export function appUsage(services: Service[]): { memory_mb: number; cpus: number } {
+  let memory_mb = 0
+  let cpuPercent = 0
+  for (const s of services) {
+    if ((s.type !== 'go' && s.type !== 'redis') || !s.stats || s.stats.shared) continue
+    memory_mb += Number(s.stats.memory_mb || 0)
+    cpuPercent += Number(s.stats.cpu_percent || 0)
+  }
+  return { memory_mb, cpus: cpuPercent / 100 }
+}
+
+export function fmtMB(mb: number): string {
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`
+}

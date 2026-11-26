@@ -36,7 +36,7 @@ function compactToastMessage(message: string): string {
 }
 
 export function ToastProvider({ children }: { children: ReactNode }) {
-  const [toast, setToast] = useState<{ message: string; tone: ToastTone } | null>(null)
+  const [toast, setToast] = useState<{ id: number; message: string; tone: ToastTone; leaving?: boolean } | null>(null)
   const [portalHost, setPortalHost] = useState<Element | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -67,8 +67,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const showToast = useCallback((message: string, tone: ToastTone = 'success') => {
     if (timerRef.current) clearTimeout(timerRef.current)
     setPortalHost(resolveToastHost())
-    setToast({ message: compactToastMessage(message), tone })
-    timerRef.current = setTimeout(() => setToast(null), tone === 'error' ? 4200 : 2800)
+    const id = Date.now()
+    setToast({ id, message: compactToastMessage(message), tone })
+    // Fade out first, then unmount once the exit animation has played.
+    timerRef.current = setTimeout(() => {
+      setToast((t) => (t && t.id === id ? { ...t, leaving: true } : t))
+      timerRef.current = setTimeout(() => setToast((t) => (t && t.id === id ? null : t)), 220)
+    }, tone === 'error' ? 4200 : 2800)
   }, [])
 
   const value = useMemo(() => ({ showToast }), [showToast])
@@ -79,7 +84,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {toast && portalHost ? createPortal(
         <div className="toast toast-bottom toast-center z-[300] pointer-events-none px-2">
           <div
-            className={`alert ${alertClass[toast.tone]} shadow-lg text-sm pointer-events-auto max-w-[min(34rem,calc(100vw-1rem))] whitespace-normal break-words`}
+            key={toast.id}
+            className={`toast-card${toast.leaving ? ' is-leaving' : ''} alert ${alertClass[toast.tone]} shadow-lg text-sm pointer-events-auto max-w-[min(34rem,calc(100vw-1rem))] whitespace-normal break-words`}
             role={toast.tone === 'error' ? 'alert' : 'status'}
             aria-live={toast.tone === 'error' ? 'assertive' : 'polite'}
           >
