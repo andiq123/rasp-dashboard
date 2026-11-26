@@ -3,7 +3,7 @@ import type { AppState, ConnectedDevice } from '@/api/types'
 import { KeyValues, type KeyValue } from '@/components/ui/KeyValues/KeyValues'
 import { deviceKind, fmtDuration, signalBars } from '@/lib/devices'
 import { daysLeftText, daysLeftTone, expiryDate } from '@/lib/mullvad'
-import { fmtBytes, fmtPct } from '@/lib/format'
+import { fmtBytes, fmtPct, fmtRate } from '@/lib/format'
 import type { FlowNode } from './TrafficFlow'
 
 const stateWord: Record<FlowNode['state'], string> = { ok: 'Working', bad: 'Failing', busy: 'Changing', idle: 'Idle' }
@@ -43,7 +43,7 @@ export function FlowInfo({ node, state }: { node: FlowNode; state: AppState }) {
   switch (node.id) {
     case 'internet':
       line = node.state === 'ok' ? 'The Pi reaches the internet over its Ethernet uplink.' : 'The Pi cannot reach 1.1.1.1 or 8.8.8.8 over Ethernet.'
-      rows = [{ label: 'Checked over', value: uplink.interface || 'eth0' }, { label: 'Check', value: 'TCP 443, every 30s' }]
+      rows = [{ label: 'Checked over', value: uplink.interface || 'eth0' }, { label: 'Traffic now', value: fmtRate(state.traffic?.uplink_bps) }, { label: 'Check', value: 'TCP 443, every 30s' }]
       break
     case 'uplink':
       line = uplink.link_up ? 'The cable to your router is connected.' : 'No cable link. Check the Ethernet cable and router.'
@@ -51,6 +51,7 @@ export function FlowInfo({ node, state }: { node: FlowNode; state: AppState }) {
         { label: 'Interface', value: uplink.interface || 'eth0' },
         { label: 'Link', value: uplink.link_up ? 'Up' : 'Down', tone: uplink.link_up ? 'ok' : 'bad' },
         { label: 'Internet', value: uplink.internet ? 'Reachable' : 'Unreachable', tone: uplink.internet ? 'ok' : 'bad' },
+        { label: 'Traffic now', value: fmtRate(state.traffic?.uplink_bps) },
       ]
       break
     case 'pi':
@@ -68,6 +69,7 @@ export function FlowInfo({ node, state }: { node: FlowNode; state: AppState }) {
           : 'Wi‑Fi traffic is held here until a Romanian Mullvad exit is verified.'
       rows = [
         { label: 'Relay', value: vpn.relay || 'Unknown' },
+        { label: 'Tunnel traffic', value: fmtRate(state.traffic?.tunnel_bps) },
         { label: 'Endpoint', value: vpn.endpoint || '—' },
         { label: 'Handshake', value: vpn.handshake_healthy ? `${Number(vpn.handshake_age_seconds || 0)}s ago` : 'None', tone: vpn.handshake_healthy ? undefined : 'bad' },
         { label: 'Exit check', value: vpn.egress_ok ? 'Romania verified' : 'Not verified', tone: vpn.egress_ok ? 'ok' : 'bad' },
@@ -86,6 +88,7 @@ export function FlowInfo({ node, state }: { node: FlowNode; state: AppState }) {
       line = state.hotspot_running ? `Broadcasting ${state.ssid || 'the hotspot'} for your devices.` : 'The hotspot is stopped.'
       rows = [
         { label: 'Network', value: state.ssid || '—' },
+        { label: 'Wi‑Fi traffic', value: fmtRate(state.traffic?.hotspot_bps) },
         { label: 'Gateway', value: state.hotspot_ip || '—' },
         { label: 'Address pool', value: state.dhcp_start && state.dhcp_end ? `${state.dhcp_start} – ${state.dhcp_end}` : '—' },
       ]

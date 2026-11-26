@@ -322,7 +322,7 @@ export function OverviewPage() {
               <MullvadTime account={state.mullvad_account} />
               {showRepairButton ? (
                 <Button
-                  variant="quiet"
+                  variant="default"
                   icon={<Wrench className="h-3.5 w-3.5" aria-hidden />}
                   loading={hs.isPending && hs.variables === 'repair-vpn'}
                   disabled={actionsLocked || !state.hotspot_running}

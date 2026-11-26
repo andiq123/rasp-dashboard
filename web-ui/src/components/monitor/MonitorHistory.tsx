@@ -293,7 +293,8 @@ export function MonitorHistory({ kind, group, slug, compact = false, bare = fals
                 <div
                   className="chart-tip"
                   role="tooltip"
-                  style={{ left: `${activeLeft}%`, translate: activeLeft < 18 ? '0 0' : activeLeft > 82 ? '-100% 0' : '-50% 0' }}
+                  // Sit beside the cursor, never on top of the point being read.
+                  style={{ left: `${activeLeft}%`, translate: activeLeft > 50 ? 'calc(-100% - 14px) 0' : '14px 0' }}
                 >
                   <strong>{hoverLabel(active.at)}</strong>
                   {visible.map((s) => (

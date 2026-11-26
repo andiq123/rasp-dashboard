@@ -54,6 +54,7 @@ type State struct {
 	Issues         []HealthIssue   `json:"issues"`
 	ProxyRunning   bool            `json:"proxy_running"`
 	Uplink         Uplink          `json:"uplink"`
+	Traffic        Traffic         `json:"traffic"`
 	Clients        *int            `json:"clients,omitempty"`
 	Devices        []Device        `json:"devices,omitempty"`
 	MullvadAccount *MullvadAccount `json:"mullvad_account,omitempty"`
@@ -180,6 +181,7 @@ type Reader struct {
 	egress            egressProber
 	links             linkCache
 	account           accountCache
+	traffic           trafficCache
 }
 
 type metricsSample struct {
@@ -217,6 +219,7 @@ func (r *Reader) Read() (State, error) {
 		VPNHealth:      vpn,
 		ProxyRunning:   processRunning("redsocks.*redsocks-hotspot"),
 		Uplink:         r.readUplink(cfg.WANInterface),
+		Traffic:        r.readTraffic(cfg.WANInterface, cfg.WGInterface),
 		DeviceMetrics:  metrics,
 		GeneratedAt:    time.Now().Format(time.RFC3339),
 	}

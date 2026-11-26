@@ -90,6 +90,7 @@ export type AppState = {
   proxy_running?: boolean
   uplink?: Uplink
   clients?: number
+  traffic?: { uplink_bps?: number; tunnel_bps?: number; hotspot_bps?: number }
   devices?: ConnectedDevice[]
   mullvad_account?: MullvadAccount
   device_metrics?: DeviceMetrics

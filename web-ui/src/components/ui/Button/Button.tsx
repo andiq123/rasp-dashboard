@@ -50,7 +50,7 @@ export function Button({
   return (
     <button
       type={type}
-      className={`btn ${size === 'sm' ? 'btn-sm' : ''} ${variantClass[variant]} ${className}`}
+      className={`btn ${size === 'sm' ? 'btn-sm' : ''} ${variantClass[variant]}${children == null && icon ? ' btn-square' : ''} ${className}`}
       aria-busy={loading || undefined}
       disabled={disabled || loading}
       {...rest}

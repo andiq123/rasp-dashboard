@@ -10,7 +10,24 @@ export type NodeState = 'ok' | 'bad' | 'busy' | 'idle'
 export type LinkState = 'flow' | 'blocked' | 'busy' | 'idle'
 
 export type FlowNode = { id: string; label: string; detail: string; state: NodeState; icon: LucideIcon }
-export type Flow = { nodes: FlowNode[]; links: LinkState[] }
+export type Flow = { nodes: FlowNode[]; links: LinkState[]; rates: number[] }
+
+/** Traffic level 0–3 from bytes/s, on a log scale (idle, light, busy, heavy). */
+export function trafficLevel(bps: number): 0 | 1 | 2 | 3 {
+  if (bps >= 800_000) return 3
+  if (bps >= 60_000) return 2
+  if (bps >= 2_000) return 1
+  return 0
+}
+
+const levelDuration = ['2.8s', '1.9s', '1.2s', '0.75s']
+const levelPackets = [1, 2, 3, 3]
+
+function fmtRate(bps: number): string {
+  if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)} MB/s`
+  if (bps >= 1_000) return `${Math.round(bps / 1_000)} KB/s`
+  return `${Math.round(bps)} B/s`
+}
 
 /**
  * The path internet takes from the Pi's uplink to the devices on its Wi‑Fi.
@@ -79,11 +96,33 @@ export function computeFlow(state: AppState, recovering: boolean, switchingTo?: 
     else links.push('idle') // carrying, but nobody to deliver to (no devices)
     carrying = next.state === 'ok'
   }
-  return { nodes, links }
+  // Each link animates at the speed of the interface that carries it.
+  const t = state.traffic || {}
+  const uplinkRate = t.uplink_bps || 0
+  const tunnelRate = mode === 'mullvad' ? t.tunnel_bps || 0 : t.hotspot_bps || 0
+  const hotspotRate = t.hotspot_bps || 0
+  return { nodes, links, rates: [uplinkRate, uplinkRate, tunnelRate, tunnelRate, hotspotRate] }
 }
 
 const linkTone: Record<LinkState, string> = { flow: 'tone-ok', blocked: 'tone-bad', busy: 'tone-busy', idle: 'tone-idle' }
 const linkLabel: Record<LinkState, string> = { flow: 'traffic flowing', blocked: 'traffic blocked', busy: 'being repaired', idle: 'no traffic' }
+
+/** One hop: packets move at a speed and density that follow its live traffic. */
+function FlowLink({ state, bps }: { state: LinkState; bps: number }) {
+  const level = state === 'flow' ? trafficLevel(bps) : 1
+  const title = state === 'flow' ? `${linkLabel.flow}, ${fmtRate(bps)}` : linkLabel[state]
+  return (
+    <span
+      className={`flow-link is-${state} ${linkTone[state]} level-${level}`}
+      style={{ '--flow-dur': levelDuration[level] } as React.CSSProperties}
+      aria-hidden
+      title={title}
+    >
+      {Array.from({ length: state === 'flow' ? levelPackets[level] : 2 }, (_, k) => <i key={k} className="flow-packet" />)}
+      {state === 'blocked' ? <Ban className="flow-barrier" /> : null}
+    </span>
+  )
+}
 
 /** Animated diagram of where traffic flows and where it stops. Every step opens an info popup. */
 export function TrafficFlow({ flow, state }: { flow: Flow; state: AppState }) {
@@ -95,11 +134,7 @@ export function TrafficFlow({ flow, state }: { flow: Flow; state: AppState }) {
         // the old node slides out while the new one drops into the same place.
         <li key={i} className="flow-step">
           {i > 0 ? (
-            <span className={`flow-link is-${flow.links[i - 1]} ${linkTone[flow.links[i - 1]]}`} aria-hidden title={linkLabel[flow.links[i - 1]]}>
-              <i className="flow-packet" />
-              <i className="flow-packet" />
-              {flow.links[i - 1] === 'blocked' ? <Ban className="flow-barrier" /> : null}
-            </span>
+            <FlowLink state={flow.links[i - 1]} bps={flow.rates[i - 1] || 0} />
           ) : null}
           <AnimatedList
             swap

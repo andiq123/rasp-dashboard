@@ -281,9 +281,24 @@ button:not(:disabled), summary { cursor: pointer; }
 .card { min-width: 0; box-shadow: var(--shadow-card); border-radius: var(--radius-panel); border-color: var(--line-soft) !important; }
 .page-header { padding: 2px 0 4px; }
 .panel-heading { min-height: 30px; }
-.btn { font-weight: 600; transition: background-color 140ms, border-color 140ms, color 140ms, transform 140ms; }
-.btn:active:not(:disabled) { transform: scale(0.97); }
-.btn-sm { height: auto; min-height: 30px; padding-block: 5px; }
+/* Buttons: one shape and rhythm everywhere; variants change color only. */
+.btn {
+  gap: 6px; border-radius: var(--radius-control); font-weight: 600; letter-spacing: -0.005em; box-shadow: none;
+  transition: background-color var(--dur-quick) var(--ease-standard), border-color var(--dur-quick), color var(--dur-quick), box-shadow var(--dur-quick), transform var(--dur-quick) var(--ease-standard);
+}
+.btn:active:not(:disabled) { transform: scale(0.96); }
+.btn:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 28%, transparent); }
+.btn-sm { height: 32px; min-height: 32px; padding: 0 12px; font-size: var(--text-label); }
+.btn-sm.btn-square { width: 32px; padding: 0; }
+.btn-sm svg { width: 15px; height: 15px; }
+/* Neutral (default) and quiet buttons. */
+.btn-outline.border-base-300 { background: var(--surface-panel); border-color: var(--line); color: var(--color-base-content); }
+.btn-outline.border-base-300:hover:not(:disabled) { background: color-mix(in oklab, var(--color-base-content) 5%, var(--surface-panel)); border-color: color-mix(in oklab, var(--color-base-content) 22%, transparent); }
+.btn-ghost { color: var(--color-base-content); }
+.btn-ghost:hover:not(:disabled) { background: color-mix(in oklab, var(--color-base-content) 6%, transparent); border-color: transparent; }
+.btn-primary { box-shadow: inset 0 1px 0 color-mix(in oklab, white 18%, transparent), 0 1px 2px color-mix(in oklab, var(--color-primary) 30%, transparent); }
+.btn-primary:hover:not(:disabled) { box-shadow: inset 0 1px 0 color-mix(in oklab, white 18%, transparent), 0 4px 12px -4px color-mix(in oklab, var(--color-primary) 55%, transparent); }
+.btn:disabled { opacity: 0.5; }
 @media (pointer: coarse) { .btn-sm { min-height: 36px; } }
 .input, .select, .textarea { background: var(--color-base-100); border-color: var(--color-base-300); transition: border-color 140ms, box-shadow 140ms; }
 .input:focus, .input:focus-within, .textarea:focus, .select:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 16%, transparent); outline: none; }
@@ -398,18 +413,19 @@ button:not(:disabled), summary { cursor: pointer; }
 .chart-reveal { animation: chart-reveal 760ms var(--ease-out-soft) both; }
 @keyframes chart-reveal { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
 
-.chart-cursor { position: absolute; top: 0; bottom: 0; width: 1px; translate: -0.5px 0; background: color-mix(in oklab, var(--color-base-content) 22%, transparent); pointer-events: none; transition: left 70ms linear; }
+.chart-cursor { position: absolute; top: 0; bottom: 0; width: 1px; translate: -0.5px 0; background: color-mix(in oklab, var(--color-base-content) 22%, transparent); pointer-events: none; transition: left 90ms var(--ease-out-soft); animation: fade-in var(--dur-quick) var(--ease-standard); }
 .chart-marker {
   position: absolute; width: 9px; height: 9px; translate: -50% -50%; border-radius: 50%;
   background: var(--series); box-shadow: 0 0 0 2px var(--surface-panel); pointer-events: none;
-  transition: left 70ms linear, top 70ms linear;
+  transition: left 90ms var(--ease-out-soft), top 90ms var(--ease-out-soft);
+  animation: barrier-in var(--dur-quick) var(--ease-out-soft) both;
 }
 .chart-tip {
   position: absolute; top: 4px; z-index: 2; display: grid; gap: 3px; min-width: 148px; padding: 8px 10px;
   border-radius: var(--radius-inset); border: 1px solid var(--line-soft);
-  background: color-mix(in oklab, var(--surface-panel) 92%, transparent); backdrop-filter: blur(8px);
-  box-shadow: var(--shadow-pop); pointer-events: none; font-size: var(--text-micro);
-  transition: left 70ms linear, translate var(--dur-base) var(--ease-standard);
+  background: color-mix(in oklab, var(--surface-panel) 72%, transparent); backdrop-filter: blur(10px) saturate(1.3);
+  box-shadow: 0 10px 30px -12px oklch(27% 0.04 266 / 0.3); pointer-events: none; font-size: var(--text-micro);
+  transition: left 90ms var(--ease-out-soft), translate 260ms var(--ease-out-soft);
   animation: fade-in var(--dur-quick) var(--ease-standard);
 }
 .chart-tip strong { font-weight: 650; margin-bottom: 2px; }
@@ -706,8 +722,14 @@ button:not(:disabled), summary { cursor: pointer; }
 
 .flow-link { position: relative; flex: 1 1 auto; min-width: 10px; height: 2px; margin: 16px 2px 0; border-radius: 2px; background: color-mix(in oklab, var(--tone) 28%, transparent); transition: background-color var(--dur-slow) var(--ease-standard); }
 .flow-packet { position: absolute; top: 50%; left: 0; width: 5px; height: 5px; margin-top: -2.5px; border-radius: 50%; background: var(--tone); opacity: 0; }
-.flow-link.is-flow .flow-packet { animation: packet-flow 1.4s linear infinite; }
-.flow-link.is-flow .flow-packet:nth-child(2) { animation-delay: 0.7s; }
+.flow-link.is-flow .flow-packet { animation: packet-flow var(--flow-dur, 1.9s) linear infinite; }
+/* Packets spread evenly along the link; busier links carry more, faster ones. */
+.flow-link.is-flow.level-1 .flow-packet:nth-child(2) { animation-delay: calc(var(--flow-dur) * -0.5); }
+.flow-link.is-flow:is(.level-2, .level-3) .flow-packet:nth-child(2) { animation-delay: calc(var(--flow-dur) * -0.33); }
+.flow-link.is-flow:is(.level-2, .level-3) .flow-packet:nth-child(3) { animation-delay: calc(var(--flow-dur) * -0.66); }
+.flow-link.is-flow.level-0 { background: color-mix(in oklab, var(--tone) 20%, transparent); }
+.flow-link.is-flow.level-3 { background: color-mix(in oklab, var(--tone) 42%, transparent); }
+.flow-link.is-flow.level-3 .flow-packet { box-shadow: 0 0 6px 1px color-mix(in oklab, var(--tone) 55%, transparent); }
 .flow-link.is-flow, .flow-link.is-blocked, .flow-link.is-busy { animation: link-wake var(--dur-slow) var(--ease-standard); }
 /* Held traffic: packets arrive, hit the barrier and fade. */
 .flow-link.is-blocked { background: repeating-linear-gradient(90deg, var(--tone) 0 4px, transparent 4px 7px); }
