@@ -110,7 +110,7 @@ const linkLabel: Record<LinkState, string> = { flow: 'traffic flowing', blocked:
 /** One hop: packets move at a speed and density that follow its live traffic. */
 function FlowLink({ state, bps }: { state: LinkState; bps: number }) {
   const level = state === 'flow' ? trafficLevel(bps) : 1
-  const title = state === 'flow' ? `${linkLabel.flow}, ${fmtRate(bps)}` : linkLabel[state]
+  const title = state !== 'flow' ? linkLabel[state] : level === 0 ? `connected, idle (${fmtRate(bps)})` : `${linkLabel.flow}, ${fmtRate(bps)}`
   return (
     <span
       className={`flow-link is-${state} ${linkTone[state]} level-${level}`}
