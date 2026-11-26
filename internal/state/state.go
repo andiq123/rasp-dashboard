@@ -22,10 +22,15 @@ const (
 	ModeResidential = "residential"
 	defaultMode     = ModeMullvad
 
-	portCheckTimeout    = 2 * time.Second
-	vpnStatusTTL        = 2 * time.Second
-	vpnEgressTTL        = 30 * time.Second
-	vpnEgressFailureTTL = 10 * time.Second
+	portCheckTimeout = 2 * time.Second
+	vpnStatusTTL     = 2 * time.Second
+	// Egress changes slowly; probing gently keeps the geo services within their
+	// free limits. Handshake and interface are still checked every read.
+	vpnEgressTTL        = 2 * time.Minute
+	vpnEgressFailureTTL = 15 * time.Second
+	// A verified exit is only marked failed after this many consecutive
+	// unverifiable probes, so one slow reply never triggers a tunnel repair.
+	egressFailuresToFlip = 3
 	// WireGuard can legitimately keep using a session for roughly two minutes;
 	// real egress catches outages sooner, so this threshold avoids false alarms.
 	maxHandshakeAge = 3 * time.Minute
@@ -171,6 +176,8 @@ type Reader struct {
 	vpnEgressOK       bool
 	vpnEgressServer   string
 	vpnEgressError    string
+	vpnEgressFails    int
+	egress            egressProber
 	links             linkCache
 	account           accountCache
 }
@@ -487,17 +494,16 @@ func (r *Reader) readVPNHealth(iface string) VPNHealth {
 		if !r.vpnEgressOK {
 			egressTTL = vpnEgressFailureTTL
 		}
-		needsEgressProbe := r.vpnEgressAt.IsZero() || time.Since(r.vpnEgressAt) >= egressTTL ||
-			r.vpnEgressRelay != h.Relay || r.vpnEgressEndpoint != h.Endpoint
-		if needsEgressProbe {
-			r.vpnEgressOK, r.vpnEgressServer, err = mullvadEgressOK(iface)
+		relayChanged := r.vpnEgressRelay != h.Relay || r.vpnEgressEndpoint != h.Endpoint
+		if relayChanged {
+			// A new relay must prove itself; nothing carries over from the old one.
+			r.vpnEgressOK, r.vpnEgressFails = false, 0
+		}
+		if relayChanged || r.vpnEgressAt.IsZero() || time.Since(r.vpnEgressAt) >= egressTTL {
+			r.applyEgress(r.egress.probe(iface))
 			r.vpnEgressAt = now
 			r.vpnEgressRelay = h.Relay
 			r.vpnEgressEndpoint = h.Endpoint
-			r.vpnEgressError = ""
-			if err != nil {
-				r.vpnEgressError = err.Error()
-			}
 		}
 		h.EgressOK = r.vpnEgressOK
 		h.EgressServer = r.vpnEgressServer
@@ -544,24 +550,74 @@ func readWireGuardPeer(baseDir string) (string, string) {
 	return relay, endpoint
 }
 
-// mullvadEgressOK verifies Romanian egress through iface. am.i.mullvad.net is
-// authoritative when it answers; when it is unreachable from inside the tunnel,
-// both independent geo services must report RO. Mirrors verify_ro_egress in
-// vpn-hotspot/bin/lib.sh.
-func mullvadEgressOK(iface string) (bool, string, error) {
-	status, err := mullvadStatus(iface)
-	if err == nil {
-		return strings.HasPrefix(status, "You are connected to Mullvad"), mullvadServer(status), nil
+// applyEgress folds one probe into the egress verdict: success and policy
+// violations apply at once; unverifiable probes only flip a verified exit to
+// failed after egressFailuresToFlip in a row.
+func (r *Reader) applyEgress(res egressResult) {
+	switch {
+	case res.ok:
+		r.vpnEgressOK, r.vpnEgressServer, r.vpnEgressFails, r.vpnEgressError = true, res.server, 0, ""
+	case res.violation:
+		r.vpnEgressOK, r.vpnEgressServer, r.vpnEgressFails = false, res.server, egressFailuresToFlip
+		r.vpnEgressError = res.err.Error()
+	default:
+		r.vpnEgressFails++
+		if !r.vpnEgressOK || r.vpnEgressFails >= egressFailuresToFlip {
+			r.vpnEgressOK = false
+			if res.err != nil {
+				r.vpnEgressError = res.err.Error()
+			}
+		}
 	}
-	ipinfo := strings.TrimSpace(curlVia(iface, "https://ipinfo.io/country"))
-	countryIs := jsonCountry(curlVia(iface, "https://api.country.is"))
-	if ipinfo == "RO" && countryIs == "RO" {
-		return true, "", nil
+}
+
+// egressResult is one probe of the tunnel's exit country.
+type egressResult struct {
+	ok        bool   // verified Romanian exit
+	violation bool   // verified exit outside Romania or outside Mullvad
+	server    string // Mullvad server name when known
+	err       error
+}
+
+// egressProber verifies Romanian egress through the tunnel. am.i.mullvad.net is
+// authoritative when it answers; when it is unreachable from inside the tunnel
+// it is skipped for a while, and one geo service answering RO verifies the exit
+// (services alternate, the other is the fallback). Any non-RO answer is a
+// violation. Mirrors verify_ro_egress in vpn-hotspot/bin/lib.sh.
+type egressProber struct {
+	skipMullvadUntil time.Time
+	turn             int
+}
+
+const mullvadCheckSkip = 30 * time.Minute
+
+func (p *egressProber) probe(iface string) egressResult {
+	if time.Now().After(p.skipMullvadUntil) {
+		status, err := mullvadStatus(iface)
+		if err == nil {
+			server := mullvadServer(status)
+			if strings.HasPrefix(status, "You are connected to Mullvad") {
+				return egressResult{ok: true, server: server}
+			}
+			return egressResult{violation: true, server: server, err: fmt.Errorf("traffic is not leaving through Mullvad")}
+		}
+		p.skipMullvadUntil = time.Now().Add(mullvadCheckSkip)
 	}
-	if (ipinfo != "" && ipinfo != "RO") || (countryIs != "" && countryIs != "RO") {
-		return false, "", fmt.Errorf("egress geolocated outside Romania (ipinfo.io=%s country.is=%s)", ipinfo, countryIs)
+	services := []func(string) string{
+		func(i string) string { return strings.TrimSpace(curlVia(i, "https://api.country.is", jsonCountry)) },
+		func(i string) string { return strings.TrimSpace(curlVia(i, "https://ipinfo.io/country", nil)) },
 	}
-	return false, "", fmt.Errorf("Mullvad egress check failed")
+	p.turn++
+	for k := 0; k < len(services); k++ {
+		country := services[(p.turn+k)%len(services)](iface)
+		switch {
+		case country == "RO":
+			return egressResult{ok: true}
+		case country != "":
+			return egressResult{violation: true, err: fmt.Errorf("egress geolocated outside Romania (%s)", country)}
+		}
+	}
+	return egressResult{err: fmt.Errorf("Mullvad egress check failed")}
 }
 
 func mullvadStatus(iface string) (string, error) {
@@ -591,13 +647,16 @@ func mullvadStatus(iface string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func curlVia(iface, url string) string {
+func curlVia(iface, url string, parse func(string) string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "curl", "-4", "--interface", iface,
 		"--connect-timeout", "3", "--max-time", "6", "-fsS", url).Output()
 	if err != nil {
 		return ""
+	}
+	if parse != nil {
+		return parse(string(out))
 	}
 	return string(out)
 }
