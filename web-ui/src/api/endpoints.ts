@@ -182,8 +182,6 @@ export const dockerAction = (body: DockerAction) =>
 export const setMode = (mode: string) => api('/api/mode', { method: 'POST', body: { mode } })
 export const hotspotAction = (action: 'start' | 'stop' | 'restart' | 'repair-vpn') =>
   api(`/api/hotspot/${action}`, { method: 'POST' })
-export const syncroxAction = (action: 'start' | 'stop') =>
-  api(`/api/syncrox/${action}`, { method: 'POST' })
 
 export const fetchFiles = (path: string) =>
   api<FilesListing>(`/api/files?path=${encodeURIComponent(path)}`)

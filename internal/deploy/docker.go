@@ -601,12 +601,8 @@ func fileSize(path string) int64 {
 	return st.Size()
 }
 
-// buildGo compiles the service binary inside a golang container
-// (or hands a Cargo project to buildRust).
+// buildGo compiles the service binary inside a golang container.
 func (m *Manager) buildGo(ctx context.Context, svc Service, repoDir, outDir string) error {
-	if isRustProject(repoDir) {
-		return m.buildRust(ctx, svc, repoDir, outDir)
-	}
 	audit := auditGoModule(repoDir)
 	cmdPath := strings.TrimSpace(svc.Cmd)
 	if cmdPath == "" {

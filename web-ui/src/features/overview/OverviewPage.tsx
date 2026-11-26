@@ -24,7 +24,6 @@ import {
   hotspotAction,
   saveConfig,
   setMode,
-  syncroxAction,
 } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import type { Service } from '@/api/types'
@@ -137,15 +136,6 @@ export function OverviewPage() {
     previousRepairActive.current = !!vpnRepair?.active
   }, [vpnRepair?.active, vpnRepair?.phase, vpnRepair?.error, vpnHealthy, showToast])
 
-  const sx = useMutation({
-    mutationFn: (a: 'start' | 'stop') => syncroxAction(a),
-    onSuccess: async (_, a) => {
-      showToast(`Syncrox ${actionDoneLabel(a).toLowerCase()}`)
-      await qc.invalidateQueries({ queryKey: queryKeys.state })
-    },
-    onError: (e: Error) => showToast(e.message, 'error'),
-  })
-
   const save = useMutation({
     mutationFn: (fd: FormData) => {
       const body: Record<string, string> = {}
@@ -197,22 +187,8 @@ export function OverviewPage() {
     if (ok && !hs.isPending && !recoveringVPN) hs.mutate('repair-vpn')
   }
 
-  async function onSyncrox() {
-    if (!state.syncrox_running) {
-      sx.mutate('start')
-      return
-    }
-    const ok = await confirm({
-      title: 'Stop Syncrox?',
-      body: 'Port :5090 will stop accepting connections.',
-      confirmLabel: 'Stop',
-      danger: true,
-    })
-    if (ok) sx.mutate('stop')
-  }
-
   const c = configQ.data || {}
-  const busy = modeMut.isPending || hs.isPending || sx.isPending || save.isPending || !!vpnRepair?.active
+  const busy = modeMut.isPending || hs.isPending || save.isPending || !!vpnRepair?.active
 
   return (
     <div className="grid gap-5">
@@ -503,21 +479,6 @@ export function OverviewPage() {
           </div>
         </details>
 
-        <div className="flex items-center justify-between gap-3 border-t border-base-300 pt-2.5">
-          <div>
-            <strong className="block text-sm">Syncrox</strong>
-            <p className={`text-xs ${muted} m-0 mt-0.5`}>
-              {state.syncrox_running ? 'Running on :5090' : 'Stopped'}
-            </p>
-          </div>
-          <Button
-            variant={state.syncrox_running ? 'dangerSoft' : 'successSoft'}
-            loading={sx.isPending}
-            onClick={() => void onSyncrox()}
-          >
-            {state.syncrox_running ? 'Stop' : 'Start'}
-          </Button>
-        </div>
       </Panel>
 
       <div className="overview-exposure"><DashboardExposure /></div>

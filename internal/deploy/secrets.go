@@ -71,7 +71,7 @@ func (m *Manager) envHintsForService(svc Service) envStackHints {
 		src = filepath.Join(src, filepath.Clean("/" + root)[1:])
 	}
 	h := detectEnvStackHints(src)
-	h.Go = !h.Rust
+	h.Go = true
 	return h
 }
 

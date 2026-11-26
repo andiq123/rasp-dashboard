@@ -3,6 +3,7 @@ package state
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -47,7 +48,6 @@ type State struct {
 	VPNRepair      *VPNRepair    `json:"vpn_repair,omitempty"`
 	Issues         []HealthIssue `json:"issues"`
 	ProxyRunning   bool          `json:"proxy_running"`
-	SyncroxRunning bool          `json:"syncrox_running"`
 	DeviceMetrics  DeviceMetrics `json:"device_metrics"`
 	FilesRoot      string        `json:"files_root,omitempty"`
 	GeneratedAt    string        `json:"generated_at"`
@@ -202,7 +202,6 @@ func (r *Reader) Read() (State, error) {
 		WGUp:           vpn.InterfaceUp,
 		VPNHealth:      vpn,
 		ProxyRunning:   processRunning("redsocks.*redsocks-hotspot"),
-		SyncroxRunning: portReachable("SYNCROX_PORT", "5090"),
 		DeviceMetrics:  metrics,
 		GeneratedAt:    time.Now().Format(time.RFC3339),
 	}
@@ -525,21 +524,41 @@ func readWireGuardPeer(baseDir string) (string, string) {
 	return relay, endpoint
 }
 
+// mullvadEgressOK verifies Romanian egress through iface. am.i.mullvad.net is
+// authoritative when it answers; when it is unreachable from inside the tunnel,
+// both independent geo services must report RO. Mirrors verify_ro_egress in
+// vpn-hotspot/bin/lib.sh.
 func mullvadEgressOK(iface string) (bool, string, error) {
+	status, err := mullvadStatus(iface)
+	if err == nil {
+		return strings.HasPrefix(status, "You are connected to Mullvad"), mullvadServer(status), nil
+	}
+	ipinfo := strings.TrimSpace(curlVia(iface, "https://ipinfo.io/country"))
+	countryIs := jsonCountry(curlVia(iface, "https://api.country.is"))
+	if ipinfo == "RO" && countryIs == "RO" {
+		return true, "", nil
+	}
+	if (ipinfo != "" && ipinfo != "RO") || (countryIs != "" && countryIs != "RO") {
+		return false, "", fmt.Errorf("egress geolocated outside Romania (ipinfo.io=%s country.is=%s)", ipinfo, countryIs)
+	}
+	return false, "", fmt.Errorf("Mullvad egress check failed")
+}
+
+func mullvadStatus(iface string) (string, error) {
 	gatewayOut, err := exec.Command("sh", "-c", "ip -4 route show default | awk 'NR==1 {print $3}'").Output()
 	if err != nil || strings.TrimSpace(string(gatewayOut)) == "" {
-		return false, "", fmt.Errorf("could not find upstream DNS gateway")
+		return "", fmt.Errorf("could not find upstream DNS gateway")
 	}
 	dns := strings.TrimSpace(string(gatewayOut))
 	dnsCtx, cancelDNS := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancelDNS()
 	lookup, err := exec.CommandContext(dnsCtx, "busybox", "nslookup", "am.i.mullvad.net", dns).CombinedOutput()
 	if err != nil {
-		return false, "", fmt.Errorf("could not resolve Mullvad status through upstream DNS")
+		return "", fmt.Errorf("could not resolve Mullvad status through upstream DNS")
 	}
 	ip := lastIPv4(string(lookup))
 	if ip == "" {
-		return false, "", fmt.Errorf("upstream DNS returned no Mullvad status address")
+		return "", fmt.Errorf("upstream DNS returned no Mullvad status address")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
 	defer cancel()
@@ -547,10 +566,30 @@ func mullvadEgressOK(iface string) (bool, string, error) {
 		"--resolve", "am.i.mullvad.net:443:"+ip, "--connect-timeout", "3", "--max-time", "6",
 		"-fsS", "https://am.i.mullvad.net/connected").Output()
 	if err != nil {
-		return false, "", fmt.Errorf("Mullvad egress check failed")
+		return "", fmt.Errorf("Mullvad egress check failed")
 	}
-	status := strings.TrimSpace(string(out))
-	return strings.HasPrefix(status, "You are connected to Mullvad"), mullvadServer(status), nil
+	return strings.TrimSpace(string(out)), nil
+}
+
+func curlVia(iface, url string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "curl", "-4", "--interface", iface,
+		"--connect-timeout", "3", "--max-time", "6", "-fsS", url).Output()
+	if err != nil {
+		return ""
+	}
+	return string(out)
+}
+
+func jsonCountry(body string) string {
+	var v struct {
+		Country string `json:"country"`
+	}
+	if json.Unmarshal([]byte(body), &v) != nil {
+		return ""
+	}
+	return strings.TrimSpace(v.Country)
 }
 
 func mullvadServer(status string) string {
@@ -622,22 +661,6 @@ func healthIssues(st State) []HealthIssue {
 		issues = append(issues, HealthIssue{Code: "thermal-throttling", Severity: "critical", Title: "Pi is currently throttled", Detail: "The current Raspberry Pi throttle flags are active."})
 	}
 	return issues
-}
-
-func portReachable(envKey, defaultPort string) bool {
-	port := os.Getenv(envKey)
-	if port == "" {
-		port = defaultPort
-	}
-	if n, err := strconv.Atoi(port); err != nil || n <= 0 {
-		return false
-	}
-	conn, err := net.DialTimeout("tcp", "127.0.0.1:"+port, portCheckTimeout)
-	if err != nil {
-		return false
-	}
-	conn.Close()
-	return true
 }
 
 // LoadConfig reads Config from baseDir/config/env.

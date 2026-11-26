@@ -4,9 +4,12 @@ import (
 	"time"
 )
 
-// Longer than the longest build budget (a cold Rust build, see rustBuildTimeout) so
-// ARM Pi builds are not killed. Go deploys end by their own 20–25m budgets first.
-const jobMaxAge = rustBuildTimeout + 15*time.Minute
+// goDeployTimeout bounds one whole Go deploy (clone, build, start).
+const goDeployTimeout = 25 * time.Minute
+
+// Longer than the deploy budget so slow ARM Pi builds are not killed: deploys end
+// by their own budget first.
+const jobMaxAge = goDeployTimeout + 15*time.Minute
 
 // BootstrapJobWatchdog clears jobs that never released (crash mid-delete, hung docker, …).
 func (m *Manager) BootstrapJobWatchdog() {

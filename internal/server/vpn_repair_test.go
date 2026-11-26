@@ -70,7 +70,7 @@ func TestVPNRepairSingleFlightAndProgress(t *testing.T) {
 
 func TestManualVPNRepairReturnsImmediatelyAndContinuesInBackground(t *testing.T) {
 	controller := &vpnController{block: make(chan struct{})}
-	srv := New(&vpnStateReader{value: State{Mode: state.ModeMullvad, HotspotRunning: true}}, nil, controller, nil, nil, nil, nil)
+	srv := New(&vpnStateReader{value: State{Mode: state.ModeMullvad, HotspotRunning: true}}, nil, controller, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/hotspot/repair-vpn", nil)
 	res := httptest.NewRecorder()
 	srv.handleHotspot(res, req)
@@ -157,7 +157,7 @@ func TestVPNRepairReconcilesCurrentHealth(t *testing.T) {
 func TestManualVPNRepairRejectsInactiveRoute(t *testing.T) {
 	for _, st := range []State{{Mode: state.ModeResidential, HotspotRunning: true}, {Mode: state.ModeMullvad}} {
 		controller := &vpnController{}
-		srv := New(&vpnStateReader{value: st}, nil, controller, nil, nil, nil, nil)
+		srv := New(&vpnStateReader{value: st}, nil, controller, nil, nil, nil)
 		res := httptest.NewRecorder()
 		srv.handleHotspot(res, httptest.NewRequest(http.MethodPost, "/api/hotspot/repair-vpn", nil))
 		if res.Code != http.StatusConflict {

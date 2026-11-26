@@ -53,7 +53,7 @@ export function RepoRootPicker({ repo, branch, value, onChange, disabled }: Prop
 
   if (!repo || !branch) {
     return (
-      <Empty compact title="Pick a repo and branch first" body="Then browse folders for go.mod or Cargo.toml." />
+      <Empty compact title="Pick a repo and branch first" body="Then browse folders for go.mod." />
     )
   }
 

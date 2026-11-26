@@ -14,7 +14,6 @@ import (
 	"firewifi/dashboard/internal/deploy"
 	"firewifi/dashboard/internal/infra"
 	"firewifi/dashboard/internal/runner"
-	"firewifi/dashboard/internal/screenapp"
 	"firewifi/dashboard/internal/server"
 	"firewifi/dashboard/internal/state"
 )
@@ -25,9 +24,6 @@ func main() {
 	homeDir := resolveHomeDir()
 
 	r := runner.New(baseDir)
-	syncrox := screenapp.New("SYNCROX", filepath.Join(homeDir, "apps", "syncrox"), "syncrox",
-		"PORT="+envOr("SYNCROX_PORT", "5090"),
-	)
 	pg := infra.NewPostgres(baseDir)
 	mn := infra.NewMinIO(baseDir)
 	dep := deploy.NewManager(baseDir, homeDir, pg, mn)
@@ -37,7 +33,6 @@ func main() {
 		state.NewReader(baseDir),
 		r,
 		r,
-		syncrox,
 		&configAdapter{baseDir},
 		dep,
 		pg,

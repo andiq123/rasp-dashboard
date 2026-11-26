@@ -37,11 +37,6 @@ type HotspotController interface {
 	RepairVPN(ctx context.Context) error
 }
 
-type AppController interface {
-	Start(ctx context.Context) error
-	Stop(ctx context.Context) error
-}
-
 type ConfigProvider interface {
 	Load() (Config, error)
 	Save(Config) error
@@ -51,7 +46,6 @@ type Server struct {
 	State     StateReader
 	Switcher  ModeSwitcher
 	Hotspot   HotspotController
-	Syncrox   AppController
 	Config    ConfigProvider
 	Deploy    *deploy.Manager
 	Postgres  *infra.Postgres
@@ -66,7 +60,6 @@ func New(
 	st StateReader,
 	switcher ModeSwitcher,
 	hotspot HotspotController,
-	syncrox AppController,
 	cfg ConfigProvider,
 	dep *deploy.Manager,
 	pg *infra.Postgres,
@@ -75,7 +68,6 @@ func New(
 		State:    st,
 		Switcher: switcher,
 		Hotspot:  hotspot,
-		Syncrox:  syncrox,
 		Config:   cfg,
 		Deploy:   dep,
 		Postgres: pg,
@@ -124,8 +116,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/hotspot/repair-vpn", s.handleHotspot)
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/ready", s.handleReady)
-	mux.HandleFunc("/api/syncrox/start", s.handleAppController(func() AppController { return s.Syncrox }))
-	mux.HandleFunc("/api/syncrox/stop", s.handleAppController(func() AppController { return s.Syncrox }))
 	mux.HandleFunc("/api/config", s.handleAPIConfig)
 	mux.HandleFunc("/api/ports", s.handlePorts)
 	mux.HandleFunc("/api/github/", s.handleGitHub)
@@ -460,34 +450,6 @@ func (s *Server) handleHotspot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	okReply(w)
-}
-
-func (s *Server) handleAppController(get func() AppController) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			methodNotAllowed(w)
-			return
-		}
-		ctrl := get()
-		if ctrl == nil {
-			http.Error(w, "controller not configured", http.StatusNotImplemented)
-			return
-		}
-		var err error
-		if strings.HasSuffix(r.URL.Path, "/start") {
-			err = ctrl.Start(r.Context())
-		} else if strings.HasSuffix(r.URL.Path, "/stop") {
-			err = ctrl.Stop(r.Context())
-		} else {
-			http.NotFound(w, r)
-			return
-		}
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		okReply(w)
-	}
 }
 
 func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {

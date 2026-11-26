@@ -96,15 +96,7 @@ func goModDir(path string) string {
 	if path == "go.mod" {
 		return ""
 	}
-	if path == "Cargo.toml" {
-		return ""
-	}
-	for _, file := range []string{"/go.mod", "/Cargo.toml"} {
-		if strings.HasSuffix(path, file) {
-			return strings.TrimSuffix(path, file)
-		}
-	}
-	return path
+	return strings.TrimSuffix(path, "/go.mod")
 }
 
 func (m *Manager) listGoModPaths(ctx context.Context, repo, branch, token string) ([]string, bool, error) {
@@ -128,9 +120,8 @@ func (m *Manager) listGoModPaths(ctx context.Context, repo, branch, token string
 		if e.Type != "blob" {
 			continue
 		}
-		// A Cargo.toml marks a Rust service root the same way go.mod marks a Go one.
 		base := e.Path[strings.LastIndex(e.Path, "/")+1:]
-		if base == "go.mod" || base == "Cargo.toml" {
+		if base == "go.mod" {
 			paths = append(paths, e.Path)
 		}
 	}

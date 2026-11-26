@@ -14,7 +14,6 @@ web-ui/src/
 
 ```bash
 ./scripts/build-ui.sh          # reusable: npm + go generate → dist/
-./scripts/prod.sh              # UI + production binary (+ systemd restart on Pi)
 ```
 
 Or manually:
@@ -24,7 +23,7 @@ go generate ./internal/server/web
 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -buildvcs=false -o firewifi-dashboard .
 ```
 
-The binary embeds `dist/` at **compile time**. After `git pull` on the Pi, run `./scripts/prod.sh` so the running service gets the new UI.
+The binary embeds `dist/` at **compile time**. After `git pull` on the Pi, rebuild the binary and restart the service (see the root README).
 
 ## Dev
 

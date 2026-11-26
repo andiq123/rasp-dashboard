@@ -5,5 +5,4 @@ React dashboard source. Production assets are packed into `../internal/server/we
 ```bash
 npm run dev      # Vite, proxies /api → :8484
 ./scripts/build-ui.sh   # from repo root — pack into embed dist
-./scripts/prod.sh       # from repo root — pack UI + production binary
 ```

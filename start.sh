@@ -25,7 +25,6 @@ echo "    app    http://localhost:${PORT}"
 echo "    reload http://localhost:8490  (Air proxy · auto browser refresh)"
 echo "    data   ${FIREWIFI_BASE}"
 echo "    ui     web-ui/src → rebuild on change"
-echo "    prod   ./scripts/prod.sh"
 echo "    stop   Ctrl+C"
 echo
 

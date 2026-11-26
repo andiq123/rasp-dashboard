@@ -62,7 +62,6 @@ export type AppState = {
   vpn_repair?: VPNRepair
   issues?: HealthIssue[]
   proxy_running?: boolean
-  syncrox_running?: boolean
   device_metrics?: DeviceMetrics
   files_root?: string
   generated_at?: string

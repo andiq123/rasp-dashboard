@@ -30,44 +30,20 @@ npm run dev
 Root-level npm commands proxy to `web-ui/`. Run `npm run build`, `npm run typecheck`,
 `npm run lint`, or `npm run check` directly from the checkout root.
 
-## Production (Pi) — get latest + rebuild
+## Production (Pi) — rebuild
 
-One command on the Pi syncs to remote, reloads the newly pulled updater, incrementally builds what changed, and restarts when needed:
+The UI is embedded at compile time, so rebuild the binary after every pull:
 
 ```bash
 cd ~/sources/dashboard
-./scripts/update.sh
+git pull
+./scripts/build-ui.sh
+CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -buildvcs=false -o ~/apps/firewifi-dashboard .
+systemctl --user restart firewifi-dashboard.service
 ```
 
-The updater:
-
-1. `git fetch` + `reset --hard` to upstream (overrides local/stale tracked files; refuses if you have unpushed commits)
-2. Re-executes the newly downloaded `update.sh`, so updater changes apply immediately
-3. Runs `npm ci` only when dependencies changed or are missing
-4. Rebuilds the embedded UI only when its sources changed
-5. Uses Go's build cache and atomically replaces `FIREWIFI_BIN`
-6. Restarts and verifies `firewifi-dashboard.service` after a new binary is built
-
-When the checkout, UI, binary, and service are already current, the command exits immediately. Node memory and Go compiler parallelism are capped automatically on low-memory Pis.
-
-```bash
-# rebuild current checkout only (no git sync)
-FIREWIFI_SKIP_PULL=1 ./scripts/update.sh
-
-# build only (no systemd)
-FIREWIFI_SKIP_RESTART=1 ./scripts/update.sh
-
-# custom binary path
-FIREWIFI_BIN=/usr/local/bin/firewifi-dashboard ./scripts/update.sh
-
-# deliberately discard caches and rebuild everything
-FIREWIFI_CLEAN=1 FIREWIFI_FORCE=1 ./scripts/update.sh
-```
-
-`./scripts/prod.sh` is incremental build+restart only (no git sync).
-`./scripts/rebuild-dashboard.sh` aliases `prod.sh`.
-
-**Important:** the UI is compile-time embedded. `git pull` alone does not update a running binary — run `./scripts/update.sh`.
+Commit and push changes before pulling on the Pi; there is no updater that resets
+the checkout.
 
 ## Deployable services
 
@@ -77,11 +53,8 @@ an Alpine container with `PORT` set and linked database / bucket / Redis env inj
 | Source | Detected by | Build |
 |--------|-------------|-------|
 | Go | `go.mod` in the root directory | `go build` in a `golang` container (custom build command allowed) |
-| Rust | `Cargo.toml` (and no `go.mod`) | `cargo build --release --locked` in `rust:alpine`, static musl binary |
 
-Rust builds share one Cargo registry cache and keep compiled artifacts per service, so
-only the first build is slow (20–40 minutes on a Pi 4; later deploys recompile what
-changed). The app must listen on `PORT` on all interfaces.
+The app must listen on `PORT` on all interfaces.
 
 ## Service networking
 
@@ -171,13 +144,9 @@ Routing tests: `python3 -m unittest discover -s scripts -p 'test_cloudflare_rout
 | `FIREWIFI_BASE` | Config / token base directory |
 | `HOME` | Deployments root (`$HOME/deployments`) and default paths |
 | `PORT` | Listen port (default `8484`) |
-| `FIREWIFI_BIN` | Production binary path for `prod.sh` / `update.sh` |
-| `FIREWIFI_SKIP_RESTART=1` | `prod.sh` / `update.sh` builds only |
-| `FIREWIFI_SKIP_PULL=1` | `update.sh` skips git sync |
 | `FIREWIFI_CLEAN=1` | Force `npm ci` and wipe frontend build caches |
-| `FIREWIFI_FORCE=1` | Force UI/binary rebuild even when inputs are current |
+| `FIREWIFI_FORCE=1` | Force a UI rebuild even when inputs are current |
 | `FIREWIFI_NODE_MEMORY_MB` | Override the automatically selected Node heap cap |
-| `FIREWIFI_BUILD_JOBS` | Override Go compiler parallelism |
 
 ## Layout
 
@@ -187,8 +156,6 @@ Routing tests: `python3 -m unittest discover -s scripts -p 'test_cloudflare_rout
 - `internal/server` — HTTP API + SSE
 - `internal/server/web` — embeds Vite `dist/` + `go generate`
 - `scripts/build-ui.sh` — reusable UI pack into embed dist
-- `scripts/prod.sh` — production UI + binary + restart
-- `scripts/update.sh` — upstream sync then `prod.sh` (Pi one-liner)
 - `scripts/air-build.sh` — Air incremental build
 - `start.sh` — local Air dev entrypoint
 

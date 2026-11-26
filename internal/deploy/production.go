@@ -82,7 +82,6 @@ type envStackHints struct {
 	Go   bool // Go service / module
 	Gin  bool // gin-gonic present or GIN_MODE already set
 	Node bool // package.json present or NODE_ENV already set by the app
-	Rust bool // Cargo project: Go conventions (APP_ENV, GO_ENV, generated secrets) do not apply
 }
 
 // frameworkEnvKeys are never stored on postgres/bucket connection services.
@@ -101,7 +100,6 @@ func detectEnvStackHints(srcDir string) envStackHints {
 		h.Go = true
 		h.Gin = moduleRequiresGin(srcDir)
 	}
-	h.Rust = isRustProject(srcDir)
 	if _, err := os.Stat(filepath.Join(srcDir, "package.json")); err == nil {
 		h.Node = true
 	}
@@ -173,7 +171,7 @@ func sanitizeServiceEnv(body string, svcType string, hints envStackHints) string
 	case TypePostgres, TypeBucket, TypeRedis:
 		return clearEnvKeys(body, frameworkEnvKeys...)
 	case TypeGo:
-		hints.Go = !hints.Rust
+		hints.Go = true
 		return ensureProductionEnv(body, hints)
 	default:
 		return body
