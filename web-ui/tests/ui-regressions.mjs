@@ -80,6 +80,8 @@ assert.equal(links({ ...base, hotspot_running: false }), 'flow,flow,flow,blocked
 assert.equal(links({ ...base, clients: 0 }), 'flow,flow,flow,flow,idle', 'No connected devices: nothing to deliver')
 assert.equal(links({ ...base, mode: 'residential', proxy_running: false }), 'flow,flow,blocked,idle,idle', 'Residential mode gates on the proxy')
 assert.equal(links({ mode: 'mullvad', hotspot_running: false }), 'idle,idle,idle,idle,idle', 'Before the first state nothing claims to flow')
+const busyPi = computeFlow({ ...base, traffic: { uplink_bps: 900_000, tunnel_bps: 850_000, hotspot_bps: 0 } }, false).rates
+assert.deepEqual(busyPi, [900_000, 900_000, 850_000, 0, 0], 'Pi updates speed up Ethernet and the tunnel only; the Wi-Fi side follows Wi-Fi traffic')
 const { appsAt, findSpikes, summarizeApps } = await load('lib/appHistory.ts')
 const appA = { group: 'g', slug: 'a', name: 'api', type: 'go', points: [{ at: 100, cpu_percent: 80, memory_mb: 50 }, { at: 130, cpu_percent: 10, memory_mb: 40 }] }
 const appB = { group: 'g', slug: 'b', name: 'db', type: 'postgres', points: [{ at: 100, cpu_percent: 20, memory_mb: 200 }, { at: 130, cpu_percent: 40, memory_mb: 210 }] }

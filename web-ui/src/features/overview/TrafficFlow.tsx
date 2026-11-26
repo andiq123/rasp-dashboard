@@ -22,7 +22,8 @@ export function trafficLevel(bps: number): 0 | 1 | 2 | 3 {
 }
 
 const levelDuration = ['2.8s', '1.9s', '1.2s', '0.75s']
-const levelPackets = [1, 2, 3, 3]
+// Idle links stay still: packets only move when data actually flows.
+const levelPackets = [0, 2, 3, 3]
 
 function fmtRate(bps: number): string {
   if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)} MB/s`
@@ -97,12 +98,15 @@ export function computeFlow(state: AppState, recovering: boolean, switchingTo?: 
     else links.push('idle') // carrying, but nobody to deliver to (no devices)
     carrying = next.state === 'ok'
   }
-  // Each link animates at the speed of the interface that carries it.
+  // Each link animates at the speed of the interface that actually carries it:
+  // Ethernet for the uplink, the tunnel for Pi → gate (the Pi's own updates
+  // use it too), and Wi‑Fi for everything after the gate, so the device side
+  // stays calm unless devices are really using it.
   const t = state.traffic || {}
   const uplinkRate = t.uplink_bps || 0
-  const tunnelRate = mode === 'mullvad' ? t.tunnel_bps || 0 : t.hotspot_bps || 0
   const hotspotRate = t.hotspot_bps || 0
-  return { nodes, links, rates: [uplinkRate, uplinkRate, tunnelRate, tunnelRate, hotspotRate] }
+  const gateRate = mode === 'mullvad' ? t.tunnel_bps || 0 : hotspotRate
+  return { nodes, links, rates: [uplinkRate, uplinkRate, gateRate, hotspotRate, hotspotRate] }
 }
 
 const linkTone: Record<LinkState, string> = { flow: 'tone-ok', blocked: 'tone-bad', busy: 'tone-busy', idle: 'tone-idle' }
@@ -119,7 +123,7 @@ function FlowLink({ state, bps }: { state: LinkState; bps: number }) {
       aria-hidden
       title={title}
     >
-      {Array.from({ length: state === 'flow' ? levelPackets[level] : 2 }, (_, k) => <i key={k} className="flow-packet" />)}
+      {Array.from({ length: state === 'flow' ? levelPackets[level] : state === 'idle' ? 0 : 2 }, (_, k) => <i key={k} className="flow-packet" />)}
       {state === 'blocked' ? <Ban className="flow-barrier" /> : null}
     </span>
   )
@@ -151,19 +155,25 @@ function BranchInfo({ title, line }: { title: string; line: string }) {
   )
 }
 
+const BRANCH_MIN_WIDTH = 300
+
 /** Branch under the Pi: apps → public links → internet, directly over Ethernet. */
-function Branch({ branch, x }: { branch: FlowBranch; x: number }) {
+function Branch({ branch, x, compact }: { branch: FlowBranch; x: number; compact: boolean }) {
   const apps: FlowNode = { id: 'apps', label: 'Your apps', icon: Package, detail: branch.apps === 1 ? '1 running' : `${branch.apps} running`, state: branch.apps ? 'ok' : 'idle' }
   const links: FlowNode = {
     id: 'links', label: 'Public links', icon: Cloud,
     detail: branch.links ? `${branch.liveLinks} of ${branch.links} live` : 'None',
     state: !branch.links ? 'idle' : branch.liveLinks === branch.links ? 'ok' : 'bad',
   }
-  const net: FlowNode = { id: 'direct', label: 'Internet', icon: Globe, detail: 'Direct, no VPN', state: branch.internet ? 'ok' : 'bad' }
+  const net: FlowNode = { id: 'direct', label: 'Internet', icon: Globe, detail: 'No VPN', state: branch.internet ? 'ok' : 'bad' }
   const carry = branch.internet && branch.apps > 0
   return (
-    <div className="flow-branch" style={{ '--branch-x': `${x}px` } as React.CSSProperties} aria-label="Apps and public links skip the VPN">
-      <span className="branch-elbow tone-ok" aria-hidden />
+    <div
+      className={`flow-branch${compact ? ' is-compact' : ''}`}
+      style={{ '--branch-x': `${x}px` } as React.CSSProperties}
+      aria-label="Apps and public links skip the VPN"
+    >
+      {compact ? <span className="branch-from">From the Pi</span> : <span className="branch-elbow tone-ok" aria-hidden />}
       <FlowLink state={carry ? 'flow' : 'idle'} bps={branch.bps} />
       <NodeView node={apps} info={<BranchInfo title="Your apps" line="Deployed apps run on the Pi as their own user and reach the internet over Ethernet directly, so they never depend on the Mullvad tunnel." />} />
       <FlowLink state={carry && branch.links ? 'flow' : 'idle'} bps={branch.bps} />
@@ -179,6 +189,7 @@ export function TrafficFlow({ flow, state, branch }: { flow: Flow; state: AppSta
   const last = flow.nodes.length - 1
   const wrap = useRef<HTMLDivElement>(null)
   const [piX, setPiX] = useState(0)
+  const [room, setRoom] = useState(0)
   const hasBranch = !!branch
   // Start the branch exactly under the Pi icon, wherever the layout puts it.
   useLayoutEffect(() => {
@@ -190,6 +201,7 @@ export function TrafficFlow({ flow, state, branch }: { flow: Flow; state: AppSta
       const a = el.getBoundingClientRect()
       const b = icon.getBoundingClientRect()
       setPiX(Math.round(b.left + b.width / 2 - a.left))
+      setRoom(Math.round(a.right - (b.left + b.width / 2)))
     }
     measure()
     const ro = new ResizeObserver(measure)
@@ -228,7 +240,8 @@ export function TrafficFlow({ flow, state, branch }: { flow: Flow; state: AppSta
         </li>
       ))}
     </ol>
-      {branch && piX ? <Branch branch={branch} x={piX} /> : null}
+      {/* Under the Pi when there is room for three steps; otherwise a compact row. */}
+      {branch && piX ? <Branch branch={branch} x={piX} compact={room < BRANCH_MIN_WIDTH} /> : null}
     </div>
   )
 }
