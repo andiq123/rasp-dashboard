@@ -462,9 +462,10 @@ func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		// Never echo the Wi‑Fi password; UI shows a placeholder when set.
+		// The dashboard is local; the Wi‑Fi password is shown so it can be shared.
 		jsonReply(w, Config{
 			SSID:        cfg.SSID,
+			Password:    cfg.Password,
 			PasswordSet: cfg.Password != "",
 			HotspotIP:   cfg.HotspotIP,
 			DHCPStart:   cfg.DHCPStart,

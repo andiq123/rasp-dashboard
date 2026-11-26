@@ -1,4 +1,6 @@
-import { createContext, useContext, useId } from 'react'
+import { createContext, useContext, useId, useState } from 'react'
+import { Copy, Eye, EyeOff } from 'lucide-react'
+import { writeClipboardText } from '@/lib/clipboard'
 import type { InputHTMLAttributes, ReactNode, TextareaHTMLAttributes, SelectHTMLAttributes } from 'react'
 import { muted } from '@/lib/ui'
 
@@ -48,5 +50,46 @@ export function Select({ className = '', children, ...rest }: SelectHTMLAttribut
     <select id={field?.id} aria-describedby={field?.description} className={`select w-full ${className}`} {...rest}>
       {children}
     </select>
+  )
+}
+
+/** Password input with Show/Hide and Copy, for secrets that are fine to reveal locally. */
+export function PasswordInput({ className = '', defaultValue, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
+  const field = useContext(FieldContext)
+  const [shown, setShown] = useState(false)
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="password-input">
+      <input
+        id={field?.id}
+        aria-describedby={field?.description}
+        type={shown ? 'text' : 'password'}
+        defaultValue={defaultValue}
+        className={`input w-full ${className}`}
+        {...rest}
+      />
+      <button type="button" className="password-btn" onClick={() => setShown((v) => !v)} aria-label={shown ? 'Hide password' : 'Show password'} aria-pressed={shown}>
+        {shown ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
+      </button>
+      <button
+        type="button"
+        className="password-btn"
+        aria-label="Copy password"
+        title={copied ? 'Copied' : 'Copy'}
+        onClick={async (e) => {
+          const input = (e.currentTarget.parentElement?.querySelector('input') as HTMLInputElement | null)
+          if (!input?.value) return
+          try {
+            await writeClipboardText(input.value)
+            setCopied(true)
+            window.setTimeout(() => setCopied(false), 1500)
+          } catch {
+            /* clipboard unavailable: the value is visible with Show */
+          }
+        }}
+      >
+        <Copy aria-hidden />
+      </button>
+    </div>
   )
 }

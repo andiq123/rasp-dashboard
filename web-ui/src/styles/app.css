@@ -549,6 +549,15 @@ button:not(:disabled), summary { cursor: pointer; }
 .secret pre { word-break: break-all; white-space: pre-wrap; }
 .secret-actions { display: flex; justify-content: flex-end; gap: 2px; }
 
+/* Password with Show and Copy inside the field. */
+.password-input { position: relative; display: flex; align-items: center; }
+.password-input .input { padding-right: 72px; }
+.password-btn { position: absolute; display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 8px; background: none; color: var(--ink-muted); transition: background-color var(--dur-quick), color var(--dur-quick); }
+.password-btn:hover { background: color-mix(in oklab, var(--color-base-content) 6%, transparent); color: var(--color-base-content); }
+.password-btn svg { width: 15px; height: 15px; }
+.password-btn:nth-of-type(1) { right: 36px; }
+.password-btn:nth-of-type(2) { right: 4px; }
+
 /* Settings: two columns on wide screens. */
 .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
 .settings-col { display: grid; gap: 14px; min-width: 0; }

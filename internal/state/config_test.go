@@ -65,3 +65,27 @@ func TestSaveConfigAppendsMissingKeys(t *testing.T) {
 		t.Fatalf("want ErrInvalidConfig, got %v", err)
 	}
 }
+
+func TestSaveConfigKeepsFieldsLeftEmpty(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env := "SSID=Old\nPASSWORD=secret123\nHOTSPOT_IP=192.168.5.1\nDHCP_START=192.168.5.10\nDHCP_END=192.168.5.250\n"
+	if err := os.WriteFile(filepath.Join(dir, "config", "env"), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveConfig(dir, Config{SSID: "FireWifi"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SSID != "FireWifi" || got.Password != "secret123" || got.HotspotIP != "192.168.5.1" || got.DHCPStart != "192.168.5.10" || got.DHCPEnd != "192.168.5.250" {
+		t.Fatalf("got %+v", got)
+	}
+	if err := SaveConfig(dir, Config{Password: "short"}); err == nil {
+		t.Fatal("a password under 8 characters must be rejected")
+	}
+}

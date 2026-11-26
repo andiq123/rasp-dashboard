@@ -94,8 +94,6 @@ export function FlowInfo({ node, state }: { node: FlowNode; state: AppState }) {
       rows = [
         { label: 'Network', value: state.ssid || '—' },
         { label: 'Wi‑Fi traffic', value: fmtRate(state.traffic?.hotspot_bps) },
-        { label: 'Gateway', value: state.hotspot_ip || '—' },
-        { label: 'Address pool', value: state.dhcp_start && state.dhcp_end ? `${state.dhcp_start} – ${state.dhcp_end}` : '—' },
       ]
       break
     case 'devices': {

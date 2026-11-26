@@ -791,10 +791,25 @@ var ErrInvalidConfig = errors.New("invalid config")
 // Empty Password keeps the previously stored value.
 func SaveConfig(baseDir string, c Config) error {
 	path := filepath.Join(baseDir, "config", "env")
-	if strings.TrimSpace(c.Password) == "" {
-		if prev, err := LoadConfig(baseDir); err == nil {
-			c.Password = prev.Password
+	// Fields left empty keep their current value, so a form that only edits the
+	// name and password can never blank the gateway or address pool.
+	if prev, err := LoadConfig(baseDir); err == nil {
+		keep := func(v *string, old string) {
+			if strings.TrimSpace(*v) == "" {
+				*v = old
+			}
 		}
+		keep(&c.SSID, prev.SSID)
+		keep(&c.Password, prev.Password)
+		keep(&c.HotspotIP, prev.HotspotIP)
+		keep(&c.DHCPStart, prev.DHCPStart)
+		keep(&c.DHCPEnd, prev.DHCPEnd)
+	}
+	if strings.TrimSpace(c.SSID) == "" {
+		return fmt.Errorf("%w: the network name cannot be empty", ErrInvalidConfig)
+	}
+	if n := len(c.Password); n > 0 && (n < 8 || n > 63) {
+		return fmt.Errorf("%w: the Wi-Fi password must be 8 to 63 characters", ErrInvalidConfig)
 	}
 	lines, err := readLines(path)
 	if err != nil {

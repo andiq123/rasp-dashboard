@@ -27,7 +27,7 @@ import { Button } from '@/components/ui/Button/Button'
 import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { Disclosure } from '@/components/ui/Disclosure/Disclosure'
 import { Empty } from '@/components/ui/Empty/Empty'
-import { Field, Input } from '@/components/ui/Field/Field'
+import { Field, Input, PasswordInput } from '@/components/ui/Field/Field'
 import { KeyValues, type KeyValue } from '@/components/ui/KeyValues/KeyValues'
 import { Notice } from '@/components/ui/Notice/Notice'
 import { Panel } from '@/components/ui/Panel/Panel'
@@ -250,8 +250,6 @@ export function OverviewPage() {
 
   const details: KeyValue[] = [
     { label: 'Network name', value: state.ssid || '—' },
-    { label: 'Gateway', value: state.hotspot_ip || '—' },
-    { label: 'Address pool', value: state.dhcp_start && state.dhcp_end ? `${state.dhcp_start} – ${state.dhcp_end}` : 'Not set' },
     ...(mode === 'mullvad'
       ? ([
           { label: 'Relay', value: vpn.relay || 'Unknown' },
@@ -483,22 +481,11 @@ export function OverviewPage() {
                   }}
                 >
                   <Field label="Network name" tip="The Wi‑Fi name devices see.">
-                    <Input name="ssid" defaultValue={c.ssid || state.ssid || ''} />
+                    <Input name="ssid" required defaultValue={c.ssid || state.ssid || ''} />
                   </Field>
-                  <Field label="Password" tip={c.password_set ? 'Leave blank to keep the current one.' : 'At least 8 characters.'}>
-                    <Input name="password" type="password" autoComplete="new-password" />
+                  <Field label="Password" tip="8 to 63 characters.">
+                    <PasswordInput key={c.password || ''} name="password" autoComplete="off" minLength={8} maxLength={63} defaultValue={c.password || ''} />
                   </Field>
-                  <Field label="Gateway" tip="Address devices use to reach the Pi.">
-                    <Input name="hotspot_ip" defaultValue={c.hotspot_ip || state.hotspot_ip || ''} />
-                  </Field>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Field label="Pool start">
-                      <Input name="dhcp_start" defaultValue={c.dhcp_start || state.dhcp_start || ''} />
-                    </Field>
-                    <Field label="Pool end">
-                      <Input name="dhcp_end" defaultValue={c.dhcp_end || state.dhcp_end || ''} />
-                    </Field>
-                  </div>
                   <div className="sm:col-span-2 flex justify-end">
                     <Button type="submit" variant="primary" loading={save.isPending}>
                       Save settings

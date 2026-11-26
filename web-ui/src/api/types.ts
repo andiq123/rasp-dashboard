@@ -112,6 +112,7 @@ export type AppState = {
 
 export type Config = {
   ssid?: string
+  password?: string
   password_set?: boolean
   hotspot_ip?: string
   dhcp_start?: string
