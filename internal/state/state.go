@@ -56,6 +56,7 @@ type State struct {
 	Uplink         Uplink          `json:"uplink"`
 	Traffic        Traffic         `json:"traffic"`
 	Routing        ServiceRouting  `json:"routing"`
+	NetUsers       []NetUser       `json:"net_users,omitempty"`
 	Clients        *int            `json:"clients,omitempty"`
 	Devices        []Device        `json:"devices,omitempty"`
 	MullvadAccount *MullvadAccount `json:"mullvad_account,omitempty"`
@@ -184,6 +185,7 @@ type Reader struct {
 	account           accountCache
 	traffic           trafficCache
 	routing           routingCache
+	netUsers          netUsersCache
 }
 
 type metricsSample struct {
@@ -223,6 +225,7 @@ func (r *Reader) Read() (State, error) {
 		Uplink:         r.readUplink(cfg.WANInterface),
 		Traffic:        r.readTraffic(cfg.WANInterface, cfg.WGInterface),
 		Routing:        r.readServiceRouting(),
+		NetUsers:       r.readNetUsers(),
 		DeviceMetrics:  metrics,
 		GeneratedAt:    time.Now().Format(time.RFC3339),
 	}

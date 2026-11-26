@@ -729,18 +729,37 @@ button:not(:disabled), summary { cursor: pointer; }
 
 .flow-link { position: relative; flex: 1 1 auto; min-width: 10px; height: 2px; margin: 16px 2px 0; border-radius: 2px; background: color-mix(in oklab, var(--tone) 28%, transparent); transition: background-color var(--dur-slow) var(--ease-standard); }
 .flow-packet { position: absolute; top: 50%; left: 0; width: 5px; height: 5px; margin-top: -2.5px; border-radius: 50%; background: var(--tone); opacity: 0; }
-.flow-link.is-flow .flow-packet { animation: packet-flow var(--flow-dur, 1.9s) linear infinite; }
-/* Packets spread evenly along the link; busier links carry more, faster ones. */
-.flow-link.is-flow:is(.level-0, .level-1) .flow-packet:nth-child(2) { animation-delay: calc(var(--flow-dur) * -0.5); }
-.flow-link.is-flow:is(.level-2, .level-3) .flow-packet:nth-child(2) { animation-delay: calc(var(--flow-dur) * -0.33); }
-.flow-link.is-flow:is(.level-2, .level-3) .flow-packet:nth-child(3) { animation-delay: calc(var(--flow-dur) * -0.66); }
+.flow-link.is-flow .flow-packet { animation: packet-flow var(--flow-dur, 3.4s) linear infinite; }
+/* Two streams per link: solid packets bring data in, hollow rings carry requests
+   out. Each spreads its packets evenly and fades out when its direction is quiet. */
+.flow-packets.rev .flow-packet { animation-direction: reverse; }
+.flow-packets:is(.level-0, .level-1) .flow-packet:nth-child(2) { animation-delay: calc(var(--flow-dur) * -0.5); }
+.flow-packets:is(.level-2, .level-3) .flow-packet:nth-child(2) { animation-delay: calc(var(--flow-dur) * -0.33); }
+.flow-packets:is(.level-2, .level-3) .flow-packet:nth-child(3) { animation-delay: calc(var(--flow-dur) * -0.66); }
+.flow-packets.is-out .flow-packet { background: var(--surface-panel); box-shadow: inset 0 0 0 1.5px var(--tone); }
+.flow-packets.is-out { margin-top: -0.5px; }
 .flow-link.is-flow.level-0 { background: color-mix(in oklab, var(--tone) 20%, transparent); }
-/* Packets cross-fade with traffic: invisible when idle, fading in as data flows. */
-.flow-packets { position: absolute; inset: 0; opacity: 1; transition: opacity 600ms var(--ease-standard); }
-.flow-link.level-0 .flow-packets, .flow-link.is-idle .flow-packets { opacity: 0; }
-.flow-link.level-0.is-flow .flow-packet { animation-duration: 2.8s; }
 .flow-link.is-flow.level-3 { background: color-mix(in oklab, var(--tone) 42%, transparent); }
-.flow-link.is-flow.level-3 .flow-packet { box-shadow: 0 0 6px 1px color-mix(in oklab, var(--tone) 55%, transparent); }
+.flow-packets.level-3:not(.is-out) .flow-packet { box-shadow: 0 0 6px 1px color-mix(in oklab, var(--tone) 55%, transparent); }
+/* Packets cross-fade with traffic: invisible when idle, fading in as data flows. */
+.flow-packets { position: absolute; inset: 0; opacity: 1; transition: opacity 700ms var(--ease-standard); }
+.flow-packets.level-0, .flow-link.is-idle .flow-packets { opacity: 0; }
+
+/* Legend for the two packet styles. */
+.flow-legend { display: flex; justify-content: flex-end; gap: 14px; margin-top: 2px; font-size: 10.5px; color: var(--ink-faint); }
+.flow-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.flow-legend i { width: 6px; height: 6px; border-radius: 50%; }
+.legend-in { background: var(--color-success); }
+.legend-out { box-shadow: inset 0 0 0 1.5px var(--color-success); }
+
+/* Who is using the internet, in popups. */
+.use-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.use-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 3px 10px; align-items: baseline; padding: 5px 0; border-top: 1px solid var(--line-soft); font-size: var(--text-micro); }
+.use-name { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.use-rate { font-variant-numeric: tabular-nums; color: var(--color-success); }
+.use-rate.is-out { color: var(--ink-muted); }
+.use-conn { grid-column: 1 / -1; color: var(--ink-faint); }
+
 .flow-link.is-flow, .flow-link.is-blocked, .flow-link.is-busy { animation: link-wake var(--dur-slow) var(--ease-standard); }
 /* Held traffic: packets arrive, hit the barrier and fade. */
 .flow-link.is-blocked { background: repeating-linear-gradient(90deg, var(--tone) 0 4px, transparent 4px 7px); }
@@ -780,7 +799,7 @@ button:not(:disabled), summary { cursor: pointer; }
 }
 
 /* Branch under the Pi: apps and public links leave over Ethernet, skipping the VPN. */
-.flow-wrap { display: grid; gap: 8px; }
+.flow-wrap { position: relative; z-index: 2; display: grid; gap: 8px; }
 .flow-wrap .flow-node { position: relative; z-index: 1; }
 .flow-branch { display: flex; align-items: flex-start; padding-left: calc(var(--branch-x) - 1px); animation: rise-in var(--dur-slow) var(--ease-out-soft) both; }
 .branch-elbow {

@@ -80,12 +80,16 @@ assert.equal(links({ ...base, hotspot_running: false }), 'flow,flow,flow,blocked
 assert.equal(links({ ...base, clients: 0 }), 'flow,flow,flow,flow,idle', 'No connected devices: nothing to deliver')
 assert.equal(links({ ...base, mode: 'residential', proxy_running: false }), 'flow,flow,blocked,idle,idle', 'Residential mode gates on the proxy')
 assert.equal(links({ mode: 'mullvad', hotspot_running: false }), 'idle,idle,idle,idle,idle', 'Before the first state nothing claims to flow')
-const busyPi = computeFlow({ ...base, traffic: { uplink_bps: 900_000, tunnel_bps: 850_000, hotspot_bps: 0 } }, false).rates
-assert.deepEqual(busyPi, [900_000, 900_000, 850_000, 0, 0], 'Pi updates speed up Ethernet and the tunnel only; the Wi-Fi side follows Wi-Fi traffic')
+const rates = (traffic) => computeFlow({ ...base, traffic }, false).rates
+const piBusy = { uplink_down_bps: 800_000, uplink_up_bps: 100_000, tunnel_down_bps: 760_000, tunnel_up_bps: 60_000, hotspot_down_bps: 0, hotspot_up_bps: 0 }
+const busyPi = rates(piBusy)
+assert.deepEqual(busyPi[0], { down: 800_000, up: 100_000 }, 'Ethernet carries the download in and requests out')
+assert.deepEqual(busyPi[2], { down: 760_000, up: 60_000 }, 'Pi → Mullvad follows the tunnel')
+assert.deepEqual(busyPi[3], { down: 0, up: 0 }, 'Pi updates do not move the Wi-Fi side')
 const activeIds = (traffic) => computeFlow({ ...base, traffic }, false).nodes.filter((n) => n.active).map((n) => n.id).join(',')
-assert.equal(activeIds({ uplink_bps: 900_000, tunnel_bps: 850_000, hotspot_bps: 0 }), 'pi', 'The Pi is highlighted when it is the one downloading')
-assert.equal(activeIds({ uplink_bps: 600_000, tunnel_bps: 550_000, hotspot_bps: 540_000 }), 'devices', 'Devices are highlighted when Wi-Fi traffic explains the tunnel traffic')
-assert.equal(activeIds({ uplink_bps: 500, tunnel_bps: 300, hotspot_bps: 0 }), '', 'Nothing is highlighted while idle')
+assert.equal(activeIds(piBusy), 'pi', 'The Pi is highlighted when it is the one downloading')
+assert.equal(activeIds({ tunnel_down_bps: 500_000, tunnel_up_bps: 40_000, hotspot_down_bps: 495_000, hotspot_up_bps: 38_000 }), 'devices', 'Devices are highlighted when Wi-Fi traffic explains the tunnel traffic')
+assert.equal(activeIds({ uplink_down_bps: 900, tunnel_down_bps: 300 }), '', 'Nothing is highlighted while idle')
 const { appsAt, findSpikes, summarizeApps } = await load('lib/appHistory.ts')
 const appA = { group: 'g', slug: 'a', name: 'api', type: 'go', points: [{ at: 100, cpu_percent: 80, memory_mb: 50 }, { at: 130, cpu_percent: 10, memory_mb: 40 }] }
 const appB = { group: 'g', slug: 'b', name: 'db', type: 'postgres', points: [{ at: 100, cpu_percent: 20, memory_mb: 200 }, { at: 130, cpu_percent: 40, memory_mb: 210 }] }

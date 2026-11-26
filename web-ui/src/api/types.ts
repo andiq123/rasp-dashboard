@@ -90,7 +90,18 @@ export type AppState = {
   proxy_running?: boolean
   uplink?: Uplink
   clients?: number
-  traffic?: { uplink_bps?: number; tunnel_bps?: number; hotspot_bps?: number }
+  traffic?: {
+    uplink_bps?: number
+    tunnel_bps?: number
+    hotspot_bps?: number
+    uplink_down_bps?: number
+    uplink_up_bps?: number
+    tunnel_down_bps?: number
+    tunnel_up_bps?: number
+    hotspot_down_bps?: number
+    hotspot_up_bps?: number
+  }
+  net_users?: { kind: 'app' | 'links' | 'pi' | string; name: string; connections: number; rate_bps: number; in_bps: number; out_bps: number }[]
   routing?: { apps_direct?: boolean; tunnels_direct?: boolean }
   devices?: ConnectedDevice[]
   mullvad_account?: MullvadAccount

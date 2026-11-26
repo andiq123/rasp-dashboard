@@ -62,6 +62,11 @@ export function FlowInfo({ node, state }: { node: FlowNode; state: AppState }) {
         { label: 'Memory', value: fmtPct(m.memory?.used_percent) },
         { label: 'Temperature', value: m.thermal?.available ? `${Number(m.thermal.temperature_celsius || 0).toFixed(0)}°C` : '—' },
       ]
+      {
+        // The Pi's own processes using the internet (updates, tools), busiest first.
+        const busy = (state.net_users || []).filter((u) => u.kind === 'pi' && u.rate_bps > 0).slice(0, 3)
+        rows.push({ label: 'Using internet', value: busy.length ? busy.map((u) => `${u.name} ${fmtRate(u.rate_bps)}`).join(', ') : 'Nothing right now' })
+      }
       break
     case 'mullvad':
       line = node.state === 'ok' ? 'Wi‑Fi traffic is encrypted to Mullvad and exits in Romania.'
