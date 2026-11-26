@@ -4,24 +4,57 @@
   themes: false;
 }
 
-/* One theme: dimmed slate. Lifted greys instead of black, iris for actions,
-   raspberry only for the brand mark. Status colors are tuned to read on slate. */
+/* One app theme: mist. A cool grey canvas with off-white panels (never pure
+   white), deep slate ink, indigo for actions, raspberry only for the brand mark. */
 @plugin "daisyui/theme" {
   name: "fw";
   default: true;
-  prefersdark: true;
+  color-scheme: light;
+  --color-base-100: oklch(98.7% 0.004 262);
+  --color-base-200: oklch(95% 0.008 262);
+  --color-base-300: oklch(89.5% 0.011 262);
+  --color-base-content: oklch(27% 0.022 266);
+  --color-primary: oklch(54% 0.18 276);
+  --color-primary-content: oklch(99% 0.004 276);
+  --color-secondary: oklch(57% 0.1 228);
+  --color-secondary-content: oklch(99% 0 0);
+  --color-accent: oklch(60% 0.2 8);
+  --color-accent-content: oklch(99% 0 0);
+  --color-neutral: oklch(29% 0.022 266);
+  --color-neutral-content: oklch(96% 0.006 266);
+  --color-info: oklch(60% 0.13 238);
+  --color-info-content: oklch(99% 0 0);
+  --color-success: oklch(60% 0.14 158);
+  --color-success-content: oklch(99% 0 0);
+  --color-warning: oklch(70% 0.15 68);
+  --color-warning-content: oklch(22% 0.04 68);
+  --color-error: oklch(58% 0.19 24);
+  --color-error-content: oklch(99% 0 0);
+  --radius-selector: 0.625rem;
+  --radius-field: 0.625rem;
+  --radius-box: 0.875rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+/* Log consoles only: terminal output reads best light-on-dark. */
+@plugin "daisyui/theme" {
+  name: "fw-console";
   color-scheme: dark;
-  --color-base-100: oklch(31.5% 0.019 266);
-  --color-base-200: oklch(26.5% 0.017 266);
-  --color-base-300: oklch(39% 0.02 266);
-  --color-base-content: oklch(95% 0.008 266);
+  --color-base-100: oklch(26% 0.018 266);
+  --color-base-200: oklch(22% 0.016 266);
+  --color-base-300: oklch(34% 0.02 266);
+  --color-base-content: oklch(93% 0.008 266);
   --color-primary: oklch(75% 0.13 282);
   --color-primary-content: oklch(21% 0.05 282);
   --color-secondary: oklch(79% 0.09 226);
   --color-secondary-content: oklch(21% 0.03 226);
-  --color-accent: oklch(66% 0.19 8);
-  --color-accent-content: oklch(99% 0 0);
-  --color-neutral: oklch(22% 0.017 266);
+  --color-accent: oklch(70% 0.18 8);
+  --color-accent-content: oklch(20% 0.04 8);
+  --color-neutral: oklch(18% 0.015 266);
   --color-neutral-content: oklch(93% 0.008 266);
   --color-info: oklch(78% 0.11 238);
   --color-info-content: oklch(21% 0.04 238);
@@ -104,7 +137,7 @@
 @property --tone {
   syntax: '<color>';
   inherits: true;
-  initial-value: oklch(75% 0.13 282);
+  initial-value: oklch(54% 0.18 276);
 }
 .status-hero, .route-hop, .route-link, .metric-row, .notice { transition: --tone var(--dur-slow) var(--ease-standard); }
 
@@ -116,9 +149,9 @@
 
 :root {
   --bar-h: 52px;
-  --shadow-card: 0 1px 2px oklch(12% 0.02 266 / 0.22), 0 8px 24px -12px oklch(12% 0.02 266 / 0.35);
-  --shadow-pop: 0 18px 60px oklch(10% 0.03 266 / 0.5);
-  --console-bg: oklch(21% 0.016 266);
+  --shadow-card: 0 1px 2px oklch(27% 0.03 266 / 0.05), 0 6px 20px -10px oklch(27% 0.03 266 / 0.12);
+  --shadow-pop: 0 18px 50px -12px oklch(27% 0.04 266 / 0.28);
+  --console-bg: oklch(23% 0.017 266);
 }
 
 html,
@@ -330,6 +363,60 @@ button:not(:disabled), summary { cursor: pointer; }
 .notice > svg { flex-shrink: 0; width: 15px; height: 15px; margin-top: 1px; color: var(--tone); }
 .notice p { margin: 2px 0 0; color: var(--ink-muted); font-size: var(--text-micro); line-height: 1.45; }
 
+/* ── History chart ───────────────────────────────────────────────── */
+.history { display: grid; gap: var(--space-3); min-width: 0; }
+.history-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.history-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.history-range { width: 196px; }
+.history-note { font-size: var(--text-micro); color: var(--ink-muted); padding-inline: 4px; }
+.series-chip {
+  display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px;
+  border-radius: 999px; border: 1px solid var(--line-soft); background: var(--surface-panel);
+  font-size: var(--text-label); font-weight: 550; color: var(--ink-muted);
+  transition: opacity var(--dur-base) var(--ease-standard), background-color var(--dur-quick), border-color var(--dur-quick), color var(--dur-quick);
+}
+.series-chip:hover { border-color: var(--line); color: var(--color-base-content); }
+.series-chip b { font-weight: 650; color: var(--color-base-content); }
+.series-chip[aria-pressed='false'] { opacity: 0.45; }
+.series-swatch { width: 12px; height: 3px; border-radius: 3px; background: var(--series); }
+.series-swatch.is-dashed { background: repeating-linear-gradient(90deg, var(--series) 0 4px, transparent 4px 6px); }
+
+.chart { display: grid; gap: 6px; padding: 12px 12px 8px; border-radius: var(--radius-inset); background: var(--surface-inset); transition: opacity var(--dur-base) var(--ease-standard); }
+.chart.is-switching { opacity: 0.55; }
+.chart-plot { position: relative; border-radius: 8px; cursor: crosshair; touch-action: none; }
+.chart-plot:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 4px; }
+.chart-plot svg { display: block; width: 100%; height: 150px; overflow: visible; }
+.chart-plot svg.is-compact { height: 120px; }
+.chart-grid { stroke: var(--line-soft); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.chart-series { transition: opacity var(--dur-base) var(--ease-standard); }
+.chart-series.is-off { opacity: 0; }
+.chart-reveal { animation: chart-reveal 760ms var(--ease-out-soft) both; }
+@keyframes chart-reveal { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+
+.chart-cursor { position: absolute; top: 0; bottom: 0; width: 1px; translate: -0.5px 0; background: color-mix(in oklab, var(--color-base-content) 22%, transparent); pointer-events: none; transition: left 70ms linear; }
+.chart-marker {
+  position: absolute; width: 9px; height: 9px; translate: -50% -50%; border-radius: 50%;
+  background: var(--series); box-shadow: 0 0 0 2px var(--surface-panel); pointer-events: none;
+  transition: left 70ms linear, top 70ms linear;
+}
+.chart-tip {
+  position: absolute; top: 4px; z-index: 2; display: grid; gap: 3px; min-width: 148px; padding: 8px 10px;
+  border-radius: var(--radius-inset); border: 1px solid var(--line-soft);
+  background: color-mix(in oklab, var(--surface-panel) 92%, transparent); backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-pop); pointer-events: none; font-size: var(--text-micro);
+  transition: left 70ms linear, translate var(--dur-base) var(--ease-standard);
+  animation: fade-in var(--dur-quick) var(--ease-standard);
+}
+.chart-tip strong { font-weight: 650; margin-bottom: 2px; }
+.chart-tip-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--ink-muted); }
+.chart-tip-row::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--series); margin-right: -8px; }
+.chart-tip-row span { margin-right: auto; padding-left: 4px; }
+.chart-tip-row b { font-weight: 650; color: var(--color-base-content); font-variant-numeric: tabular-nums; }
+.chart-axis { display: flex; justify-content: space-between; font-size: var(--text-micro); color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.chart-skeleton { height: 178px; border-radius: var(--radius-inset); background: linear-gradient(90deg, var(--surface-inset) 30%, color-mix(in oklab, var(--color-base-300) 45%, var(--surface-inset)) 50%, var(--surface-inset) 70%) 0 0 / 300% 100%; animation: skeleton 1.6s ease-in-out infinite; }
+.chart-skeleton.is-compact { height: 148px; }
+@keyframes skeleton { from { background-position: 100% 0; } to { background-position: 0 0; } }
+
 /* ── Overview ──────────────────────────────────────────────────────── */
 .overview { display: grid; gap: 14px; }
 .overview-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
@@ -393,14 +480,18 @@ button:not(:disabled), summary { cursor: pointer; }
 
 .usage-fill { transition: width 800ms var(--ease-out-soft); }
 
-/* Route changes: quick crossfade, while the nav pill glides on its own layer. */
+/* Route changes: the page content leaves quickly and the next one rises in;
+   the app bar stays still and the nav pill glides on its own layer. */
+.app-main { view-transition-name: page; }
 ::view-transition-old(root),
-::view-transition-new(root) {
-  animation-duration: 160ms;
-  animation-timing-function: ease-out;
-}
+::view-transition-new(root) { animation: none; }
+::view-transition-group(page) { animation: none; }
+::view-transition-old(page) { animation: page-out 120ms var(--ease-standard) both; }
+::view-transition-new(page) { animation: page-in 320ms var(--ease-out-soft) both; }
+@keyframes page-out { to { opacity: 0; transform: translateY(-3px); } }
+@keyframes page-in { from { opacity: 0; transform: translateY(8px); } }
 ::view-transition-group(nav-pill) {
-  animation-duration: 320ms;
+  animation-duration: 340ms;
   animation-timing-function: var(--ease-out-soft);
 }
 

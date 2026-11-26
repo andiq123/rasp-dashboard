@@ -22,6 +22,7 @@ import {
 import { fetchConfig, fetchGroups, fetchServices, hotspotAction, saveConfig, setMode } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import type { AppState, Service } from '@/api/types'
+import { AnimatedNumber } from '@/components/ui/AnimatedNumber/AnimatedNumber'
 import { Button } from '@/components/ui/Button/Button'
 import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { Disclosure } from '@/components/ui/Disclosure/Disclosure'
@@ -41,7 +42,6 @@ import { useSettled } from '@/hooks/useSettled'
 import { actionDoneLabel } from '@/lib/actions'
 import { fmtBytes, fmtPct, fmtRate } from '@/lib/format'
 import { hostCapacity, reservedFromServices } from '@/lib/resources'
-import { DashboardExposure } from './DashboardExposure'
 import { RouteTrace, type Hop } from './RouteTrace'
 import { VPNRepairFlow } from './VPNRepairFlow'
 
@@ -330,27 +330,41 @@ export function OverviewPage() {
           hint={showReconnecting ? 'Reconnecting…' : undefined}
         >
           <div className="grid">
-            <StatRow icon={Cpu} label="CPU" value={fmtPct(cpu.busy_percent)} percent={cpu.busy_percent || 0} />
-            <StatRow icon={MemoryStick} label="Memory" detail={fmtBytes(mem.used_bytes)} value={fmtPct(mem.used_percent)} percent={mem.used_percent || 0} />
+            <StatRow icon={Cpu} label="CPU" value={<AnimatedNumber value={cpu.busy_percent} format={fmtPct} />} percent={cpu.busy_percent || 0} />
+            <StatRow
+              icon={MemoryStick}
+              label="Memory"
+              detail={<AnimatedNumber value={mem.used_bytes} format={fmtBytes} />}
+              value={<AnimatedNumber value={mem.used_percent} format={fmtPct} />}
+              percent={mem.used_percent || 0}
+            />
             <StatRow
               icon={Thermometer}
               label="Temperature"
               detail={thermal.throttled ? 'Throttled now' : thermal.throttled_before ? 'Throttled earlier' : undefined}
-              value={thermal.available ? `${temp.toFixed(0)}°` : '—'}
+              value={thermal.available ? <AnimatedNumber value={temp} format={(v) => `${v.toFixed(0)}°`} /> : '—'}
               percent={(temp / 85) * 100}
               warnAt={76}
               badAt={94}
             />
-            <StatRow icon={HardDrive} label="Disk" detail={fmtBytes(storage.used_bytes)} value={fmtPct(storage.used_percent)} percent={storage.used_percent || 0} warnAt={80} badAt={92} />
+            <StatRow
+              icon={HardDrive}
+              label="Disk"
+              detail={<AnimatedNumber value={storage.used_bytes} format={fmtBytes} />}
+              value={<AnimatedNumber value={storage.used_percent} format={fmtPct} />}
+              percent={storage.used_percent || 0}
+              warnAt={80}
+              badAt={92}
+            />
           </div>
           <div className="flex items-center gap-5 text-xs" aria-label="Network throughput">
             <span className="inline-flex items-center gap-1.5 text-base-content/60">
               <ArrowDown className="h-3.5 w-3.5" aria-hidden /> Down
-              <strong className="text-base-content font-semibold tabular-nums">{fmtRate(net.down_bytes_per_sec)}</strong>
+              <strong className="text-base-content font-semibold"><AnimatedNumber value={net.down_bytes_per_sec} format={fmtRate} /></strong>
             </span>
             <span className="inline-flex items-center gap-1.5 text-base-content/60">
               <ArrowUp className="h-3.5 w-3.5" aria-hidden /> Up
-              <strong className="text-base-content font-semibold tabular-nums">{fmtRate(net.up_bytes_per_sec)}</strong>
+              <strong className="text-base-content font-semibold"><AnimatedNumber value={net.up_bytes_per_sec} format={fmtRate} /></strong>
             </span>
           </div>
           <div>
@@ -493,7 +507,6 @@ export function OverviewPage() {
         </Panel>
       </div>
 
-      <DashboardExposure />
     </div>
   )
 }

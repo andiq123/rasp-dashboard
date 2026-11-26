@@ -1,10 +1,11 @@
+import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 
 type Props = {
   icon: LucideIcon
   label: string
-  detail?: string
-  value: string
+  detail?: ReactNode
+  value: ReactNode
   /** 0–100; drives the bar and, with the thresholds, its tone. */
   percent: number
   warnAt?: number

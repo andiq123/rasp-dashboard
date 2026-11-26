@@ -872,7 +872,7 @@ function resourceIntegrationGuide({
 
 function CodeGuide({ title, value }: { title: string; value: string }) {
   return (
-    <div className="log-shell">
+    <div data-theme="fw-console" className="log-shell">
       <div className="log-bar">
         <strong className="mr-auto font-medium opacity-80">{title}</strong>
         <CopyCode value={value} />

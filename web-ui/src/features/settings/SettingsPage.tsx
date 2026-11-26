@@ -20,6 +20,7 @@ import { PageHeader, PageSub } from '@/components/ui/PageHeader/PageHeader'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { usePendingAddGo } from '@/features/projects/pendingAddGo'
+import { DashboardExposure } from '@/features/settings/DashboardExposure'
 import { DockerPanel } from '@/features/settings/DockerPanel'
 import { writeClipboardText } from '@/lib/clipboard'
 import { codeSurface, muted } from '@/lib/ui'
@@ -147,7 +148,7 @@ export function SettingsPage() {
   return (
     <div className="grid gap-3.5">
       <PageHeader title="Settings">
-        <PageSub>GitHub, shared engines, and Docker on this Pi</PageSub>
+        <PageSub>GitHub, remote access, shared engines and Docker on this Pi</PageSub>
       </PageHeader>
 
       <div className="grid gap-3.5 xl:grid-cols-[minmax(280px,0.9fr)_minmax(0,1.1fr)] items-start">
@@ -364,6 +365,7 @@ export function SettingsPage() {
         </Panel>
       </div>
 
+      <DashboardExposure />
       <DockerPanel />
     </div>
   )

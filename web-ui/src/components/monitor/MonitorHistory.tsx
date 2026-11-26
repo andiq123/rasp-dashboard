@@ -1,356 +1,282 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { Activity, Clock3, Cpu, MemoryStick, Thermometer, Wifi } from 'lucide-react'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { fetchServiceHistory, fetchSystemHistory } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import type { HistoryPoint } from '@/api/types'
-import { Button } from '@/components/ui/Button/Button'
+import { AnimatedNumber } from '@/components/ui/AnimatedNumber/AnimatedNumber'
 import { Empty } from '@/components/ui/Empty/Empty'
-import { Spinner } from '@/components/ui/Spinner/Spinner'
-import { fmtRate } from '@/lib/format'
-import { muted, tile } from '@/lib/ui'
+import { Segmented } from '@/components/ui/Segmented/Segmented'
 
 type Range = '1h' | '6h' | '24h' | '7d'
 
-const ranges: Range[] = ['1h', '6h', '24h', '7d']
+const ranges: { value: Range; label: string }[] = [
+  { value: '1h', label: '1h' },
+  { value: '6h', label: '6h' },
+  { value: '24h', label: '24h' },
+  { value: '7d', label: '7d' },
+]
 
-function average(points: HistoryPoint[], key: keyof HistoryPoint) {
-  const values = points.map((point) => Number(point[key] || 0)).filter(Number.isFinite)
-  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0
+const W = 640
+const H = 150
+const PAD = 8
+
+type Series = {
+  key: keyof HistoryPoint
+  label: string
+  color: string
+  ceiling: number
+  format: (v: number) => string
+  dashed?: boolean
+  area?: boolean
 }
 
-function peak(points: HistoryPoint[], key: keyof HistoryPoint) {
-  return Math.max(0, ...points.map((point) => Number(point[key] || 0)).filter(Number.isFinite))
+const num = (point: HistoryPoint | undefined, key: keyof HistoryPoint) => {
+  const v = Number(point?.[key] ?? 0)
+  return Number.isFinite(v) ? v : 0
 }
 
-function linePath(points: HistoryPoint[], key: keyof HistoryPoint, ceiling: number) {
-  if (!points.length) return ''
-  const width = 640
-  const height = 132
-  return points
-    .map((point, index) => {
-      const x = points.length === 1 ? width : (index / (points.length - 1)) * width
-      const value = Math.max(0, Math.min(ceiling, Number(point[key] || 0)))
-      const y = height - (value / ceiling) * height
-      return `${index ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`
-    })
-    .join(' ')
+const peak = (points: HistoryPoint[], key: keyof HistoryPoint) => points.reduce((max, p) => Math.max(max, num(p, key)), 0)
+
+const f = (n: number) => n.toFixed(1)
+
+/** Monotone cubic path (Fritsch–Carlson): smooth, never overshoots the data. */
+function smoothPath(pts: [number, number][]): string {
+  const n = pts.length
+  if (!n) return ''
+  if (n === 1) return `M0,${f(pts[0][1])} L${W},${f(pts[0][1])}`
+  const slopes: number[] = []
+  for (let i = 0; i < n - 1; i++) slopes.push((pts[i + 1][1] - pts[i][1]) / (pts[i + 1][0] - pts[i][0]))
+  const tangents = [slopes[0]]
+  for (let i = 1; i < n - 1; i++) tangents.push(slopes[i - 1] * slopes[i] <= 0 ? 0 : (slopes[i - 1] + slopes[i]) / 2)
+  tangents.push(slopes[n - 2])
+  for (let i = 0; i < n - 1; i++) {
+    if (slopes[i] === 0) {
+      tangents[i] = 0
+      tangents[i + 1] = 0
+      continue
+    }
+    const a = tangents[i] / slopes[i]
+    const b = tangents[i + 1] / slopes[i]
+    const s = a * a + b * b
+    if (s > 9) {
+      const k = 3 / Math.sqrt(s)
+      tangents[i] = k * a * slopes[i]
+      tangents[i + 1] = k * b * slopes[i]
+    }
+  }
+  let d = `M${f(pts[0][0])},${f(pts[0][1])}`
+  for (let i = 0; i < n - 1; i++) {
+    const h = (pts[i + 1][0] - pts[i][0]) / 3
+    d += ` C${f(pts[i][0] + h)},${f(pts[i][1] + tangents[i] * h)} ${f(pts[i + 1][0] - h)},${f(pts[i + 1][1] - tangents[i + 1] * h)} ${f(pts[i + 1][0])},${f(pts[i + 1][1])}`
+  }
+  return d
 }
 
-function pointY(point: HistoryPoint, key: keyof HistoryPoint, ceiling: number) {
-  const value = Math.max(0, Math.min(ceiling, Number(point[key] || 0)))
-  return 132 - (value / ceiling) * 132
+const xAt = (i: number, n: number) => (n <= 1 ? W : (i / (n - 1)) * W)
+const yAt = (v: number, ceiling: number) => PAD + (1 - Math.max(0, Math.min(ceiling, v)) / ceiling) * (H - PAD * 2)
+
+function timeLabel(at = 0, range: Range) {
+  if (!at) return ''
+  const d = new Date(at * 1000)
+  return range === '7d'
+    ? d.toLocaleDateString([], { weekday: 'short', day: 'numeric' })
+    : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-function formatTime(at = 0) {
-  if (!at) return '—'
-  return new Date(at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+function hoverLabel(at = 0) {
+  if (!at) return ''
+  return new Date(at * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-function formatHoverTime(at = 0) {
-  if (!at) return 'Unknown time'
-  return new Date(at * 1000).toLocaleString([], {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  })
-}
-
-function Stat({ label, value, detail, icon: Icon }: { label: string; value: string; detail: string; icon: typeof Cpu }) {
-  return (
-    <div className={`${tile} px-2.5 py-2 min-w-0`}>
-      <span className={`flex items-center gap-1 text-[10px] font-bold ${muted}`}>
-        <Icon className="h-3 w-3" aria-hidden /> {label}
-      </span>
-      <strong className="block text-base mt-0.5 tabular-nums">{value}</strong>
-      <span className={`block text-[10px] truncate ${muted}`}>{detail}</span>
-    </div>
-  )
-}
-
-export function MonitorHistory({
-  kind,
-  group,
-  slug,
-  compact = false,
-  bare = false,
-}: {
+type Props = {
   kind: 'system' | 'service'
   group?: string
   slug?: string
   compact?: boolean
   /** Hide the title when a surrounding section already names the chart. */
   bare?: boolean
-}) {
+}
+
+export function MonitorHistory({ kind, group, slug, compact = false, bare = false }: Props) {
   const [range, setRange] = useState<Range>('6h')
-  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+  const [hover, setHover] = useState<number | null>(null)
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set())
   const query = useQuery({
-    queryKey:
-      kind === 'system'
-        ? queryKeys.systemHistory(range)
-        : queryKeys.serviceHistory(group || '', slug || '', range),
-    queryFn: () =>
-      kind === 'system'
-        ? fetchSystemHistory(range)
-        : fetchServiceHistory(group || '', slug || '', range),
+    queryKey: kind === 'system' ? queryKeys.systemHistory(range) : queryKeys.serviceHistory(group || '', slug || '', range),
+    queryFn: () => (kind === 'system' ? fetchSystemHistory(range) : fetchServiceHistory(group || '', slug || '', range)),
     enabled: kind === 'system' || (!!group && !!slug),
     staleTime: 25_000,
     refetchInterval: 30_000,
+    // Keep the current chart on screen while another range loads: no spinner flash.
+    placeholderData: keepPreviousData,
   })
   const points = useMemo(() => query.data?.points || [], [query.data?.points])
   const latest = points.at(-1)
-  const cpuPeak = peak(points, 'cpu_percent')
-  const memoryPeak = peak(points, kind === 'system' ? 'memory_percent' : 'memory_mb')
-  const temperaturePeak = kind === 'system' ? peak(points, 'temperature_c') : 0
-  const cpuCeiling = kind === 'system' ? 100 : Math.max(100, Math.ceil(cpuPeak / 25) * 25)
-  const memoryCeiling = kind === 'system' ? 100 : Math.max(64, Math.ceil(memoryPeak / 64) * 64)
-  const temperatureCeiling = Math.max(100, Math.ceil(temperaturePeak / 10) * 10)
-  const uptime = points.length ? (points.filter((point) => point.running).length / points.length) * 100 : 0
-  const activeIndex = hoverIndex == null ? null : Math.min(hoverIndex, points.length - 1)
-  const activePoint = activeIndex == null ? null : points[activeIndex]
-  const activeX = activeIndex == null || points.length <= 1 ? 0 : (activeIndex / (points.length - 1)) * 640
-  const activePercent = (activeX / 640) * 100
+  const switching = query.isPlaceholderData
 
-  const selectNearestPoint = (clientX: number, left: number, width: number) => {
-    if (!points.length || width <= 0) return
-    const ratio = Math.max(0, Math.min(1, (clientX - left) / width))
-    setHoverIndex(Math.round(ratio * (points.length - 1)))
+  const series = useMemo<Series[]>(() => {
+    if (kind === 'service') {
+      const cpuPeak = peak(points, 'cpu_percent')
+      const memPeak = peak(points, 'memory_mb')
+      return [
+        { key: 'cpu_percent', label: 'CPU', color: 'var(--color-info)', ceiling: Math.max(100, Math.ceil(cpuPeak / 25) * 25), format: (v) => `${v.toFixed(1)}%`, area: true },
+        { key: 'memory_mb', label: 'Memory', color: 'var(--color-primary)', ceiling: Math.max(64, Math.ceil(memPeak / 64) * 64), format: (v) => `${v.toFixed(0)} MB` },
+      ]
+    }
+    const tempPeak = peak(points, 'temperature_c')
+    return [
+      { key: 'cpu_percent', label: 'CPU', color: 'var(--color-info)', ceiling: 100, format: (v) => `${v.toFixed(1)}%`, area: true },
+      { key: 'memory_percent', label: 'Memory', color: 'var(--color-primary)', ceiling: 100, format: (v) => `${v.toFixed(1)}%` },
+      ...(tempPeak > 0
+        ? [{ key: 'temperature_c' as const, label: 'Temperature', color: 'var(--color-warning)', ceiling: Math.max(100, Math.ceil(tempPeak / 10) * 10), format: (v: number) => `${v.toFixed(0)}°C`, dashed: true }]
+        : []),
+    ]
+  }, [kind, points])
+
+  const paths = useMemo(
+    () =>
+      series.map((s) => {
+        const line = smoothPath(points.map((p, i) => [xAt(i, points.length), yAt(num(p, s.key), s.ceiling)]))
+        return { key: s.key, line, area: s.area && line ? `${line} L${W},${H} L0,${H} Z` : '' }
+      }),
+    [series, points],
+  )
+
+  const visible = series.filter((s) => !hidden.has(String(s.key)))
+  const active = hover == null ? null : points[Math.min(hover, points.length - 1)]
+  const activeIndex = hover == null ? 0 : Math.min(hover, points.length - 1)
+  const activeLeft = (xAt(activeIndex, points.length) / W) * 100
+  const uptime = kind === 'service' && points.length ? (points.filter((p) => p.running).length / points.length) * 100 : null
+
+  function toggle(key: string) {
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else if (series.length - next.size > 1) next.add(key) // keep at least one line
+      return next
+    })
+  }
+
+  function pick(clientX: number, el: HTMLElement) {
+    const rect = el.getBoundingClientRect()
+    if (!points.length || rect.width <= 0) return
+    setHover(Math.round(Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * (points.length - 1)))
   }
 
   return (
-    <section className="grid gap-2.5" aria-label={`${kind === 'system' ? 'System' : 'Service'} monitor history`}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        {bare ? (
-          <p className={`text-[11px] m-0 ${muted}`}>30-second samples, kept for seven days</p>
-        ) : (
-          <div>
-            <strong className="text-sm inline-flex items-center gap-1.5">
-              <Activity className="h-3.5 w-3.5 text-primary" aria-hidden /> Monitor history
-            </strong>
-            <p className={`text-[11px] m-0 mt-0.5 ${muted}`}>
-              30-second samples · seven-day local retention · {points.length} chart {points.length === 1 ? 'point' : 'points'}
-            </p>
-          </div>
-        )}
-        <div className="join" aria-label="History range">
-          {ranges.map((value) => (
-            <Button
-              key={value}
-              variant={range === value ? 'primary' : 'quiet'}
-              className="join-item min-h-7 h-7 px-2 text-[11px]"
-              aria-pressed={range === value}
-              onClick={() => setRange(value)}
-            >
-              {value}
-            </Button>
-          ))}
+    <section className="history" aria-label={`${kind === 'system' ? 'System' : 'Service'} history`}>
+      {!bare ? <strong className="text-sm">History</strong> : null}
+
+      <div className="history-bar">
+        <div className="history-legend" role="group" aria-label="Lines shown">
+          {series.map((s) => {
+            const on = !hidden.has(String(s.key))
+            return (
+              <button
+                key={String(s.key)}
+                type="button"
+                className="series-chip"
+                aria-pressed={on}
+                style={{ '--series': s.color } as React.CSSProperties}
+                onClick={() => toggle(String(s.key))}
+              >
+                <span className={`series-swatch${s.dashed ? ' is-dashed' : ''}`} aria-hidden />
+                {s.label}
+                <b>{latest ? <AnimatedNumber value={num(active ?? latest, s.key)} format={s.format} duration={220} /> : '—'}</b>
+              </button>
+            )
+          })}
+          {uptime != null ? <span className="history-note">Up {uptime.toFixed(1)}% of this range</span> : null}
+        </div>
+        <div className="history-range">
+          <Segmented label="History range" options={ranges} value={range} onChange={(r) => { setHover(null); setRange(r) }} />
         </div>
       </div>
 
       {query.isLoading ? (
-        <Spinner compact label="Loading monitor history…" />
+        <div className={`chart-skeleton${compact ? ' is-compact' : ''}`} aria-label="Loading history" />
       ) : query.isError ? (
         <Empty compact title="Could not load history" body={(query.error as Error).message} />
       ) : !points.length ? (
-        <Empty compact title="Collecting the first sample" body="History appears automatically within 30 seconds." />
+        <Empty compact title="Collecting the first sample" body="History appears within 30 seconds." />
       ) : (
-        <>
-          <div className={`grid gap-1.5 ${compact ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-4'}`}>
-            <Stat
-              icon={Cpu}
-              label="CPU average"
-              value={`${average(points, 'cpu_percent').toFixed(1)}%`}
-              detail={`Peak ${cpuPeak.toFixed(1)}%`}
-            />
-            <Stat
-              icon={MemoryStick}
-              label="Memory"
-              value={
-                kind === 'system'
-                  ? `${Number(latest?.memory_percent || 0).toFixed(1)}%`
-                  : `${Number(latest?.memory_mb || 0).toFixed(1)}MB`
-              }
-              detail={
-                kind === 'system'
-                  ? `Average ${average(points, 'memory_percent').toFixed(1)}%`
-                  : `Peak ${memoryPeak.toFixed(1)}MB`
-              }
-            />
-            {kind === 'system' ? (
-              <Stat
-                icon={Thermometer}
-                label="Temperature"
-                value={`${Number(latest?.temperature_c || 0).toFixed(0)}°C`}
-                detail={`Peak ${peak(points, 'temperature_c').toFixed(0)}°C`}
-              />
-            ) : (
-              <Stat icon={Clock3} label="Observed up" value={`${uptime.toFixed(1)}%`} detail="Within selected range" />
-            )}
-            {!compact ? (
-              kind === 'system' ? (
-                <Stat
-                  icon={Wifi}
-                  label="Network now"
-                  value={fmtRate(latest?.down_bps)}
-                  detail={`Up ${fmtRate(latest?.up_bps)}`}
-                />
-              ) : (
-                <Stat icon={Activity} label="Processes" value={`${latest?.pids || 0}`} detail={`Last sample ${formatTime(latest?.at)}`} />
-              )
+        <div className={`chart${switching ? ' is-switching' : ''}`}>
+          <div
+            className="chart-plot"
+            role="img"
+            tabIndex={0}
+            aria-label={`${series.map((s) => s.label).join(', ')} over the last ${range}`}
+            onPointerMove={(e) => pick(e.clientX, e.currentTarget)}
+            onPointerLeave={() => setHover(null)}
+            onFocus={() => setHover((h) => h ?? points.length - 1)}
+            onBlur={() => setHover(null)}
+            onKeyDown={(e) => {
+              if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+              e.preventDefault()
+              const step = e.key === 'ArrowLeft' ? -1 : 1
+              setHover((h) => Math.max(0, Math.min(points.length - 1, (h ?? points.length - 1) + step)))
+            }}
+          >
+            <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className={compact ? 'is-compact' : undefined} aria-hidden>
+              <defs>
+                {series.filter((s) => s.area).map((s) => (
+                  <linearGradient key={String(s.key)} id={`fill-${kind}-${String(s.key)}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={s.color} stopOpacity="0.28" />
+                    <stop offset="100%" stopColor={s.color} stopOpacity="0" />
+                  </linearGradient>
+                ))}
+              </defs>
+              {[0.25, 0.5, 0.75].map((r) => (
+                <line key={r} x1="0" x2={W} y1={PAD + r * (H - PAD * 2)} y2={PAD + r * (H - PAD * 2)} className="chart-grid" />
+              ))}
+              {/* Re-keyed per range so a new range draws in; 30s refreshes update in place. */}
+              <g key={range} className="chart-reveal">
+                {paths.map((p, i) => {
+                  const s = series[i]
+                  const off = hidden.has(String(s.key))
+                  return (
+                    <g key={String(p.key)} className={`chart-series${off ? ' is-off' : ''}`}>
+                      {p.area ? <path d={p.area} fill={`url(#fill-${kind}-${String(s.key)})`} /> : null}
+                      <path d={p.line} fill="none" stroke={s.color} strokeWidth="2" strokeDasharray={s.dashed ? '5 4' : undefined} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                    </g>
+                  )
+                })}
+              </g>
+            </svg>
+
+            {active ? (
+              <>
+                <span className="chart-cursor" style={{ left: `${activeLeft}%` }} aria-hidden />
+                {visible.map((s) => (
+                  <span
+                    key={String(s.key)}
+                    className="chart-marker"
+                    style={{ left: `${activeLeft}%`, top: `${(yAt(num(active, s.key), s.ceiling) / H) * 100}%`, '--series': s.color } as React.CSSProperties}
+                    aria-hidden
+                  />
+                ))}
+                <div
+                  className="chart-tip"
+                  role="tooltip"
+                  style={{ left: `${activeLeft}%`, translate: activeLeft < 18 ? '0 0' : activeLeft > 82 ? '-100% 0' : '-50% 0' }}
+                >
+                  <strong>{hoverLabel(active.at)}</strong>
+                  {visible.map((s) => (
+                    <span key={String(s.key)} className="chart-tip-row" style={{ '--series': s.color } as React.CSSProperties}>
+                      <span>{s.label}</span>
+                      <b>{s.format(num(active, s.key))}</b>
+                    </span>
+                  ))}
+                </div>
+              </>
             ) : null}
           </div>
-
-          <div className={`${tile} p-2.5 overflow-hidden`}>
-            <div className="flex flex-wrap justify-between gap-2 mb-1 text-[10px]">
-              <span className="inline-flex items-center gap-3">
-                <span className="inline-flex items-center gap-1 text-sky-500">
-                  <i className="w-3 h-0.5 rounded-full bg-sky-500" /> CPU
-                </span>
-                <span className="inline-flex items-center gap-1 text-violet-500">
-                  <i className="w-3 h-0.5 rounded-full bg-violet-500" /> Memory
-                </span>
-                {kind === 'system' && temperaturePeak > 0 ? (
-                  <span className="inline-flex items-center gap-1 text-amber-500">
-                    <i className="w-3 border-t-2 border-dashed border-amber-500" /> Temperature
-                  </span>
-                ) : null}
-              </span>
-              <span className={muted}>{formatTime(points[0]?.at)} — {formatTime(latest?.at)}</span>
-            </div>
-            <div className="relative">
-              <svg
-                viewBox="0 0 640 132"
-                className={`w-full ${compact ? 'h-32' : 'h-40'} overflow-visible cursor-crosshair touch-none focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 rounded-sm`}
-                role="img"
-                aria-label={kind === 'system' ? 'CPU, memory, and temperature history chart' : 'CPU and memory history chart'}
-                preserveAspectRatio="none"
-                tabIndex={0}
-                onPointerMove={(event) => {
-                  const rect = event.currentTarget.getBoundingClientRect()
-                  selectNearestPoint(event.clientX, rect.left, rect.width)
-                }}
-                onPointerLeave={() => setHoverIndex(null)}
-                onFocus={() => setHoverIndex((current) => current ?? points.length - 1)}
-                onBlur={() => setHoverIndex(null)}
-                onKeyDown={(event) => {
-                  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
-                  event.preventDefault()
-                  const direction = event.key === 'ArrowLeft' ? -1 : 1
-                  setHoverIndex((current) => Math.max(0, Math.min(points.length - 1, (current ?? points.length - 1) + direction)))
-                }}
-              >
-                {[0, 33, 66, 99, 132].map((y) => (
-                  <line key={y} x1="0" y1={y} x2="640" y2={y} className="stroke-base-300/80" strokeWidth="1" />
-                ))}
-                <path
-                  d={linePath(points, kind === 'system' ? 'memory_percent' : 'memory_mb', memoryCeiling)}
-                  fill="none"
-                  stroke="#8b5cf6"
-                  strokeWidth="2.25"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  vectorEffect="non-scaling-stroke"
-                />
-                {kind === 'system' && temperaturePeak > 0 ? (
-                  <path
-                    d={linePath(points, 'temperature_c', temperatureCeiling)}
-                    fill="none"
-                    stroke="#f59e0b"
-                    strokeWidth="2"
-                    strokeDasharray="5 4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    vectorEffect="non-scaling-stroke"
-                  />
-                ) : null}
-                <path
-                  d={linePath(points, 'cpu_percent', cpuCeiling)}
-                  fill="none"
-                  stroke="#0ea5e9"
-                  strokeWidth="2.25"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  vectorEffect="non-scaling-stroke"
-                />
-                {activePoint ? (
-                  <g aria-hidden>
-                    <line
-                      x1={activeX}
-                      y1="0"
-                      x2={activeX}
-                      y2="132"
-                      className="stroke-base-content/25"
-                      strokeWidth="1"
-                      strokeDasharray="3 3"
-                      vectorEffect="non-scaling-stroke"
-                    />
-                    <circle
-                      cx={activeX}
-                      cy={pointY(activePoint, kind === 'system' ? 'memory_percent' : 'memory_mb', memoryCeiling)}
-                      r="3.5"
-                      fill="#8b5cf6"
-                      stroke="white"
-                      strokeWidth="1.5"
-                      vectorEffect="non-scaling-stroke"
-                    />
-                    {kind === 'system' && temperaturePeak > 0 ? (
-                      <circle
-                        cx={activeX}
-                        cy={pointY(activePoint, 'temperature_c', temperatureCeiling)}
-                        r="3.5"
-                        fill="#f59e0b"
-                        stroke="white"
-                        strokeWidth="1.5"
-                        vectorEffect="non-scaling-stroke"
-                      />
-                    ) : null}
-                    <circle
-                      cx={activeX}
-                      cy={pointY(activePoint, 'cpu_percent', cpuCeiling)}
-                      r="3.5"
-                      fill="#0ea5e9"
-                      stroke="white"
-                      strokeWidth="1.5"
-                      vectorEffect="non-scaling-stroke"
-                    />
-                  </g>
-                ) : null}
-              </svg>
-              {activePoint ? (
-                <div
-                  className={`pointer-events-none absolute top-1 z-10 min-w-36 rounded-box border border-base-300 bg-base-100/95 px-2.5 py-2 shadow-lg backdrop-blur-sm ${
-                    activePercent < 12 ? '' : activePercent > 88 ? '-translate-x-full' : '-translate-x-1/2'
-                  }`}
-                  style={{ left: `${activePercent}%` }}
-                  role="tooltip"
-                >
-                  <strong className="block whitespace-nowrap text-[10px] font-semibold">{formatHoverTime(activePoint.at)}</strong>
-                  <span className="mt-1 flex items-center justify-between gap-4 text-[10px] text-sky-500">
-                    <span>CPU</span><b className="tabular-nums">{Number(activePoint.cpu_percent || 0).toFixed(1)}%</b>
-                  </span>
-                  <span className="flex items-center justify-between gap-4 text-[10px] text-violet-500">
-                    <span>Memory</span>
-                    <b className="tabular-nums">
-                      {Number((kind === 'system' ? activePoint.memory_percent : activePoint.memory_mb) || 0).toFixed(1)}
-                      {kind === 'system' ? '%' : 'MB'}
-                    </b>
-                  </span>
-                  {kind === 'system' && temperaturePeak > 0 ? (
-                    <span className="flex items-center justify-between gap-4 text-[10px] text-amber-500">
-                      <span>Temperature</span><b className="tabular-nums">{Number(activePoint.temperature_c || 0).toFixed(0)}°C</b>
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-            <p className={`text-[10px] m-0 mt-1 ${muted}`}>
-              CPU 0–{cpuCeiling}% · Memory 0–{memoryCeiling}{kind === 'system' ? '%' : 'MB'}
-              {kind === 'system' && temperaturePeak > 0 ? ` · Temperature 0–${temperatureCeiling}°C` : ''} · Downsampled on the Pi.
-            </p>
+          <div className="chart-axis" aria-hidden>
+            <span>{timeLabel(points[0]?.at, range)}</span>
+            <span>{timeLabel(points[Math.floor((points.length - 1) / 2)]?.at, range)}</span>
+            <span>{timeLabel(latest?.at, range)}</span>
           </div>
-        </>
+        </div>
       )}
     </section>
   )
