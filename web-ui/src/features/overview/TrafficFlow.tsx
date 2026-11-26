@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import { Ban, Cable, Cloud, Cpu, Globe, Package, ShieldCheck, Smartphone, Waypoints, Wifi, type LucideIcon } from 'lucide-react'
+import { ArrowDown, ArrowUp, Ban, Cable, Cloud, Cpu, Globe, Package, ShieldCheck, ShieldOff, Smartphone, Waypoints, Wifi, type LucideIcon } from 'lucide-react'
 import type { AppState } from '@/api/types'
 import { AnimatedList } from '@/components/ui/AnimatedList/AnimatedList'
 import { Popover } from '@/components/ui/Popover/Popover'
@@ -192,29 +192,26 @@ function NodeView({ node, info }: { node: FlowNode; info: React.ReactNode }) {
   )
 }
 
-function UseList({ items, empty }: { items: NetUse[]; empty: string }) {
-  if (!items.length) return <p className="pop-line">{empty}</p>
+function Rates({ rate }: { rate: LinkRate }) {
+  return (
+    <span className="use-rates">
+      <span className="use-rate" title="Data coming in"><ArrowDown aria-hidden />{fmtRate(rate.down)}</span>
+      <span className="use-rate is-out" title="Requests going out"><ArrowUp aria-hidden />{fmtRate(rate.up)}</span>
+    </span>
+  )
+}
+
+/** Busiest apps using the internet, one compact row each. */
+function UseList({ items }: { items: NetUse[] }) {
   return (
     <ul className="use-list">
       {items.slice(0, 5).map((u) => (
         <li key={u.name}>
-          <span className="use-name">{u.name}</span>
-          <span className="use-rate" title="Data coming in">↓ {fmtRate(u.in)}</span>
-          <span className="use-rate is-out" title="Requests going out">↑ {fmtRate(u.out)}</span>
-          <span className="use-conn">{u.connections === 1 ? '1 connection' : `${u.connections} connections`}</span>
+          <span className="use-name" title={u.connections === 1 ? '1 connection' : `${u.connections} connections`}>{u.name}</span>
+          <Rates rate={{ down: u.in, up: u.out }} />
         </li>
       ))}
     </ul>
-  )
-}
-
-function BranchInfo({ title, line, children }: { title: string; line: string; children?: React.ReactNode }) {
-  return (
-    <div className="pop-body">
-      <div className="pop-head"><strong>{title}</strong><span className="pop-state tone-ok">Skips the VPN</span></div>
-      <p className="pop-line">{line}</p>
-      {children}
-    </div>
   )
 }
 
@@ -223,7 +220,7 @@ function BranchInfo({ title, line, children }: { title: string; line: string; ch
  * (and visitors arriving through public links via cloudflared) goes back
  * through the Pi and out over Ethernet, never through the VPN.
  */
-function Spur({ branch, x }: { branch: FlowBranch; x: number }) {
+function Spur({ branch }: { branch: FlowBranch }) {
   const appRate = branch.appUse.reduce<LinkRate>((r, u) => ({ down: r.down + u.in, up: r.up + u.out }), { down: 0, up: 0 })
   const rate: LinkRate = { down: appRate.down + branch.linkUse.down, up: appRate.up + branch.linkUse.up }
   const apps: FlowNode = {
@@ -233,27 +230,34 @@ function Spur({ branch, x }: { branch: FlowBranch; x: number }) {
     active: rate.down + rate.up >= ACTIVE_BPS,
   }
   const linksOk = !branch.links || branch.liveLinks === branch.links
+  const busy = branch.appUse.filter((u) => u.in + u.out > 0)
   return (
-    <div className="flow-spur" style={{ '--pi-x': `${x}px` } as React.CSSProperties} aria-label="Apps on the Pi use Ethernet directly, not the VPN">
+    <div className="flow-spur" aria-label="Apps on the Pi use Ethernet directly, not the VPN">
       <FlowLink state={branch.internet && branch.apps ? 'flow' : 'idle'} rate={rate} requester="end" vertical />
       <NodeView
         node={apps}
         info={
-          <BranchInfo title="Your apps" line="Apps run on the Pi. Their traffic, and visitors coming in through public links, goes through the Pi and out over Ethernet, not the VPN.">
-            <UseList items={branch.appUse} empty="No app is using the internet right now." />
+          <div className="pop-body">
+            <div className="pop-head"><strong>Your apps</strong><span className="pop-state tone-ok">No VPN</span></div>
+            <p className="pop-line">Run on the Pi and reach the internet over Ethernet.</p>
+            <div className="pop-section">
+              <span className="pop-label"><Package aria-hidden />Using internet</span>
+              {busy.length ? <UseList items={busy} /> : <p className="pop-line">None right now</p>}
+            </div>
             {branch.links ? (
-              <p className="pop-line">
-                Public links: {branch.liveLinks} of {branch.links} live, about ↓ {fmtRate(branch.linkUse.down)} in, ↑ {fmtRate(branch.linkUse.up)} out (estimated).
-              </p>
+              <div className="pop-section">
+                <span className="pop-label"><Cloud aria-hidden />Public links<em className={linksOk ? '' : 'is-bad'}>{branch.liveLinks}/{branch.links} live</em></span>
+                <div className="use-row"><span className="use-name is-muted">Estimated</span><Rates rate={branch.linkUse} /></div>
+              </div>
             ) : null}
-          </BranchInfo>
+          </div>
         }
       />
       <span className="spur-tags">
         {branch.links ? (
-          <span className={`spur-tag${linksOk ? '' : ' is-bad'}`}><Cloud aria-hidden />{branch.liveLinks}/{branch.links} public links</span>
+          <span className={`spur-tag${linksOk ? '' : ' is-bad'}`} title="Public links live"><Cloud aria-hidden />{branch.liveLinks}/{branch.links}</span>
         ) : null}
-        <span className="spur-tag">Direct, no VPN</span>
+        <span className="spur-tag" title="Skips the VPN"><ShieldOff aria-hidden />No VPN</span>
       </span>
     </div>
   )
@@ -312,10 +316,12 @@ export function TrafficFlow({ flow, state, branch }: { flow: Flow; state: AppSta
         </li>
       ))}
     </ol>
-      {branch && piX ? <Spur branch={branch} x={piX} /> : null}
-      <div className="flow-legend" aria-hidden>
-        <span><i className="legend-in" />Data coming in</span>
-        <span><i className="legend-out" />Requests going out</span>
+      <div className="flow-under" style={piX ? ({ '--pi-x': `${piX}px` } as React.CSSProperties) : undefined}>
+        {branch && piX ? <Spur branch={branch} /> : null}
+        <div className="flow-legend" aria-hidden>
+          <span><i className="legend-in" />In</span>
+          <span><i className="legend-out" />Out</span>
+        </div>
       </div>
     </div>
   )

@@ -746,19 +746,28 @@ button:not(:disabled), summary { cursor: pointer; }
 .flow-packets.level-0, .flow-link.is-idle .flow-packets { opacity: 0; }
 
 /* Legend for the two packet styles. */
-.flow-legend { display: flex; justify-content: flex-end; gap: 14px; margin-top: 2px; font-size: 10.5px; color: var(--ink-faint); }
+.flow-under { display: flex; align-items: flex-end; min-height: 16px; }
+.flow-legend { display: flex; gap: 12px; margin-left: auto; padding-bottom: 2px; font-size: 10.5px; color: var(--ink-faint); }
 .flow-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .flow-legend i { width: 6px; height: 6px; border-radius: 50%; }
 .legend-in { background: var(--color-success); }
 .legend-out { box-shadow: inset 0 0 0 1.5px var(--color-success); }
 
 /* Who is using the internet, in popups. */
-.use-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
-.use-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 3px 10px; align-items: baseline; padding: 5px 0; border-top: 1px solid var(--line-soft); font-size: var(--text-micro); }
-.use-name { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.use-rate { font-variant-numeric: tabular-nums; color: var(--color-success); }
+.use-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.use-list li, .use-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; font-size: var(--text-micro); }
+.use-list li + li { border-top: 1px solid var(--line-soft); }
+.use-name { min-width: 0; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.use-name.is-muted { font-weight: 500; color: var(--ink-muted); }
+.use-rates { display: inline-flex; gap: 10px; flex: none; }
+.use-rate { display: inline-flex; align-items: center; gap: 2px; min-width: 62px; justify-content: flex-end; font-variant-numeric: tabular-nums; color: var(--color-success); }
+.use-rate svg { width: 11px; height: 11px; }
 .use-rate.is-out { color: var(--ink-muted); }
-.use-conn { grid-column: 1 / -1; color: var(--ink-faint); }
+.pop-section { display: grid; gap: 2px; padding-top: 8px; border-top: 1px solid var(--line-soft); }
+.pop-label { display: flex; align-items: center; gap: 6px; font-size: var(--text-micro); font-weight: 650; color: var(--color-base-content); }
+.pop-label svg { width: 12px; height: 12px; color: var(--ink-faint); }
+.pop-label em { margin-left: auto; font-style: normal; font-weight: 600; color: var(--color-success); }
+.pop-label em.is-bad { color: var(--color-error); }
 
 .flow-link.is-flow, .flow-link.is-blocked, .flow-link.is-busy { animation: link-wake var(--dur-slow) var(--ease-standard); }
 /* Held traffic: packets arrive, hit the barrier and fade. */
@@ -794,7 +803,7 @@ button:not(:disabled), summary { cursor: pointer; }
   .flow { flex-wrap: wrap; justify-content: center; row-gap: 12px; }
   .flow-step, .flow-step:first-child { flex: 0 0 auto; }
   .flow-link { flex: 0 0 16px; min-width: 16px; }
-  .flow-spur { margin-left: 0; justify-self: center; }
+  .flow-spur { display: flex; flex-direction: column; align-items: center; width: 120px; margin-left: calc(var(--pi-x) - 60px); animation: rise-in var(--dur-slow) var(--ease-out-soft) both; }
 }
 
 /* Two-lane links: the top lane brings data in toward whoever asked, the bottom
@@ -817,7 +826,7 @@ button:not(:disabled), summary { cursor: pointer; }
 .lane.level-3:not(.is-out) .flow-packet { box-shadow: 0 0 6px 1px color-mix(in oklab, var(--tone) 55%, transparent); }
 
 /* Vertical road under the Pi: apps run on the Pi and use its Ethernet uplink. */
-.flow-link.is-vertical { flex: none; flex-direction: row; width: 10px; min-width: 0; height: 26px; margin: 2px 0 4px; }
+.flow-link.is-vertical { flex: none; flex-direction: row; width: 10px; min-width: 0; height: 20px; margin: 8px 0 10px; }
 .flow-link.is-vertical:not(.is-road) { width: 2px; }
 .flow-link.is-vertical .lane { width: 2px; height: 100%; }
 .flow-link.is-vertical .lane::after { left: 50%; translate: -50% 0; }
@@ -830,10 +839,11 @@ button:not(:disabled), summary { cursor: pointer; }
   85% { opacity: 1; }
   100% { top: calc(100% - 6px); opacity: 0; }
 }
-.flow-spur { display: flex; flex-direction: column; align-items: center; width: 160px; margin-left: calc(var(--pi-x) - 80px); animation: rise-in var(--dur-slow) var(--ease-out-soft) both; }
-.spur-tags { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 6px; }
-.spur-tag { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 10.5px; font-weight: 600; color: var(--ink-muted); background: var(--surface-inset); white-space: nowrap; }
-.spur-tag svg { width: 11px; height: 11px; color: var(--color-success); }
+.flow-spur { display: flex; flex-direction: column; align-items: center; width: 120px; margin-left: calc(var(--pi-x) - 60px); animation: rise-in var(--dur-slow) var(--ease-out-soft) both; }
+.spur-tags { display: flex; justify-content: center; gap: 4px; margin-top: 6px; }
+.spur-tag { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 999px; font-size: 10.5px; font-weight: 600; color: var(--ink-muted); background: var(--surface-inset); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.spur-tag svg { width: 11px; height: 11px; color: var(--ink-faint); }
+.spur-tag:first-child svg { color: var(--color-success); }
 .spur-tag.is-bad svg { color: var(--color-error); }
 
 /* Text and numbers that change animate in place; unchanged text never moves. */
