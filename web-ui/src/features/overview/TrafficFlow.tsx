@@ -212,7 +212,7 @@ function BranchInfo({ title, line, children }: { title: string; line: string; ch
   )
 }
 
-const BRANCH_MIN_WIDTH = 228
+const BRANCH_MIN_WIDTH = 230
 
 /**
  * Loop under the main path: from the Pi down to Your apps and Public links,
@@ -240,7 +240,7 @@ function Branch({ branch, from, to, compact }: { branch: FlowBranch; from: numbe
       style={{ '--branch-from': `${from}px`, '--branch-to': `${to}px` } as React.CSSProperties}
       aria-label="Apps and public links reach the internet directly, skipping the VPN"
     >
-      {compact ? <span className="branch-from">Apps, no VPN</span> : <span className="branch-elbow is-up tone-ok" aria-hidden title="Back to the internet, no VPN" />}
+      {compact ? <span className="branch-from">Apps, no VPN</span> : <span className="branch-track tone-ok" aria-hidden />}
       <FlowLink state={branch.internet ? 'flow' : 'blocked'} rate={outRate} requester="right" />
       <NodeView
         node={links}
@@ -260,7 +260,6 @@ function Branch({ branch, from, to, compact }: { branch: FlowBranch; from: numbe
         }
       />
       <FlowLink state={carry ? 'flow' : 'idle'} rate={appRate} requester="right" />
-      {compact ? null : <span className="branch-elbow is-down tone-ok" aria-hidden />}
     </div>
   )
 }

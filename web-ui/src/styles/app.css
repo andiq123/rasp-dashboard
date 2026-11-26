@@ -788,31 +788,37 @@ button:not(:disabled), summary { cursor: pointer; }
 @keyframes flow-alert { 0%, 100% { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--tone) 22%, transparent); } 50% { box-shadow: inset 0 0 0 1px var(--tone), 0 0 0 4px color-mix(in oklab, var(--tone) 14%, transparent); } }
 @media (max-width: 640px) { .status-hero { padding: var(--space-4); } }
 /* Narrow cards (any screen): wrap into rows of compact steps. */
-.flow-wrap { container-type: inline-size; }
+.flow-wrap { container-type: inline-size; position: relative; z-index: 2; display: grid; gap: 8px; }
+.flow-wrap .flow-node { position: relative; z-index: 1; }
 @container (max-width: 540px) {
   .flow { flex-wrap: wrap; justify-content: center; row-gap: 12px; }
   .flow-step, .flow-step:first-child { flex: 0 0 auto; }
   .flow-link { flex: 0 0 16px; min-width: 16px; }
   .flow-branch { flex-wrap: wrap; justify-content: center; margin-left: 0; width: auto; row-gap: 10px; }
-  .branch-elbow { display: none; }
-  .flow-branch > .flow-link { flex: 0 0 16px; }
+  .branch-track { display: none; }
+  .flow-branch > .flow-link { background: color-mix(in oklab, var(--tone) 28%, transparent) !important; margin: 16px 0 0 !important; flex: 0 0 16px; }
 }
 
-/* Loop under the main path: Pi → Your apps → Public links → back up into Internet. */
-.flow-wrap { position: relative; z-index: 2; display: grid; gap: 8px; }
-.flow-wrap .flow-node { position: relative; z-index: 1; }
 .flow-branch {
-  display: flex; align-items: flex-start;
+  position: relative; display: flex; align-items: flex-start;
   margin-left: calc(var(--branch-from) - 1px); width: calc(var(--branch-to) - var(--branch-from) + 2px);
   animation: rise-in var(--dur-slow) var(--ease-out-soft) both;
 }
-.branch-elbow {
-  position: relative; z-index: 0; flex: none; width: 20px; height: 20px; margin-top: -3px;
-  border-bottom: 2px solid color-mix(in oklab, var(--tone) 35%, transparent);
+/* One continuous rounded track: down from the Pi, across, up into Internet.
+   Steps sit on top of it; links on the loop only carry packets. */
+.branch-track {
+  position: absolute; left: 0; right: 0; top: -6px; height: 23px; z-index: 0; pointer-events: none;
+  border: 2px solid color-mix(in oklab, var(--tone) 32%, transparent); border-top: 0;
+  border-radius: 0 0 14px 14px;
 }
-.branch-elbow.is-up { border-left: 2px solid color-mix(in oklab, var(--tone) 35%, transparent); border-bottom-left-radius: 12px; }
-.branch-elbow.is-down { border-right: 2px solid color-mix(in oklab, var(--tone) 35%, transparent); border-bottom-right-radius: 12px; }
-.flow-branch > .flow-link { flex: 1 1 auto; min-width: 10px; margin-inline: 0; }
+.flow-branch:not(.is-compact) > .flow-link { flex: 1 1 auto; min-width: 22px; margin: 15px 0 0; background: transparent !important; }
+.flow-branch:not(.is-compact) > .branch-track + .flow-link { margin-left: 6px; }
+.flow-branch:not(.is-compact) > .flow-link:last-of-type { margin-right: 6px; }
+.flow-branch:not(.is-compact) .flow-node { width: 66px; margin-inline: 2px; }
+.flow-branch:not(.is-compact) .flow-icon { width: 30px; height: 30px; border-radius: 10px; }
+.flow-branch:not(.is-compact) .flow-icon svg { width: 14px; height: 14px; }
+.flow-branch:not(.is-compact) .flow-label { font-size: 11.5px; }
+.flow-branch:not(.is-compact) .flow-icon { background: color-mix(in oklab, var(--tone) 13%, var(--surface-panel)); }
 .flow-branch .flow-node { width: 74px; }
 .flow-branch.is-compact { margin-left: 0; width: auto; max-width: 100%; justify-self: start; align-items: center; margin-top: 6px; }
 .flow-branch.is-compact > .flow-link { flex: 0 0 28px; }
