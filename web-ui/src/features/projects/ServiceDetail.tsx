@@ -45,6 +45,7 @@ import { Modal } from '@/components/ui/Modal/Modal'
 import { RepoRootPicker } from '@/components/RepoRootPicker/RepoRootPicker'
 import { Disclosure } from '@/components/ui/Disclosure/Disclosure'
 import { ResourceBudget } from '@/components/ui/ResourceBudget/ResourceBudget'
+import { SecretValue } from '@/components/ui/SecretValue/SecretValue'
 import { clampCpu, clampMem, ResourceSlider } from '@/components/ui/ResourceSlider/ResourceSlider'
 import { ServiceUsage } from '@/components/ui/UsageMeter/UsageMeter'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
@@ -64,7 +65,6 @@ import {
   isBuilding,
   isQueued,
   serviceTypeIcon,
-  statusDot,
   statusLabel,
   statusTone,
 } from './serviceStatus'
@@ -294,7 +294,6 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
           <div className="min-w-0 grid gap-0.5">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-base font-bold m-0 tracking-tight truncate inline-flex items-center gap-1.5 min-w-0">
-                <span className={`status ${statusDot(tone)} shrink-0`} aria-hidden />
                 <span className="truncate">{svc.name || svc.slug}</span>
               </h3>
               <span
@@ -1309,63 +1308,21 @@ function ConfigTab({
                 />
               </div>
             </>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Memory (MB)" tip="Not applied to shared Postgres engines." htmlFor="svc-mem">
-                <Input
-                  id="svc-mem"
-                  type="number"
-                  min={64}
-                  value={mem}
-                  onChange={(e) => setMemory(Number(e.target.value))}
-                />
-              </Field>
-              <Field label="CPUs" tip="Not applied to shared Postgres engines." htmlFor="svc-cpu">
-                <Input
-                  id="svc-cpu"
-                  type="number"
-                  min={0.1}
-                  step={0.1}
-                  value={cpu}
-                  onChange={(e) => setCpus(Number(e.target.value))}
-                />
-              </Field>
-            </div>
-          )}
+          ) : null}
         </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Memory (MB)" tip="Not applied to shared bucket engines." htmlFor="svc-mem">
-            <Input
-              id="svc-mem"
-              type="number"
-              min={64}
-              value={mem}
-              onChange={(e) => setMemory(Number(e.target.value))}
-            />
-          </Field>
-          <Field label="CPUs" tip="Not applied to shared bucket engines." htmlFor="svc-cpu">
-            <Input
-              id="svc-cpu"
-              type="number"
-              min={0.1}
-              step={0.1}
-              value={cpu}
-              onChange={(e) => setCpus(Number(e.target.value))}
-            />
-          </Field>
-        </div>
-      )}
+      ) : null}
 
       {svc.connection_url ? (
         <Field label="Connection" tip="Ready-to-use URL for apps in this group.">
-          <pre className={`${codeSurface} select-all`}>{svc.connection_url}</pre>
+          <SecretValue value={svc.connection_url} label="Connection URL" />
         </Field>
       ) : null}
 
-      <Button type="submit" variant="primary" loading={save.isPending}>
-        Save
-      </Button>
+      <div className="flex justify-end">
+        <Button type="submit" variant="primary" loading={save.isPending}>
+          Save changes
+        </Button>
+      </div>
     </form>
   )
 }
@@ -1433,7 +1390,7 @@ function VariablesTab({ group, slug, svc }: { group: string; slug: string; svc: 
           </div>
           {linked.map((block) => (
             <Field key={`${block.kind}-${block.source}`} label={block.label || block.source}>
-              <pre className={`${codeSurface} min-h-0 max-h-48 select-all`}>{block.env || '—'}</pre>
+              {block.env ? <SecretValue value={block.env} kind="env" label="Variables" className="min-h-0 max-h-48" /> : <pre className={`${codeSurface} min-h-0 max-h-48`}>—</pre>}
             </Field>
           ))}
         </div>

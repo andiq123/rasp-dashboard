@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -408,6 +408,18 @@ export function ProjectsPage() {
   }
 
   const groupName0 = group ? group.name || group.slug : ''
+  // Closing a service plays its exit animation, then returns to the cards.
+  const [closingDetail, setClosingDetail] = useState(false)
+  const closeTimer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(closeTimer.current), [])
+  function closeDetail() {
+    if (closingDetail) return
+    setClosingDetail(true)
+    closeTimer.current = window.setTimeout(() => {
+      setClosingDetail(false)
+      navigate(`/projects/${encodeURIComponent(groupSlug || '')}`)
+    }, 200)
+  }
   // Until the services load, trust the count the group list already has.
   const serviceCount = servicesQ.data ? services.length : group?.service_count
   const nameDirty = group && draftName.trim() !== (group.name || group.slug).trim()
@@ -606,14 +618,15 @@ export function ProjectsPage() {
                 ) : null}
 
                 {selected ? (
-                  <ServiceDetail
-                    key={`${groupSlug}/${selected.slug}`}
-                    group={groupSlug}
-                    slug={selected.slug}
-                    siblings={services}
-                    onClose={() => navigate(`/projects/${encodeURIComponent(groupSlug)}`)}
-                    onDeleted={() => navigate(`/projects/${encodeURIComponent(groupSlug)}`)}
-                  />
+                  <div key={`${groupSlug}/${selected.slug}`} className={`detail-enter${closingDetail ? ' is-leaving' : ''}`}>
+                    <ServiceDetail
+                      group={groupSlug}
+                      slug={selected.slug}
+                      siblings={services}
+                      onClose={closeDetail}
+                      onDeleted={() => navigate(`/projects/${encodeURIComponent(groupSlug)}`)}
+                    />
+                  </div>
                 ) : null}
                 </div>
               </div>

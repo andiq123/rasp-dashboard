@@ -67,3 +67,9 @@ export function findSpikes(points: HistoryPoint[], max = 3): number[] {
   }
   return picks.sort((a, b) => a - b)
 }
+
+/** True when apps explain little of a busy moment: the load came from the Pi itself. */
+export function mostlySystem(systemCpu: number, samples: AppSample[]): boolean {
+  const appsTotal = samples.reduce((sum, a) => sum + a.cpu, 0)
+  return systemCpu >= 25 && appsTotal < systemCpu * 0.3
+}

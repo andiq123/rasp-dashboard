@@ -7,7 +7,7 @@ import { AnimatedNumber } from '@/components/ui/AnimatedNumber/AnimatedNumber'
 import { Empty } from '@/components/ui/Empty/Empty'
 import { Segmented } from '@/components/ui/Segmented/Segmented'
 import { useLiveState } from '@/hooks/useLiveState'
-import { appsAt, findSpikes, summarizeApps } from '@/lib/appHistory'
+import { appsAt, findSpikes, mostlySystem, summarizeApps } from '@/lib/appHistory'
 import { fmtMB } from '@/lib/resources'
 import { TopApps } from './TopApps'
 
@@ -264,7 +264,8 @@ export function MonitorHistory({ kind, group, slug, compact = false, bare = fals
 
             {spikes.map((i) => {
               const cpuSeries = series[0]
-              const top = apps.length ? appsAt(apps, points[i].at, cores, bucketSeconds * 1.5)[0] : null
+              const at = apps.length ? appsAt(apps, points[i].at, cores, bucketSeconds * 1.5) : []
+              const cause = mostlySystem(num(points[i], 'cpu_percent'), at) ? 'the Pi itself' : at[0]?.app.name
               return (
                 <button
                   key={points[i].at}
@@ -273,8 +274,8 @@ export function MonitorHistory({ kind, group, slug, compact = false, bare = fals
                   style={{ left: `${(xAt(i, points.length) / W) * 100}%`, top: `${(yAt(num(points[i], cpuSeries.key), cpuSeries.ceiling) / H) * 100}%` }}
                   onPointerEnter={() => setHover(i)}
                   onFocus={() => setHover(i)}
-                  aria-label={`CPU spike at ${hoverLabel(points[i].at)}${top ? `, mostly ${top.app.name}` : ''}`}
-                  title={top ? `Spike: mostly ${top.app.name}` : 'Spike'}
+                  aria-label={`CPU spike at ${hoverLabel(points[i].at)}${cause ? `, mostly ${cause}` : ''}`}
+                  title={cause ? `Spike: mostly ${cause}` : 'Spike'}
                 />
               )
             })}
@@ -301,10 +302,13 @@ export function MonitorHistory({ kind, group, slug, compact = false, bare = fals
                       <b>{s.format(num(active, s.key))}</b>
                     </span>
                   ))}
-                  {kind === 'system' && apps.length ? (
+                  {kind === 'system' && apps.length ? (() => {
+                    const top = appsAt(apps, active.at, cores, bucketSeconds * 1.5)
+                    const system = mostlySystem(num(active, 'cpu_percent'), top)
+                    return (
                     <span className="chart-tip-apps">
-                      <small>Busiest apps</small>
-                      {appsAt(apps, active.at, cores, bucketSeconds * 1.5).slice(0, 3).map((a) => (
+                      <small>{system ? 'Mostly the Pi itself, not your apps' : 'Busiest apps'}</small>
+                      {top.slice(0, 3).map((a) => (
                         <span key={`${a.app.group}/${a.app.slug}`} className="chart-tip-app">
                           <span>{a.app.name}</span>
                           <b>{a.cpu.toFixed(1)}%</b>
@@ -312,7 +316,8 @@ export function MonitorHistory({ kind, group, slug, compact = false, bare = fals
                         </span>
                       ))}
                     </span>
-                  ) : null}
+                    )
+                  })() : null}
                 </div>
               </>
             ) : null}

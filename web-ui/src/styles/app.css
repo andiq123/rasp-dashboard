@@ -523,6 +523,16 @@ button:not(:disabled), summary { cursor: pointer; }
 .skeleton-row { height: 46px; }
 .skeleton-card { height: 168px; border-radius: var(--radius-inset); }
 
+/* Service detail opens rising in and closes fading out before the cards return. */
+.detail-enter { animation: rise-in var(--dur-slow) var(--ease-out-soft) both; }
+.detail-enter.is-leaving { pointer-events: none; animation: detail-out 200ms var(--ease-standard) both; }
+@keyframes detail-out { to { opacity: 0; transform: translateY(-6px) scale(0.99); } }
+
+/* Masked secrets with Show/Copy. */
+.secret { display: grid; gap: 4px; }
+.secret pre { word-break: break-all; white-space: pre-wrap; }
+.secret-actions { display: flex; justify-content: flex-end; gap: 2px; }
+
 /* Settings: two columns on wide screens. */
 .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
 .settings-col { display: grid; gap: 14px; min-width: 0; }
