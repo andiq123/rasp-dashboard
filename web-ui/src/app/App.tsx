@@ -8,6 +8,7 @@ import { OverviewPage } from '@/features/overview/OverviewPage'
 import { useRealtime } from '@/hooks/realtime'
 import { ScrollMain } from '@/shell/PageTransition'
 import { AppBar } from '@/shell/Shell'
+import { useIntro } from '@/shell/useIntro'
 
 const ProjectsPage = lazy(() => import('@/features/projects/ProjectsPage').then((m) => ({ default: m.ProjectsPage })))
 const SettingsPage = lazy(() => import('@/features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })))
@@ -31,6 +32,7 @@ function OfflineNotice() {
 }
 
 export function App() {
+  useIntro()
   return (
     <div className="app-shell flex min-h-svh flex-col">
       <a href="#app-main" className="skip-link">Skip to content</a>

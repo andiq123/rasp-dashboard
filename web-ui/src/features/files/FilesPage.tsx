@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ChevronRight, Eye, EyeOff, File, Folder, Home, Search, Trash2 } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Eye, EyeOff, File, Folder, Home, Search, Trash2, X } from 'lucide-react'
 import { fetchFilePreview, fetchFiles, filesOp } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import type { FilesEntry } from '@/api/types'
@@ -47,10 +47,13 @@ export function FilesPage() {
     enabled: !!path,
   })
 
+  // The preview keeps showing the last file while it slides closed.
+  const [shown, setShown] = useState<string | null>(selected)
+  if (selected && selected !== shown) setShown(selected)
   const previewQ = useQuery({
-    queryKey: queryKeys.filesPreview(selected || ''),
-    queryFn: () => fetchFilePreview(selected!),
-    enabled: !!selected,
+    queryKey: queryKeys.filesPreview(shown || ''),
+    queryFn: () => fetchFilePreview(shown!),
+    enabled: !!shown,
   })
 
   const delMut = useMutation({
@@ -86,6 +89,23 @@ export function FilesPage() {
       return e.name.toLowerCase().includes(q)
     })
   }, [allEntries, query, showHidden])
+
+  // Binary files have nothing to show: say so instead of opening an empty panel.
+  const binary = !!selected && !!previewQ.data?.binary && shown === selected
+  const previewOpen = !!selected && !binary
+  useEffect(() => {
+    if (binary) showToast('No text preview for this file', 'info')
+  }, [binary, showToast])
+
+  // Escape closes the preview.
+  useEffect(() => {
+    if (!selected) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelected(null)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [selected])
 
   // Drop selection when the file leaves the visible list (e.g. hide toggled off).
   useEffect(() => {
@@ -157,7 +177,7 @@ export function FilesPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3.5 min-h-[60vh] lg:grid-cols-[minmax(0,1.25fr)_minmax(260px,0.75fr)]">
+      <div className="files-layout" data-preview={previewOpen}>
         <div className={`card ${surface} overflow-hidden min-h-[360px] flex flex-col`}>
           {listingQ.isLoading ? (
             <div className="p-4">
@@ -221,46 +241,34 @@ export function FilesPage() {
           )}
         </div>
 
-        <aside className={`card ${surface} min-h-[360px] flex flex-col`}>
-          <div className="card-body gap-2.5 p-3.5 flex-1 min-h-0 grid grid-rows-[auto_1fr]">
-            {!selected ? (
-              <div className="grid place-items-center">
-                <Empty
-                  compact
-                  icon={<Eye className="h-5 w-5" aria-hidden />}
-                  title="Select a file"
-                  body="Preview text files here."
-                />
+        <aside className={`files-preview card ${surface}`} aria-label="File preview" inert={!previewOpen || undefined}>
+          <div className="files-preview-inner">
+            <div className="flex justify-between gap-2 items-center min-w-0">
+              <strong className="text-sm truncate inline-flex items-center gap-2 min-w-0">
+                <File className={`h-4 w-4 shrink-0 ${muted}`} aria-hidden />
+                <span className="truncate">{previewQ.data?.name || shown?.split('/').pop()}</span>
+              </strong>
+              <div className="flex gap-1 shrink-0">
+                <Button
+                  variant="dangerSoft"
+                  icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />}
+                  loading={delMut.isPending}
+                  disabled={!selected}
+                  onClick={() => void onDeleteSelected()}
+                >
+                  Delete
+                </Button>
+                <Button variant="quiet" icon={<X className="h-4 w-4" aria-hidden />} onClick={() => setSelected(null)} aria-label="Close preview" title="Close (Esc)" />
               </div>
-            ) : previewQ.isLoading ? (
+            </div>
+            {previewQ.isLoading ? (
               <Spinner compact label="Loading preview…" />
             ) : previewQ.isError ? (
               <Empty compact title="Preview failed" body={(previewQ.error as Error).message} />
-            ) : previewQ.data?.binary ? (
-              <Empty compact title="Binary file" body="No text preview." />
             ) : previewQ.data?.error ? (
               <Empty compact title="Preview failed" body={previewQ.data.error} />
             ) : (
-              <>
-                <div className="flex justify-between gap-2 items-center min-w-0">
-                  <strong className="text-sm truncate inline-flex items-center gap-2 min-w-0">
-                    <File className={`h-4 w-4 shrink-0 ${muted}`} aria-hidden />
-                    <span className="truncate">
-                      {previewQ.data?.name || selected.split('/').pop()}
-                    </span>
-                  </strong>
-                  <Button
-                    variant="dangerSoft"
-                    className="shrink-0"
-                    icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />}
-                    loading={delMut.isPending}
-                    onClick={() => void onDeleteSelected()}
-                  >
-                    Delete
-                  </Button>
-                </div>
-                <pre className={`${codeSurface} min-h-0 h-full`}>{previewQ.data?.text || ''}</pre>
-              </>
+              <pre className={`${codeSurface} min-h-0 h-full`}>{previewQ.data?.text || ''}</pre>
             )}
           </div>
         </aside>
