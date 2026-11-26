@@ -1,9 +1,11 @@
-import { useEffect, useRef } from 'react'
+import { useState } from 'react'
 
 type Props = {
   value: number | undefined | null
   format: (value: number) => string
 }
+
+type Snapshot = { text: string; value: number; prevText: string | null; dir: 'up' | 'down' }
 
 /**
  * Odometer-style number: only the characters that changed roll in, upward when
@@ -12,24 +14,24 @@ type Props = {
 export function AnimatedNumber({ value, format }: Props) {
   const target = Number(value) || 0
   const text = format(target)
-  const prev = useRef<{ value: number; text: string } | null>(null)
-  const before = prev.current
-  const dir = before && target < before.value ? 'down' : 'up'
-
-  useEffect(() => {
-    prev.current = { value: target, text }
-  }, [target, text])
+  const [snap, setSnap] = useState<Snapshot>({ text, value: target, prevText: null, dir: 'up' })
+  let current = snap
+  if (snap.text !== text) {
+    current = { text, value: target, prevText: snap.text, dir: target < snap.value ? 'down' : 'up' }
+    setSnap(current)
+  }
 
   const chars = text.split('')
   // Align with the previous text from the right, where digits keep their place value.
-  const offset = before ? before.text.length - chars.length : 0
+  const offset = current.prevText ? current.prevText.length - chars.length : 0
   return (
     <span className="roll">
       <span className="sr-only">{text}</span>
       {chars.map((ch, i) => {
-        const changed = !!before && before.text[i + offset] !== ch
+        const changed = current.prevText !== null && current.prevText[i + offset] !== ch
         return (
-          <span key={`${chars.length - i}:${ch}`} className={changed ? 'roll-ch is-new' : 'roll-ch'} data-dir={dir} aria-hidden>
+          // Keyed by position from the right + character: unchanged digits keep their node.
+          <span key={`${chars.length - i}:${ch}`} className={changed ? 'roll-ch is-new' : 'roll-ch'} data-dir={current.dir} aria-hidden>
             {ch === ' ' ? ' ' : ch}
           </span>
         )
