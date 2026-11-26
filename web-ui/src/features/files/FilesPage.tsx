@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowUp, Eye, EyeOff, File, Folder, Home, Trash2 } from 'lucide-react'
-import { fetchFilePreview, fetchFiles, filesOp, readInitialState } from '@/api/endpoints'
+import { fetchFilePreview, fetchFiles, filesOp } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import type { FilesEntry } from '@/api/types'
 import { Button } from '@/components/ui/Button/Button'
@@ -11,6 +11,7 @@ import { Empty } from '@/components/ui/Empty/Empty'
 import { Input } from '@/components/ui/Field/Field'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { useToast } from '@/components/ui/Toast/Toast'
+import { useLiveState } from '@/hooks/useLiveState'
 import { fmtBytes } from '@/lib/format'
 import { PageHeader } from '@/components/ui/PageHeader/PageHeader'
 import { codeSurface, muted, surface } from '@/lib/ui'
@@ -34,7 +35,8 @@ export function FilesPage() {
   const { showToast } = useToast()
   const { confirm } = useConfirm()
   const qc = useQueryClient()
-  const [home] = useState(() => readInitialState().files_root || '/home')
+  // The server's allowed root; never guess a path the server would reject.
+  const home = useLiveState().state.files_root || ''
   const pathFromRoute = splat ? `/${splat}` : ''
   const path = pathFromRoute || home
   const [query, setQuery] = useState('')
@@ -44,6 +46,7 @@ export function FilesPage() {
   const listingQ = useQuery({
     queryKey: queryKeys.files(path),
     queryFn: () => fetchFiles(path),
+    enabled: !!path,
   })
 
   const previewQ = useQuery({

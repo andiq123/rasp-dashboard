@@ -4,7 +4,7 @@ import type { ActivitySnapshot, Service } from '@/api/types'
 import { Button } from '@/components/ui/Button/Button'
 import { ServiceUsage } from '@/components/ui/UsageMeter/UsageMeter'
 import { activityMatchesService } from '@/hooks/useActivity'
-import { iconWell, muted } from '@/lib/ui'
+import { iconWell } from '@/lib/ui'
 import {
   isBuilding,
   isQueued,
@@ -14,6 +14,8 @@ import {
   statusLabel,
   statusTone,
 } from './serviceStatus'
+
+const typeLabel: Record<string, string> = { go: 'Go app', postgres: 'Postgres', redis: 'Redis', bucket: 'Bucket' }
 
 type Props = {
   group: string
@@ -81,10 +83,10 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
                 {statusText}
               </span>
             </div>
-            <p className={`text-xs mt-0.5 m-0 truncate ${muted}`}>
-              <span className="font-mono">{svc.type}</span>
-              {svc.port ? ` · :${svc.port}` : ''}
-              {svc.repo ? ` · ${svc.repo.split('/').pop()}` : ''}
+            <p className="meta mt-0.5 m-0">
+              <span>{typeLabel[svc.type] || svc.type}</span>
+              {svc.port ? <span className="tabular-nums">:{svc.port}</span> : null}
+              {svc.repo ? <span className="truncate">{svc.repo.split('/').pop()}</span> : null}
             </p>
           </div>
         </div>

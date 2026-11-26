@@ -454,12 +454,11 @@ export function ProjectsPage() {
                       }
                     >
                       <Folder className={`h-4 w-4 shrink-0 ${muted}`} aria-hidden />
-                      <span className="min-w-0">
+                      <span className="min-w-0 flex-1">
                         <strong className="block truncate">{g.name || g.slug}</strong>
-                        <span className={`block font-mono text-[11px] ${muted} font-normal`}>
-                          {g.slug}
-                          {g.service_count != null ? ` · ${g.service_count}` : ''}
-                          {g.disk_bytes ? ` · ${fmtBytes(g.disk_bytes)}` : ''}
+                        <span className="meta">
+                          {g.service_count != null ? <span>{g.service_count === 1 ? '1 service' : `${g.service_count} services`}</span> : null}
+                          {g.disk_bytes ? <span className="meta-end">{fmtBytes(g.disk_bytes)}</span> : null}
                         </span>
                       </span>
                     </Link>
