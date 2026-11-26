@@ -2,6 +2,7 @@ import { api } from './client'
 import type {
   ActivitySnapshot,
   ActivityLine,
+  AppHistory,
   AppState,
   MullvadAccount,
   Config,
@@ -94,6 +95,8 @@ export const fetchGroupStats = (group: string) =>
 
 export const fetchSystemHistory = (range = '6h') =>
   api<HistorySeries>(`/api/history/system?range=${encodeURIComponent(range)}`)
+export const fetchAppsHistory = (range = '6h') =>
+  api<{ apps: AppHistory[] }>(`/api/history/apps?range=${encodeURIComponent(range)}`).then((r) => r.apps || [])
 
 export const fetchServiceHistory = (group: string, slug: string, range = '6h') =>
   api<HistorySeries>(

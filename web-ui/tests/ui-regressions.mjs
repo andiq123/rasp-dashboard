@@ -80,7 +80,18 @@ assert.equal(links({ ...base, hotspot_running: false }), 'flow,flow,flow,blocked
 assert.equal(links({ ...base, clients: 0 }), 'flow,flow,flow,flow,idle', 'No connected devices: nothing to deliver')
 assert.equal(links({ ...base, mode: 'residential', proxy_running: false }), 'flow,flow,blocked,idle,idle', 'Residential mode gates on the proxy')
 assert.equal(links({ mode: 'mullvad', hotspot_running: false }), 'idle,idle,idle,idle,idle', 'Before the first state nothing claims to flow')
-console.log('UI regressions passed: live stats, accessible fields, VPN failure stages, recovery, retry states, countdowns, traffic flow scenarios.')
+const { appsAt, findSpikes, summarizeApps } = await load('lib/appHistory.ts')
+const appA = { group: 'g', slug: 'a', name: 'api', type: 'go', points: [{ at: 100, cpu_percent: 80, memory_mb: 50 }, { at: 130, cpu_percent: 10, memory_mb: 40 }] }
+const appB = { group: 'g', slug: 'b', name: 'db', type: 'postgres', points: [{ at: 100, cpu_percent: 20, memory_mb: 200 }, { at: 130, cpu_percent: 40, memory_mb: 210 }] }
+const at100 = appsAt([appB, appA], 101, 4, 45)
+assert.equal(at100[0].app.name, 'api', 'Busiest app at a moment comes first')
+assert.equal(at100[0].cpu, 20, 'App CPU is scaled to the whole Pi (80% of a core on 4 cores = 20%)')
+assert.equal(appsAt([appA], 1000, 4, 45).length, 0, 'Samples far from the moment are ignored')
+assert.equal(summarizeApps([appA, appB], 4)[0].app.name, 'db', 'Range ranking uses average CPU')
+const flat = Array.from({ length: 40 }, (_, i) => ({ at: i * 30, cpu_percent: i === 25 ? 90 : 5 }))
+assert.deepEqual(findSpikes(flat), [25], 'A standout CPU peak is detected')
+assert.deepEqual(findSpikes(flat.map((p) => ({ ...p, cpu_percent: 5 }))), [], 'A flat line has no spikes')
+console.log('UI regressions passed: live stats, accessible fields, VPN failure stages, recovery, retry states, countdowns, traffic flow scenarios, spike attribution.')
 } finally {
   await vite.close()
 }

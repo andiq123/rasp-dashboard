@@ -12,6 +12,7 @@ export const queryKeys = {
   services: (group: string) => ['services', group] as const,
   groupStats: (group: string) => ['stats', group] as const,
   systemHistory: (range: string) => ['history', 'system', range] as const,
+  appsHistory: (range: string) => ['history', 'apps', range] as const,
   serviceHistory: (group: string, slug: string, range: string) =>
     ['history', 'service', group, slug, range] as const,
   dashboardTunnel: ['dashboard', 'tunnel'] as const,

@@ -161,6 +161,15 @@ export type RuntimeStats = {
   source?: string
 }
 
+export type AppHistory = {
+  group: string
+  slug: string
+  name: string
+  type: string
+  shared?: boolean
+  points: { at: number; cpu_percent: number; memory_mb: number }[]
+}
+
 export type HistoryPoint = {
   at: number
   cpu_percent?: number

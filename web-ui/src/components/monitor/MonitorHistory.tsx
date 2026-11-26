@@ -1,11 +1,15 @@
 import { useMemo, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { fetchServiceHistory, fetchSystemHistory } from '@/api/endpoints'
+import { fetchAppsHistory, fetchServiceHistory, fetchSystemHistory } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import type { HistoryPoint } from '@/api/types'
 import { AnimatedNumber } from '@/components/ui/AnimatedNumber/AnimatedNumber'
 import { Empty } from '@/components/ui/Empty/Empty'
 import { Segmented } from '@/components/ui/Segmented/Segmented'
+import { useLiveState } from '@/hooks/useLiveState'
+import { appsAt, findSpikes, summarizeApps } from '@/lib/appHistory'
+import { fmtMB } from '@/lib/resources'
+import { TopApps } from './TopApps'
 
 type Range = '1h' | '6h' | '24h' | '7d'
 
@@ -111,6 +115,20 @@ export function MonitorHistory({ kind, group, slug, compact = false, bare = fals
     placeholderData: keepPreviousData,
   })
   const points = useMemo(() => query.data?.points || [], [query.data?.points])
+  // System view: every app's history, to rank consumers and explain spikes.
+  const appsQ = useQuery({
+    queryKey: queryKeys.appsHistory(range),
+    queryFn: () => fetchAppsHistory(range),
+    enabled: kind === 'system',
+    staleTime: 25_000,
+    refetchInterval: 30_000,
+    placeholderData: keepPreviousData,
+  })
+  const cores = Number(useLiveState().state.device_metrics?.cpu?.count) || 4
+  const apps = useMemo(() => appsQ.data || [], [appsQ.data])
+  const summaries = useMemo(() => summarizeApps(apps, cores), [apps, cores])
+  const spikes = useMemo(() => (kind === 'system' ? findSpikes(points) : []), [kind, points])
+  const bucketSeconds = points.length > 1 ? Math.max(30, (points[points.length - 1].at - points[0].at) / (points.length - 1)) : 60
   const latest = points.at(-1)
   const switching = query.isPlaceholderData
 
@@ -244,6 +262,22 @@ export function MonitorHistory({ kind, group, slug, compact = false, bare = fals
               </g>
             </svg>
 
+            {spikes.map((i) => {
+              const cpuSeries = series[0]
+              const top = apps.length ? appsAt(apps, points[i].at, cores, bucketSeconds * 1.5)[0] : null
+              return (
+                <button
+                  key={points[i].at}
+                  type="button"
+                  className="chart-spike"
+                  style={{ left: `${(xAt(i, points.length) / W) * 100}%`, top: `${(yAt(num(points[i], cpuSeries.key), cpuSeries.ceiling) / H) * 100}%` }}
+                  onPointerEnter={() => setHover(i)}
+                  onFocus={() => setHover(i)}
+                  aria-label={`CPU spike at ${hoverLabel(points[i].at)}${top ? `, mostly ${top.app.name}` : ''}`}
+                  title={top ? `Spike: mostly ${top.app.name}` : 'Spike'}
+                />
+              )
+            })}
             {active ? (
               <>
                 <span className="chart-cursor" style={{ left: `${activeLeft}%` }} aria-hidden />
@@ -267,6 +301,18 @@ export function MonitorHistory({ kind, group, slug, compact = false, bare = fals
                       <b>{s.format(num(active, s.key))}</b>
                     </span>
                   ))}
+                  {kind === 'system' && apps.length ? (
+                    <span className="chart-tip-apps">
+                      <small>Busiest apps</small>
+                      {appsAt(apps, active.at, cores, bucketSeconds * 1.5).slice(0, 3).map((a) => (
+                        <span key={`${a.app.group}/${a.app.slug}`} className="chart-tip-app">
+                          <span>{a.app.name}</span>
+                          <b>{a.cpu.toFixed(1)}%</b>
+                          <em>{fmtMB(a.memoryMB)}</em>
+                        </span>
+                      ))}
+                    </span>
+                  ) : null}
                 </div>
               </>
             ) : null}
@@ -278,6 +324,7 @@ export function MonitorHistory({ kind, group, slug, compact = false, bare = fals
           </div>
         </div>
       )}
+      {kind === 'system' && points.length ? <TopApps summaries={summaries} /> : null}
     </section>
   )
 }

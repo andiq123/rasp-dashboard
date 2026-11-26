@@ -105,6 +105,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/state", s.handleAPIState)
 	mux.HandleFunc("/api/activity", s.handleAPIActivity)
 	mux.HandleFunc("/api/history/system", s.handleSystemHistory)
+	mux.HandleFunc("/api/history/apps", s.handleAppsHistory)
 	mux.HandleFunc("/api/dashboard/tunnel", s.handleDashboardTunnel)
 	mux.HandleFunc("/api/files", s.handleAPIFiles)
 	mux.HandleFunc("/api/files/preview", s.handleAPIFilesPreview)

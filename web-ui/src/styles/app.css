@@ -618,6 +618,37 @@ button:not(:disabled), summary { cursor: pointer; }
 .ru-verdict { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 9px 11px; border-radius: var(--radius-inset); font-size: var(--text-micro); line-height: 1.45; color: var(--ink-muted); background: color-mix(in oklab, var(--tone) 8%, var(--surface-panel)); }
 .ru-verdict svg { flex-shrink: 0; width: 14px; height: 14px; margin-top: 1px; color: var(--tone); }
 
+/* Spike attribution: tooltip lists the busiest apps; standout peaks get a marker. */
+.chart-tip-apps { display: grid; gap: 3px; margin-top: 4px; padding-top: 6px; border-top: 1px solid var(--line-soft); }
+.chart-tip-apps small { font-size: 10.5px; color: var(--ink-faint); }
+.chart-tip-app { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; color: var(--ink-muted); }
+.chart-tip-app span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chart-tip-app b { font-weight: 650; color: var(--color-base-content); font-variant-numeric: tabular-nums; }
+.chart-tip-app em { font-style: normal; font-variant-numeric: tabular-nums; }
+.chart-spike {
+  position: absolute; z-index: 1; width: 14px; height: 14px; translate: -50% -50%; padding: 0; border: 2px solid var(--surface-panel); border-radius: 50%;
+  background: var(--color-error); box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-error) 20%, transparent); cursor: pointer;
+  animation: barrier-in var(--dur-slow) var(--ease-out-soft) both;
+}
+
+/* Top apps for the selected range. */
+.top-apps { display: grid; gap: 6px; }
+.top-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: var(--text-label); }
+.top-head span { font-size: var(--text-micro); color: var(--ink-faint); }
+.top-apps ol { display: grid; margin: 0; padding: 0; list-style: none; }
+.top-row { display: grid; grid-template-columns: 26px minmax(0, 1.4fr) minmax(40px, 1fr) 48px 58px 56px; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line-soft); animation: rise-in var(--dur-base) var(--ease-out-soft) both; }
+.top-icon { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; color: var(--color-primary); background: color-mix(in oklab, var(--color-primary) 10%, var(--surface-panel)); }
+.top-icon svg { width: 13px; height: 13px; }
+.top-name { display: grid; min-width: 0; line-height: 1.25; }
+.top-name strong { font-size: var(--text-label); font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top-name small { font-size: var(--text-micro); color: var(--ink-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top-bar { height: 6px; border-radius: 6px; background: color-mix(in oklab, var(--color-info) 12%, var(--color-base-200)); overflow: hidden; }
+.top-bar span { display: block; height: 100%; border-radius: inherit; background: var(--color-info); transition: width var(--dur-slow) var(--ease-out-soft); }
+.top-val { justify-self: end; font-size: var(--text-micro); font-weight: 650; }
+.top-val.is-mem { color: var(--ink-muted); font-weight: 550; }
+.top-spark { width: 56px; height: 22px; color: var(--color-info); }
+@media (max-width: 640px) { .top-row { grid-template-columns: 26px minmax(0, 1fr) 48px 58px; } .top-bar, .top-spark { display: none; } }
+
 /* ── Overview ──────────────────────────────────────────────────────── */
 .overview { display: grid; gap: 14px; }
 .connection-route { padding-top: 2px; }

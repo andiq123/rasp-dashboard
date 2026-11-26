@@ -117,3 +117,56 @@ func (s *Server) historyReply(w http.ResponseWriter, r *http.Request, subject st
 func (s *Server) handleSystemHistory(w http.ResponseWriter, r *http.Request) {
 	s.historyReply(w, r, monitor.SystemSubject())
 }
+
+// AppSeries is one deployed app's history, light enough to send for every app.
+type AppSeries struct {
+	Group  string     `json:"group"`
+	Slug   string     `json:"slug"`
+	Name   string     `json:"name"`
+	Type   string     `json:"type"`
+	Shared bool       `json:"shared,omitempty"`
+	Points []AppPoint `json:"points"`
+}
+
+type AppPoint struct {
+	At         int64   `json:"at"`
+	CPUPercent float64 `json:"cpu_percent"`
+	MemoryMB   float64 `json:"memory_mb"`
+}
+
+// handleAppsHistory returns every app's CPU and memory over a range, so the
+// dashboard can rank consumers and say which app caused a system spike.
+func (s *Server) handleAppsHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+	if s.History == nil || s.Deploy == nil {
+		http.Error(w, "monitor history unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	limit := 240
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n <= 1000 {
+			limit = n
+		}
+	}
+	since := time.Now().Add(-historyWindow(r.URL.Query().Get("range")))
+	apps := make([]AppSeries, 0, 8)
+	for _, svc := range s.Deploy.MonitorServices() {
+		series, err := s.History.Query(monitor.ServiceSubject(svc.Group, svc.Slug), since, limit)
+		if err != nil || len(series.Points) == 0 {
+			continue
+		}
+		app := AppSeries{Group: svc.Group, Slug: svc.Slug, Name: svc.Name, Type: svc.Type, Shared: svc.Stats != nil && svc.Stats.Shared}
+		if app.Name == "" {
+			app.Name = svc.Slug
+		}
+		app.Points = make([]AppPoint, len(series.Points))
+		for i, p := range series.Points {
+			app.Points[i] = AppPoint{At: p.At, CPUPercent: p.CPUPercent, MemoryMB: p.MemoryMB}
+		}
+		apps = append(apps, app)
+	}
+	jsonReply(w, map[string]any{"apps": apps})
+}
