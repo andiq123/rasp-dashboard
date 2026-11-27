@@ -21,7 +21,15 @@ const (
 	// After this long the dashboard asks once whether the saved balance still matches IPRoyal.
 	balanceStaleAfter = 7 * 24 * time.Hour
 	maxBalanceBytes   = 100_000 * 1e9
+	keepSessions      = 30
 )
+
+// ResidentialSession is one finished stretch on the residential proxy.
+type ResidentialSession struct {
+	Start time.Time `json:"start"`
+	End   time.Time `json:"end"`
+	Bytes uint64    `json:"bytes"`
+}
 
 // ResidentialUsage is Wi-Fi traffic sent through the paid residential proxy:
 // the current session and the calendar month. Counted from the hotspot
@@ -40,6 +48,8 @@ type ResidentialUsage struct {
 	BalanceBytes   uint64    `json:"balance_bytes,omitempty"`
 	BalanceSetAt   time.Time `json:"balance_set_at,omitzero"`
 	BalanceTotalAt uint64    `json:"balance_total_at,omitempty"`
+	// Finished sessions, newest last (only served by the history endpoint).
+	Sessions []ResidentialSession `json:"sessions,omitempty"`
 	// Derived for the dashboard; not meaningful on disk.
 	RemainingBytes *uint64 `json:"remaining_bytes,omitempty"`
 	BalanceStale   bool    `json:"balance_stale,omitempty"`
@@ -128,10 +138,26 @@ func (r *Reader) trackResidential(mode string, now time.Time) ResidentialUsage {
 	if ok {
 		t.last, t.hasLast = total, true
 	}
-	if now.Sub(t.savedAt) >= usageSaveEvery {
+	if now.Sub(t.savedAt) >= usageSaveEvery || !t.usage.Active && len(t.usage.Sessions) > 0 && t.usage.Sessions[len(t.usage.Sessions)-1].End.Equal(now) {
 		_ = t.save(r.usagePath(), now)
 	}
-	return t.usage.withBalance(now)
+	live := t.usage.withBalance(now)
+	live.Sessions = nil
+	return live
+}
+
+// ResidentialHistory is the usage with its finished sessions, newest first.
+func (r *Reader) ResidentialHistory() ResidentialUsage {
+	t := &r.usage
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.ensureLoaded(r.usagePath())
+	u := t.usage.withBalance(time.Now())
+	u.Sessions = make([]ResidentialSession, len(t.usage.Sessions))
+	for i, sess := range t.usage.Sessions {
+		u.Sessions[len(u.Sessions)-1-i] = sess
+	}
+	return u
 }
 
 // advanceUsage is the pure accounting step, separated for tests.
@@ -145,6 +171,10 @@ func advanceUsage(u ResidentialUsage, residential bool, total uint64, ok bool, l
 		u.Active, u.SessionStart, u.SessionBytes = true, now, 0
 	case !residential && u.Active:
 		u.Active = false // keep the finished session's numbers for the "back on Mullvad" note
+		u.Sessions = append(u.Sessions, ResidentialSession{Start: u.SessionStart, End: now, Bytes: u.SessionBytes})
+		if len(u.Sessions) > keepSessions {
+			u.Sessions = append([]ResidentialSession(nil), u.Sessions[len(u.Sessions)-keepSessions:]...)
+		}
 	}
 	if residential && ok && hasLast {
 		delta := total - last

@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { fetchAlerts, fetchDashboardTunnel, fetchEngine, fetchGitHubStatus, fetchManage, fetchMullvadAccount, fetchState } from '@/api/endpoints'
+import { fetchAlerts, fetchDashboardTunnel, fetchEngine, fetchFiles, fetchGitHubStatus, fetchGroups, fetchManage, fetchMullvadAccount, fetchResidential, fetchState, fetchUptime } from '@/api/endpoints'
+import type { AppState } from '@/api/types'
 import { queryKeys } from '@/api/queryKeys'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { OverviewPage } from '@/features/overview/OverviewPage'
@@ -25,6 +26,7 @@ const settingsQueries = [
   { queryKey: queryKeys.alerts, queryFn: fetchAlerts },
   { queryKey: queryKeys.dashboardTunnel, queryFn: fetchDashboardTunnel },
   { queryKey: queryKeys.manage, queryFn: fetchManage },
+  { queryKey: queryKeys.residential, queryFn: fetchResidential },
 ] as const
 
 /**
@@ -37,6 +39,11 @@ function usePreloadPages() {
     const run = () => {
       void Promise.all([loadProjects(), loadFiles(), loadSettings()]).catch(() => {})
       for (const q of settingsQueries) void qc.prefetchQuery(q as Parameters<typeof qc.prefetchQuery>[0])
+      // Projects and Files open complete too: groups, link health, the home folder.
+      void qc.prefetchQuery({ queryKey: queryKeys.groups, queryFn: fetchGroups })
+      void qc.prefetchQuery({ queryKey: queryKeys.uptime, queryFn: fetchUptime })
+      const root = qc.getQueryData<AppState>(queryKeys.state)?.files_root
+      if (root) void qc.prefetchQuery({ queryKey: queryKeys.files(root), queryFn: () => fetchFiles(root) })
     }
     if ('requestIdleCallback' in window) {
       const id = window.requestIdleCallback(run, { timeout: 3000 })

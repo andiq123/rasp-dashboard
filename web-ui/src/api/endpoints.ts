@@ -57,6 +57,7 @@ export const clearGitHubToken = () => api('/api/github/token', { method: 'DELETE
 export const fetchMullvadAccount = () => api<MullvadAccount>('/api/mullvad/account')
 export const saveMullvadAccount = (accountNumber: string) =>
   api<MullvadAccount>('/api/mullvad/account', { method: 'POST', body: { account_number: accountNumber } })
+export const fetchResidential = () => api<ResidentialUsage>('/api/residential')
 export const setResidentialBalance = (gb: number) => api<ResidentialUsage>('/api/residential/balance', { method: 'POST', body: { gb } })
 export const fetchUptime = () => api<LinkUptime[]>('/api/uptime')
 export const fetchAlerts = () => api<AlertStatus>('/api/alerts')

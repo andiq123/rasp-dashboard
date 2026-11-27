@@ -44,7 +44,7 @@ func main() {
 		pg,
 	)
 
-	srv.Alerts = alerts.New(filepath.Join(baseDir, "config", "alerts.json"))
+	srv.Alerts = alerts.New(filepath.Join(baseDir, "config", "alerts.json"), state.WANHTTPClient(baseDir, 10*time.Second))
 
 	httpSrv := &http.Server{
 		Addr:              "0.0.0.0:" + port,

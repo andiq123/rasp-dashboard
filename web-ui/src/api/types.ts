@@ -599,4 +599,8 @@ export type ResidentialUsage = {
   remaining_bytes?: number
   /** The entry is over a week old: worth a quick check. */
   balance_stale?: boolean
+  /** Finished sessions, newest first (history endpoint only). */
+  sessions?: ResidentialSession[]
 }
+
+export type ResidentialSession = { start: string; end: string; bytes: number }

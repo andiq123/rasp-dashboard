@@ -1,37 +1,33 @@
 package server
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"firewifi/dashboard/internal/alerts"
 
 	"firewifi/dashboard/internal/state"
 )
 
-func TestRouteSwitchWaitsForTheNewRoute(t *testing.T) {
+func TestRouteSwitchNoticesModeChanges(t *testing.T) {
 	var w routeSwitch
-	t0 := time.Unix(0, 0)
-	mullvad := state.State{Mode: state.ModeMullvad}
-	mullvad.VPNHealth.EgressOK = true
-	if _, ok := w.observe(mullvad, t0); ok {
+	if _, ok := w.observe(state.State{Mode: state.ModeMullvad}); ok {
 		t.Fatal("the first state is not a switch")
 	}
-	res := state.State{Mode: state.ModeResidential, HotspotRunning: true}
-	if _, ok := w.observe(res, t0.Add(15*time.Second)); ok {
-		t.Fatal("not done until the proxy runs")
+	if _, ok := w.observe(state.State{Mode: state.ModeMullvad}); ok {
+		t.Fatal("same mode is not a switch")
 	}
-	res.ProxyRunning = true
-	d, ok := w.observe(res, t0.Add(30*time.Second))
-	if !ok || d.to != state.ModeResidential || d.expired || d.took != 15*time.Second {
-		t.Fatalf("switch finishes once the proxy carries traffic: %+v %v", d, ok)
-	}
-	if _, ok := w.observe(res, t0.Add(45*time.Second)); ok {
-		t.Fatal("announced once")
-	}
-	back := state.State{Mode: state.ModeMullvad}
-	w.observe(back, t0.Add(time.Minute))
-	d, ok = w.observe(back, t0.Add(5*time.Minute))
-	if !ok || !d.expired {
-		t.Fatalf("a switch that never works is reported after the deadline: %+v %v", d, ok)
+	res := state.State{Mode: state.ModeResidential}
+	res.Residential.SessionBytes = 42
+	sw, ok := w.observe(res)
+	if !ok || sw.to != state.ModeResidential || sw.usage.SessionBytes != 42 {
+		t.Fatalf("a mode change starts verification: %+v %v", sw, ok)
 	}
 }
 
@@ -67,5 +63,57 @@ func TestResidentialLowBalance(t *testing.T) {
 	}
 	if reminder != "On for under a minute, about 0.00 GB this session. About 0.15 GB left. Switch back to Mullvad when you are done." {
 		t.Fatalf("reminder includes what is left: %q", reminder)
+	}
+}
+
+type fakeRoute struct {
+	failures int
+	exit     state.Exit
+}
+
+func (f *fakeRoute) Read() (state.State, error) { return state.State{}, nil }
+func (f *fakeRoute) LookupExit(context.Context, string) (state.Exit, error) {
+	if f.failures > 0 {
+		f.failures--
+		return state.Exit{}, errors.New("no route yet")
+	}
+	return f.exit, nil
+}
+
+func verifyWith(t *testing.T, route *fakeRoute, to string) []string {
+	t.Helper()
+	oldEvery, oldDeadline := verifyEvery, switchDeadline
+	verifyEvery, switchDeadline = time.Millisecond, 200*time.Millisecond
+	defer func() { verifyEvery, switchDeadline = oldEvery, oldDeadline }()
+	var titles []string
+	bark := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var m map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&m)
+		titles = append(titles, m["title"]+": "+m["body"])
+		_, _ = w.Write([]byte(`{"code":200}`))
+	}))
+	defer bark.Close()
+	e := alerts.New(filepath.Join(t.TempDir(), "alerts.json"), nil)
+	if err := e.SetSettings(alerts.Settings{Enabled: true, Server: bark.URL, Key: "AbCdEf123456"}); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{State: route, Alerts: e}
+	s.verifySwitch(context.Background(), switchStarted{to: to})
+	e.Wait()
+	return titles
+}
+
+func TestVerifySwitch(t *testing.T) {
+	ok := verifyWith(t, &fakeRoute{failures: 2, exit: state.Exit{IP: "135.136.63.41", Country: "RO"}}, state.ModeMullvad)
+	if len(ok) != 1 || ok[0] != "Mullvad is working: Verified: Wi‑Fi exits from 135.136.63.41 (RO), encrypted." {
+		t.Fatalf("success is announced only after the route answers: %v", ok)
+	}
+	wrong := verifyWith(t, &fakeRoute{exit: state.Exit{IP: "1.2.3.4", Country: "DE"}}, state.ModeMullvad)
+	if len(wrong) != 1 || wrong[0][:len("Switch to Mullvad failed")] != "Switch to Mullvad failed" {
+		t.Fatalf("a non-Romanian Mullvad exit is a failure: %v", wrong)
+	}
+	never := verifyWith(t, &fakeRoute{failures: 1 << 30}, state.ModeResidential)
+	if len(never) != 1 || never[0][:len("Switch to Residential failed")] != "Switch to Residential failed" {
+		t.Fatalf("a route that never works is reported as failed: %v", never)
 	}
 }

@@ -1117,3 +1117,20 @@ button:not(:disabled), summary { cursor: pointer; }
 .unit-input .input { padding-right: 44px; font-variant-numeric: tabular-nums; }
 .unit-input > span { position: absolute; right: 12px; font-size: var(--text-body); color: var(--ink-faint); pointer-events: none; }
 .pop-actions { display: flex; justify-content: flex-end; padding-top: 2px; }
+
+/* Residential data panel: balance meter, two totals, recent sessions. */
+.res-meter { height: 6px; border-radius: 999px; background: var(--surface-inset); overflow: hidden; }
+.res-meter > span { display: block; height: 100%; border-radius: inherit; background: var(--tone); transition: width var(--dur-slow) var(--ease-out-soft); }
+.res-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.res-stats > div { display: grid; gap: 2px; padding: 8px 10px; border-radius: 10px; background: var(--surface-inset); }
+.res-stats small { font-size: var(--text-micro); color: var(--ink-muted); }
+.res-stats strong { font-size: var(--text-label); font-weight: 650; font-variant-numeric: tabular-nums; }
+.res-sessions { display: grid; margin: 0; padding: 0; list-style: none; }
+.res-sessions li { display: grid; grid-template-columns: minmax(92px, auto) 56px minmax(40px, 1fr) 64px; align-items: center; gap: 10px; padding: 6px 2px; font-size: var(--text-micro); }
+.res-sessions li + li { border-top: 1px solid var(--line-soft); }
+.res-when { color: var(--color-base-content); font-weight: 600; }
+.res-dur { color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.res-bar { height: 4px; border-radius: 999px; background: var(--surface-inset); overflow: hidden; }
+.res-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--route-proxy); }
+.res-sessions strong { text-align: right; font-weight: 650; font-variant-numeric: tabular-nums; }
+.res-sessions li.is-live .res-when { color: var(--route-proxy); }

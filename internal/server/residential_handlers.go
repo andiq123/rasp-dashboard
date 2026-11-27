@@ -10,17 +10,23 @@ import (
 // ResidentialBalanceStore saves the IPRoyal balance the owner reads off their dashboard.
 type ResidentialBalanceStore interface {
 	SetResidentialBalance(bytes uint64) (state.ResidentialUsage, error)
+	ResidentialHistory() state.ResidentialUsage
 }
 
-// handleResidentialBalance: POST {"gb": 0.79} (decimal GB, as IPRoyal shows it).
+// handleResidentialBalance: GET /api/residential (usage with session history) and
+// POST /api/residential/balance {"gb": 0.79} (decimal GB, as IPRoyal shows it).
 func (s *Server) handleResidentialBalance(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		methodNotAllowed(w)
-		return
-	}
 	store, ok := s.State.(ResidentialBalanceStore)
 	if !ok {
 		http.Error(w, "residential balance is not available", http.StatusNotImplemented)
+		return
+	}
+	if r.Method == http.MethodGet && r.URL.Path == "/api/residential" {
+		jsonReply(w, store.ResidentialHistory())
+		return
+	}
+	if r.Method != http.MethodPost || r.URL.Path != "/api/residential/balance" {
+		methodNotAllowed(w)
 		return
 	}
 	var body struct {

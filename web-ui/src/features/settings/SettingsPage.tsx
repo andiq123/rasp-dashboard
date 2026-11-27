@@ -26,6 +26,7 @@ import { DashboardExposure } from '@/features/settings/DashboardExposure'
 import { DockerPanel } from '@/features/settings/DockerPanel'
 import { AlertsPanel } from '@/features/settings/AlertsPanel'
 import { MullvadPanel } from '@/features/settings/MullvadPanel'
+import { ResidentialPanel } from '@/features/settings/ResidentialPanel'
 import { writeClipboardText } from '@/lib/clipboard'
 import { codeSurface, muted } from '@/lib/ui'
 
@@ -229,6 +230,7 @@ export function SettingsPage() {
           </Panel>
 
           <MullvadPanel />
+          <ResidentialPanel />
         <Panel
           title={<span className="inline-flex items-center gap-1.5"><Database aria-hidden /> Engines</span>}
           busy={engine.isFetching}

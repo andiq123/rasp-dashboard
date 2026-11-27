@@ -12,9 +12,8 @@ import (
 )
 
 const (
-	alertInterval  = 15 * time.Second
-	switchDeadline = 3 * time.Minute
-	reminderEvery  = 2 * time.Minute
+	alertInterval = 15 * time.Second
+	reminderEvery = 2 * time.Minute
 	// Below this the paid proxy is about to run dry (decimal bytes, as IPRoyal bills).
 	lowBalanceBytes = 200e6
 )
@@ -53,8 +52,8 @@ func (s *Server) watchAlerts(ctx context.Context) {
 				continue
 			}
 			now := time.Now()
-			if done, ok := sw.observe(st, now); ok {
-				go s.announceSwitch(ctx, done, st)
+			if started, ok := sw.observe(st); ok {
+				go s.verifySwitch(ctx, started)
 			}
 			sendCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 			s.Alerts.Evaluate(sendCtx, now, append(alertsFromState(st), s.uptimeAlerts()...))
@@ -63,69 +62,98 @@ func (s *Server) watchAlerts(ctx context.Context) {
 	}
 }
 
-// routeSwitch follows one Mullvad ⇄ residential change until the new route
-// actually carries traffic (or gives up after a deadline).
+// routeSwitch notices a Mullvad ⇄ residential change between health ticks.
 type routeSwitch struct {
-	mode    string // last seen mode
-	to      string // switch in progress, "" when none
-	since   time.Time
-	usage   state.ResidentialUsage // residential session at the moment of the switch
-	expired bool
+	mode string // last seen mode
 }
 
-type switchDone struct {
-	to      string
-	took    time.Duration
-	usage   state.ResidentialUsage
-	expired bool
+type switchStarted struct {
+	to    string
+	usage state.ResidentialUsage // residential session at the moment of the switch
 }
 
-func (w *routeSwitch) observe(st state.State, now time.Time) (switchDone, bool) {
-	if w.mode != "" && st.Mode != w.mode {
-		w.to, w.since, w.usage = st.Mode, now, st.Residential
-	}
+func (w *routeSwitch) observe(st state.State) (switchStarted, bool) {
+	changed := w.mode != "" && st.Mode != w.mode
 	w.mode = st.Mode
-	if w.to == "" {
-		return switchDone{}, false
+	if !changed {
+		return switchStarted{}, false
 	}
-	ready := (w.to == state.ModeMullvad && st.VPNHealth.EgressOK) ||
-		(w.to == state.ModeResidential && st.ProxyRunning && st.HotspotRunning)
-	timedOut := now.Sub(w.since) > switchDeadline
-	if !ready && !timedOut {
-		return switchDone{}, false
-	}
-	done := switchDone{to: w.to, took: now.Sub(w.since), usage: w.usage, expired: !ready}
-	w.to = ""
-	return done, true
+	return switchStarted{to: st.Mode, usage: st.Residential}, true
 }
 
-func (s *Server) announceSwitch(ctx context.Context, d switchDone, st state.State) {
-	name := map[string]string{state.ModeMullvad: "Mullvad", state.ModeResidential: "Residential"}[d.to]
-	if d.expired {
-		s.Alerts.Notify(ctx, alerts.Alert{Category: alerts.EventRoute, Urgent: true, Title: "Switch to " + name + " has not finished", Body: "Wi‑Fi traffic is held until the new route works. Open the dashboard to repair it."})
+// verifyEvery and switchDeadline bound how long a switch may take to prove itself.
+var (
+	verifyEvery    = 5 * time.Second
+	switchDeadline = 3 * time.Minute
+)
+
+// verifySwitch reports a switch only once traffic really leaves through the new
+// route: the exit address is fetched through it (Romania required for Mullvad).
+func (s *Server) verifySwitch(ctx context.Context, sw switchStarted) {
+	lookup, ok := s.State.(ExitLookup)
+	deadline := time.Now().Add(switchDeadline)
+	var exit state.Exit
+	var lastErr error
+	for ok && time.Now().Before(deadline) {
+		lctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		e, err := lookup.LookupExit(lctx, sw.to)
+		cancel()
+		switch {
+		case err != nil:
+			lastErr = err
+		case sw.to == state.ModeMullvad && e.Country != "RO":
+			lastErr = fmt.Errorf("exit is in %s, not Romania", e.Country)
+		default:
+			exit, lastErr = e, nil
+		}
+		if lastErr == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(verifyEvery):
+		}
+	}
+	name := modeName[sw.to]
+	if exit.IP == "" {
+		reason := "Traffic could not get out through the new route."
+		if lastErr != nil {
+			reason = "Traffic could not get out through the new route (" + lastErr.Error() + ")."
+		}
+		s.Alerts.Notify(ctx, alerts.Alert{Category: alerts.EventRoute, Urgent: true, Title: "Switch to " + name + " failed", Body: reason + " Wi‑Fi is held until it works; open the dashboard to repair it."})
 		return
 	}
-	exit := "The exit address could not be checked."
-	if lookup, ok := s.State.(ExitLookup); ok {
-		lctx, cancel := context.WithTimeout(ctx, 12*time.Second)
-		if e, err := lookup.LookupExit(lctx, d.to); err == nil {
-			exit = fmt.Sprintf("Wi‑Fi now exits from %s (%s).", e.IP, e.Country)
-		}
-		cancel()
-	}
 	a := alerts.Alert{Category: alerts.EventRoute}
-	if d.to == state.ModeResidential {
-		a.Title, a.Body = "Now on Residential", exit+" Residential data is billed per GB."
+	if sw.to == state.ModeResidential {
+		a.Title = "Residential is working"
+		a.Body = fmt.Sprintf("Verified: Wi‑Fi exits from %s (%s). Data is billed per GB.", exit.IP, exit.Country)
 	} else {
-		a.Title, a.Body = "Back on Mullvad", exit
-		if st.VPNHealth.Relay != "" {
-			a.Body = strings.TrimSuffix(exit, ".") + " through " + st.VPNHealth.Relay + "."
-		}
-		if u := d.usage; u.SessionBytes > 0 {
-			a.Body += fmt.Sprintf(" Residential used %s in %s.", gb(u.SessionBytes), humanDuration(time.Since(u.SessionStart)-d.took))
+		a.Title = "Mullvad is working"
+		a.Body = fmt.Sprintf("Verified: Wi‑Fi exits from %s (%s), encrypted.", exit.IP, exit.Country)
+		if u := sw.usage; u.SessionBytes > 0 && !u.SessionStart.IsZero() {
+			a.Body += fmt.Sprintf(" Residential used %s in %s.", gb(u.SessionBytes), humanDuration(time.Since(u.SessionStart)))
 		}
 	}
 	s.Alerts.Notify(ctx, a)
+}
+
+var modeName = map[string]string{state.ModeMullvad: "Mullvad", state.ModeResidential: "Residential"}
+
+// notifySwitchStart opens the switch story quietly; the watcher closes it with
+// the result and the new exit address once the route carries traffic.
+func (s *Server) notifySwitchStart(mode string) {
+	if s.Alerts == nil {
+		return
+	}
+	s.Alerts.Notify(context.Background(), alerts.Alert{Category: alerts.EventRoute, Quiet: true, Title: "Switching to " + modeName[mode] + "…", Body: "Wi‑Fi may drop for a moment. You will get a note once the new route is verified."})
+}
+
+func (s *Server) notifySwitchFailed(mode string, err error) {
+	if s.Alerts == nil {
+		return
+	}
+	s.Alerts.Notify(context.Background(), alerts.Alert{Category: alerts.EventRoute, Urgent: true, Title: "Switch to " + modeName[mode] + " failed", Body: err.Error()})
 }
 
 func humanDuration(d time.Duration) string {

@@ -63,6 +63,8 @@ type Alert struct {
 	Body     string
 	// Urgent alerts are time-sensitive: they break through Focus modes.
 	Urgent bool
+	// Quiet ones land in Notification Center without a banner or sound.
+	Quiet bool
 	// Grace is how long the condition must hold before the phone is told.
 	Grace time.Duration
 	// NoResolve skips the "resolved" note (for slow-moving reminders).
@@ -89,6 +91,10 @@ type pending struct {
 type Engine struct {
 	path   string
 	client *http.Client
+	// Pushes go out one at a time, in order, retrying through brief outages
+	// (a route switch or VPN repair) instead of being dropped.
+	queue    chan outgoing
+	inflight sync.WaitGroup
 
 	mu       sync.Mutex
 	settings Settings
@@ -97,8 +103,22 @@ type Engine struct {
 	lastErr  string
 }
 
-func New(path string) *Engine {
-	e := &Engine{path: path, client: &http.Client{Timeout: 10 * time.Second}, pending: map[string]*pending{}}
+type outgoing struct {
+	server, key string
+	msg         push
+}
+
+// retryDelays: about two minutes of retries before a push is given up.
+var retryDelays = []time.Duration{5 * time.Second, 15 * time.Second, 30 * time.Second, 60 * time.Second}
+
+// New loads settings from path. client should reach the internet without the
+// tunnel (see state.WANHTTPClient); nil uses a plain client.
+func New(path string, client *http.Client) *Engine {
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+	e := &Engine{path: path, client: client, pending: map[string]*pending{}, queue: make(chan outgoing, 64)}
+	go e.sender()
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return e
@@ -223,14 +243,44 @@ func (e *Engine) Evaluate(ctx context.Context, now time.Time, current []Alert) {
 	}
 	e.mu.Unlock()
 	for _, m := range send {
-		e.record(e.post(ctx, s.Server, s.Key, m))
+		e.enqueue(s.Server, s.Key, m)
 	}
 }
 
+func (e *Engine) enqueue(server, key string, m push) {
+	e.inflight.Add(1)
+	select {
+	case e.queue <- outgoing{server, key, m}:
+	default: // a stuck queue drops the newest rather than blocking health checks
+		e.inflight.Done()
+	}
+}
+
+func (e *Engine) sender() {
+	for o := range e.queue {
+		err := e.post(context.Background(), o.server, o.key, o.msg)
+		for _, d := range retryDelays {
+			if err == nil {
+				break
+			}
+			time.Sleep(d)
+			err = e.post(context.Background(), o.server, o.key, o.msg)
+		}
+		e.record(err)
+		e.inflight.Done()
+	}
+}
+
+// Wait blocks until every queued push was delivered or given up (tests, shutdown).
+func (e *Engine) Wait() { e.inflight.Wait() }
+
 func pushFor(a Alert) push {
 	level := "active"
-	if a.Urgent {
+	switch {
+	case a.Urgent:
 		level = "timeSensitive"
+	case a.Quiet:
+		level = "passive"
 	}
 	return push{Title: a.Title, Body: a.Body, Level: level}
 }
@@ -242,7 +292,7 @@ func (e *Engine) Notify(ctx context.Context, a Alert) {
 	if !s.Enabled || s.Key == "" || !s.wants(a.Category) {
 		return
 	}
-	e.record(e.post(ctx, s.Server, s.Key, pushFor(a)))
+	e.enqueue(s.Server, s.Key, pushFor(a))
 }
 
 // Test sends a sample notification with the given (or saved) server and key.

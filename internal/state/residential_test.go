@@ -23,6 +23,9 @@ func TestAdvanceUsage(t *testing.T) {
 	if u.Active || u.SessionBytes != 5200 {
 		t.Fatalf("Mullvad stops counting and keeps the finished session: %+v", u)
 	}
+	if len(u.Sessions) != 1 || u.Sessions[0].Bytes != 5200 || !u.Sessions[0].Start.Equal(t0) {
+		t.Fatalf("a finished session is kept in the history: %+v", u.Sessions)
+	}
 	u = advanceUsage(u, false, 9000, true, 9000, true, time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC))
 	if u.MonthBytes != 0 || u.Month != "2026-12" {
 		t.Fatalf("a new month starts at zero: %+v", u)

@@ -131,6 +131,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/alerts", s.handleAlerts)
 	mux.HandleFunc("/api/alerts/test", s.handleAlerts)
 	mux.HandleFunc("/api/uptime", s.handleUptime)
+	mux.HandleFunc("/api/residential", s.handleResidentialBalance)
 	mux.HandleFunc("/api/residential/balance", s.handleResidentialBalance)
 	mux.HandleFunc("/api/ports", s.handlePorts)
 	mux.HandleFunc("/api/github/", s.handleGitHub)
@@ -410,7 +411,9 @@ func (s *Server) handleAPIMode(w http.ResponseWriter, r *http.Request) {
 	if s.vpnRepair != nil {
 		s.vpnRepair.cancel()
 	}
+	s.notifySwitchStart(body.Mode)
 	if err := s.Switcher.SwitchMode(r.Context(), body.Mode); err != nil {
+		s.notifySwitchFailed(body.Mode, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
