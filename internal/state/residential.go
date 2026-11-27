@@ -130,7 +130,11 @@ func (r *Reader) LookupExit(ctx context.Context, mode string) (Exit, error) {
 		if wg == "" {
 			wg = "mullvad-wg"
 		}
-		client.Transport = &http.Transport{DialContext: wanDialer(wg, 5*time.Second).DialContext}
+		d := wanDialer(wg, 5*time.Second)
+		// IPv4, so the address in the notification is the familiar dotted form.
+		client.Transport = &http.Transport{DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) {
+			return d.DialContext(ctx, "tcp4", addr)
+		}}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, exitLookupURL, nil)
 	if err != nil {
