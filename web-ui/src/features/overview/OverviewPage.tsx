@@ -270,10 +270,11 @@ export function OverviewPage() {
 
       <div className="overview-cols">
         <Panel
+          className="system-panel"
           title={<span className="inline-flex items-center gap-1.5"><Activity aria-hidden /> System</span>}
           hint={showReconnecting ? 'Reconnecting…' : undefined}
         >
-          <div className="grid">
+          <div className="system-metrics">
             <StatRow icon={Cpu} label="CPU" value={<AnimatedNumber value={cpu.busy_percent} format={fmtPct} />} percent={cpu.busy_percent || 0} />
             <StatRow
               icon={MemoryStick}

@@ -2,18 +2,37 @@ import { useLayoutEffect, useRef, useState } from 'react'
 
 type Props = { children: string; className?: string }
 
-/** Text that slides in softly when its content changes; the first render stays still. */
+type Swap = { text: string; prev: string | null; gen: number }
+
+/** Length of the shared start and end of two strings (never overlapping). */
+function sharedEnds(a: string, b: string): [number, number] {
+  let start = 0
+  while (start < a.length && start < b.length && a[start] === b[start]) start++
+  let end = 0
+  while (end < a.length - start && end < b.length - start && a[a.length - 1 - end] === b[b.length - 1 - end]) end++
+  return [start, end]
+}
+
+/**
+ * Text that changes in place: only the part that differs fades up
+ * ("3 running" → "4 running" moves just the digit). The first render stays still.
+ */
 export function SwapText({ children, className = '' }: Props) {
-  const [shown, setShown] = useState(children)
-  const [changed, setChanged] = useState(false)
-  if (shown !== children) {
+  const [swap, setSwap] = useState<Swap>({ text: children, prev: null, gen: 0 })
+  let current = swap
+  if (swap.text !== children) {
     // React's "store the previous value" pattern: adjust state during render.
-    setShown(children)
-    setChanged(true)
+    current = { text: children, prev: swap.text, gen: swap.gen + 1 }
+    setSwap(current)
   }
+  const cls = `swap-text${className ? ` ${className}` : ''}`
+  if (current.prev === null) return <span className={cls}>{children}</span>
+  const [start, end] = sharedEnds(current.prev, children)
   return (
-    <span key={children} className={`swap-text${changed ? ' is-new' : ''}${className ? ` ${className}` : ''}`}>
-      {children}
+    <span className={cls}>
+      {children.slice(0, start)}
+      <span key={current.gen} className="swap-mid">{children.slice(start, children.length - end)}</span>
+      {children.slice(children.length - end)}
     </span>
   )
 }

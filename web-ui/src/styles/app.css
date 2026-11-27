@@ -688,8 +688,15 @@ button:not(:disabled), summary { cursor: pointer; }
 .overview { display: grid; gap: 14px; }
 .connection-route { padding-top: 2px; }
 .connection .disclosure:first-child { margin-top: -4px; }
-.overview-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.overview-cols { display: grid; grid-template-columns: minmax(300px, 5fr) minmax(0, 7fr); gap: 14px; align-items: start; }
 @media (max-width: 900px) { .overview-cols { grid-template-columns: minmax(0, 1fr); } }
+/* System matches the connection card's height; its rows share the extra space
+   evenly instead of leaving a gap at the bottom. */
+.system-metrics { display: grid; }
+@media (min-width: 901px) {
+  .system-panel { align-self: stretch; }
+  .system-metrics { flex: 1; align-content: space-evenly; }
+}
 
 /* Status hero: the one place on the page with presence. */
 .status-hero {
@@ -859,14 +866,19 @@ button:not(:disabled), summary { cursor: pointer; }
 
 /* Text and numbers that change animate in place; unchanged text never moves. */
 .swap-text { display: inline-block; }
-.swap-text.is-new { animation: text-swap var(--dur-base) var(--ease-out-soft) both; }
-@keyframes text-swap { from { opacity: 0; transform: translateY(4px); filter: blur(2px); } }
+.swap-mid { display: inline-block; white-space: pre-wrap; animation: text-swap 200ms var(--ease-out-soft) backwards; }
+@keyframes text-swap { from { opacity: 0.15; transform: translateY(0.3em); } }
+/* Odometer: each changed slot slides its old glyph out as the new one slides in. */
 .roll { display: inline-flex; overflow: hidden; vertical-align: top; font-variant-numeric: tabular-nums; }
-.roll-ch { display: inline-block; }
-.roll-ch.is-new[data-dir='up'] { animation: roll-up 320ms var(--ease-out-soft) both; }
-.roll-ch.is-new[data-dir='down'] { animation: roll-down 320ms var(--ease-out-soft) both; }
-@keyframes roll-up { from { opacity: 0; transform: translateY(70%); } }
-@keyframes roll-down { from { opacity: 0; transform: translateY(-70%); } }
+.roll-ch { display: inline-block; position: relative; }
+.roll-ch.is-changed > .roll-new { display: inline-block; animation: roll-in-up 240ms var(--ease-out-soft) backwards; }
+.roll-ch.is-changed > .roll-old { position: absolute; inset: 0; text-align: center; animation: roll-out-up 240ms var(--ease-out-soft) forwards; }
+.roll[data-dir='down'] .roll-ch.is-changed > .roll-new { animation-name: roll-in-down; }
+.roll[data-dir='down'] .roll-ch.is-changed > .roll-old { animation-name: roll-out-down; }
+@keyframes roll-in-up { from { transform: translateY(85%); opacity: 0.2; } }
+@keyframes roll-out-up { to { transform: translateY(-85%); opacity: 0; } }
+@keyframes roll-in-down { from { transform: translateY(-85%); opacity: 0.2; } }
+@keyframes roll-out-down { to { transform: translateY(85%); opacity: 0; } }
 
 /* ── First-load intro: the bar settles, widgets rise in order (see useIntro) ── */
 .is-intro .app-bar { animation: intro-bar 460ms var(--ease-out-soft) both; }
