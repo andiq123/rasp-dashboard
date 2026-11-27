@@ -72,7 +72,8 @@ export function AlertsPanel() {
     onSuccess: (data, body) => {
       qc.setQueryData<AlertStatus>(queryKeys.alerts, data)
       setEdit(null)
-      setMutedDraft(null)
+      // A newer toggle may still be saving: keep it until its own save lands.
+      setMutedDraft((d) => (d && d.join() !== (body.muted || []).join() ? d : null))
       if (body.enabled !== a?.enabled) showToast(data.enabled ? 'Alerts turned on' : 'Alerts turned off')
     },
     onError: (e: Error) => {
