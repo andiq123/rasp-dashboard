@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from 'react'
 
-const WIDGETS = '.app-main :is(.card, .status-hero, .toolbar, .page-header, .settings-nav)'
+const WIDGETS = '.app-main :is(.card, .status-hero, .toolbar, .page-header, .settings-nav, .settings-group-head)'
 const STEP_MS = 70
 const MAX_STEPS = 8
 const TOTAL_MS = 120 + MAX_STEPS * STEP_MS + 700
