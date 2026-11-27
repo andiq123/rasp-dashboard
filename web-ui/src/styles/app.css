@@ -755,7 +755,9 @@ button:not(:disabled), summary { cursor: pointer; }
 .flow-link.is-idle .flow-packets { opacity: 0; }
 
 /* Legend for the two packet styles. */
-.flow-under { display: flex; align-items: flex-end; min-height: 16px; }
+.flow-under { display: flex; align-items: flex-end; min-height: 16px; transition: min-height var(--dur-base) var(--ease-out-soft); }
+/* Apps are still loading: hold the spur's space so nothing below jumps when it lands. */
+.flow-under.is-reserving { min-height: 134px; }
 .flow-rates { display: grid; gap: 3px; margin: 0 0 0 auto; font-size: var(--text-micro); }
 .flow-rate { display: grid; grid-template-columns: auto auto; align-items: baseline; justify-content: end; column-gap: 10px; }
 .flow-rate dt { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-muted); }
@@ -903,7 +905,9 @@ button:not(:disabled), summary { cursor: pointer; }
 .appear { animation: rise-in var(--dur-base) var(--ease-out-soft) both; }
 /* AnimatedList: items rise in; leaving items fade, lift and collapse their height. */
 .anim-list { display: grid; }
-.anim-item { display: grid; grid-template-rows: 1fr; animation: rise-in var(--dur-base) var(--ease-out-soft) both; }
+.anim-item { display: grid; grid-template-rows: 1fr; animation: item-in var(--dur-slow) var(--ease-out-soft) backwards; }
+/* Entering mirrors leaving: height opens as the content fades up, so what sits below glides. */
+@keyframes item-in { from { opacity: 0; transform: translateY(-4px); grid-template-rows: 0fr; margin-bottom: -8px; } }
 .anim-item-inner { min-height: 0; overflow: hidden; }
 .anim-item.is-leaving { pointer-events: none; animation: item-out 240ms var(--ease-standard) both; }
 @keyframes item-out { to { opacity: 0; transform: translateY(-4px); grid-template-rows: 0fr; margin-bottom: -8px; } }
@@ -932,7 +936,6 @@ button:not(:disabled), summary { cursor: pointer; }
 @keyframes page-out { to { opacity: 0; } }
 /* The new page animates itself on mount, so lazy pages rise in when ready. */
 .page-enter { animation: page-in 340ms var(--ease-out-soft) backwards; }
-.is-intro .page-enter { animation: none; }
 @keyframes page-in { from { opacity: 0; transform: translateY(8px); } }
 ::view-transition-group(nav-pill) {
   animation-duration: 340ms;

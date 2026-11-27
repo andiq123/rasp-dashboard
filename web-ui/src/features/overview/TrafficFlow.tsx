@@ -277,7 +277,7 @@ function Spur({ branch }: { branch: FlowBranch }) {
 }
 
 /** Animated diagram of where traffic flows and where it stops. Every step opens an info popup. */
-export function TrafficFlow({ flow, state, branch }: { flow: Flow; state: AppState; branch?: FlowBranch }) {
+export function TrafficFlow({ flow, state, branch, branchPending = false }: { flow: Flow; state: AppState; branch?: FlowBranch; branchPending?: boolean }) {
   const last = flow.nodes.length - 1
   const wrap = useRef<HTMLDivElement>(null)
   const [piX, setPiX] = useState(0)
@@ -333,7 +333,7 @@ export function TrafficFlow({ flow, state, branch }: { flow: Flow; state: AppSta
         </li>
       ))}
     </ol>
-      <div className="flow-under" style={piX ? ({ '--pi-x': `${piX}px` } as React.CSSProperties) : undefined}>
+      <div className={`flow-under${!branch && branchPending ? ' is-reserving' : ''}`} style={piX ? ({ '--pi-x': `${piX}px` } as React.CSSProperties) : undefined}>
         {branch && piX ? <Spur branch={branch} /> : null}
         {/* Live totals double as the key: solid dot = data in, ring = requests out. */}
         <dl className="flow-rates" aria-label="Network throughput">

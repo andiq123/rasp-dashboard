@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { fetchState } from '@/api/endpoints'
@@ -51,6 +51,9 @@ export function App() {
   useIntro()
   usePreloadPages()
   const section = useAppSection()
+  // Count section changes: the first page rides the intro, later ones rise in on their own.
+  const [nav, setNav] = useState({ section, count: 0 })
+  if (nav.section !== section) setNav({ section, count: nav.count + 1 })
   return (
     <div className="app-shell flex min-h-svh flex-col">
       <a href="#app-main" className="skip-link">Skip to content</a>
@@ -60,7 +63,7 @@ export function App() {
         <OfflineNotice />
         <Suspense fallback={<Spinner label="Loading page…" />}>
           {/* Keyed by section: each page rises in once its content is ready, even after a lazy load. */}
-          <div key={section} className="page-enter">
+          <div key={section} className={nav.count ? 'page-enter' : undefined}>
           <Routes>
             <Route path="/" element={<Navigate to="/overview" replace />} />
             <Route path="/overview" element={<OverviewPage />} />

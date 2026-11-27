@@ -373,7 +373,7 @@ export function OverviewPage() {
               )}
             </div>
           </div>
-          <TrafficFlow flow={flow} state={state} branch={branch} />
+          <TrafficFlow flow={flow} state={state} branch={branch} branchPending={!!state.routing?.apps_direct && (groupsQ.isLoading || svcQueries.some((q) => q.isLoading))} />
 
           <AnimatedList
             items={vpnRepair ? [vpnRepair] : []}
