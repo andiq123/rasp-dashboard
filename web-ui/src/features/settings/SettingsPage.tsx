@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Copy, Database, FolderGit2, HardDrive, KeyRound, Link2, Route, Settings2, TriangleAlert, Unlink, type LucideIcon } from 'lucide-react'
+import { CircleStop, Copy, Database, FolderGit2, HardDrive, KeyRound, Link2, Play, Route, Settings2, TriangleAlert, Unlink, type LucideIcon } from 'lucide-react'
 import {
   clearGitHubToken,
   engineAction,
@@ -33,10 +33,16 @@ import { writeClipboardText } from '@/lib/clipboard'
 import { codeSurface, muted } from '@/lib/ui'
 
 /** A titled pair of related panels inside a section. */
-function SettingsGroup({ title, icon: Icon, children }: { title: string; icon: LucideIcon; children: React.ReactNode }) {
+function SettingsGroup({ title, hint, icon: Icon, children }: { title: string; hint: string; icon: LucideIcon; children: React.ReactNode }) {
   return (
     <section className="settings-group" aria-label={title}>
-      <h2 className="settings-group-title"><Icon aria-hidden />{title}</h2>
+      <header className="settings-group-head">
+        <span className="settings-group-icon"><Icon aria-hidden /></span>
+        <span className="settings-group-text">
+          <h2>{title}</h2>
+          <small>{hint}</small>
+        </span>
+      </header>
       <div className="settings-pair">{children}</div>
     </section>
   )
@@ -197,7 +203,7 @@ export function SettingsPage() {
                   <span className="icon-chip tone-ok"><FolderGit2 aria-hidden /></span>
                   <span className="item-text">
                     <strong>Connected as {login}</strong>
-                    <span className="meta"><span>Deploys clone your repos with this token</span></span>
+                    <span className="meta"><span>Deploys pull from your repos</span></span>
                   </span>
                 </div>
                 {sshKey.data?.exists && sshKey.data.public_key ? (
@@ -264,9 +270,9 @@ export function SettingsPage() {
                     </span>
                   </span>
                   {engine.data?.postgres_running ? (
-                    <Button variant="dangerSoft" loading={engStop.isPending} onClick={() => void onStopPostgres()}>Stop</Button>
+                    <Button variant="dangerSoft" icon={<CircleStop className="h-3.5 w-3.5" aria-hidden />} loading={engStop.isPending} onClick={() => void onStopPostgres()}>Stop</Button>
                   ) : (
-                    <Button variant="successSoft" loading={engStart.isPending} onClick={() => engStart.mutate()}>Start</Button>
+                    <Button variant="successSoft" icon={<Play className="h-3.5 w-3.5" aria-hidden />} loading={engStart.isPending} onClick={() => engStart.mutate()}>Start</Button>
                   )}
                 </div>
                 {engine.data?.minio_image ? (
@@ -315,11 +321,11 @@ export function SettingsPage() {
   const content: Record<SettingsSection, React.ReactNode> = {
     connections: (
       <>
-        <SettingsGroup title="Internet routes" icon={Route}>
+        <SettingsGroup title="Internet routes" hint="How Wi‑Fi traffic leaves the Pi" icon={Route}>
           <MullvadPanel />
           <ResidentialPanel />
         </SettingsGroup>
-        <SettingsGroup title="Code and access" icon={Link2}>
+        <SettingsGroup title="Code and access" hint="Where deploys come from, and how this dashboard is reached" icon={Link2}>
           {githubPanel}
           <DashboardExposure />
         </SettingsGroup>

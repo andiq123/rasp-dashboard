@@ -515,9 +515,11 @@ button:not(:disabled), summary { cursor: pointer; }
 
 /* Summary chips: label, count, size in one compact strip. */
 .stat-strip { display: flex; flex-wrap: wrap; gap: 6px; }
-.stat-chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 5px 10px; border-radius: 999px; background: var(--surface-inset); font-size: var(--text-micro); color: var(--ink-muted); }
+.stat-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; background: var(--surface-inset); font-size: var(--text-micro); color: var(--ink-muted); }
 .stat-chip b { font-weight: 650; color: var(--color-base-content); font-variant-numeric: tabular-nums; }
 .stat-chip small { font-size: inherit; font-variant-numeric: tabular-nums; }
+.stat-chip > svg { width: 13px; height: 13px; color: var(--ink-faint); }
+.stat-chip.is-hint > svg { color: var(--color-warning); }
 
 /* Section tabs: quiet labels, an underline that grows into the active one. */
 .svc-tabs { display: flex; gap: 2px; padding: 4px 8px 0; border-bottom: 1px solid var(--line-soft); overflow: visible; }
@@ -1260,6 +1262,13 @@ button:not(:disabled), summary { cursor: pointer; }
 .settings-pair > .card { height: 100%; }
 @media (min-width: 1300px) { .settings-pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
 .settings-stack { display: grid; gap: 14px; }
-.settings-group { display: grid; gap: 8px; }
-.settings-group-title { display: flex; align-items: center; gap: 6px; margin: 0; padding-left: 4px; font-size: var(--text-micro); font-weight: 650; color: var(--ink-muted); }
-.settings-group-title svg { width: 13px; height: 13px; color: var(--ink-faint); }
+/* Group header: tinted icon, title and one line, with a hairline running to the edge. */
+.settings-group { display: grid; gap: 10px; }
+.settings-group + .settings-group { margin-top: 6px; }
+.settings-group-head { display: flex; align-items: center; gap: 10px; padding: 0 2px; }
+.settings-group-head::after { content: ''; flex: 1; height: 1px; margin-left: 6px; background: var(--line-soft); }
+.settings-group-icon { display: grid; place-items: center; width: 30px; height: 30px; flex: none; border-radius: 9px; color: var(--color-primary); background: color-mix(in oklab, var(--color-primary) 11%, var(--color-base-100)); }
+.settings-group-icon svg { width: 15px; height: 15px; }
+.settings-group-text { display: grid; line-height: 1.25; }
+.settings-group-text h2 { margin: 0; font-size: var(--text-label); font-weight: 650; color: var(--color-base-content); }
+.settings-group-text small { font-size: var(--text-micro); color: var(--ink-muted); }

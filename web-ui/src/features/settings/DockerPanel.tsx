@@ -5,10 +5,14 @@ import {
   Box,
   CircleStop,
   Container,
+  Hammer,
   HardDrive,
+  Layers,
   Play,
   RefreshCw,
+  Sparkles,
   Trash2,
+  type LucideIcon,
 } from 'lucide-react'
 import { dockerAction, fetchManage } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
@@ -39,6 +43,16 @@ function StateDot({ running }: { running?: boolean }) {
       title={running ? 'Running' : 'Stopped'}
     />
   )
+}
+
+const chipIcon: Record<string, LucideIcon> = { Images: Layers, Containers: Container, 'Local Volumes': HardDrive, 'Build Cache': Hammer }
+
+/** Docker reports sizes as text ("790.5MB", "106.5kB"); read them as bytes so they format like the rest. */
+function dockerSize(text?: string): number {
+  const m = /([\d.]+)\s*([kKMGT]?)B/.exec(text || '')
+  if (!m) return 0
+  const unit = { '': 1, k: 1e3, K: 1e3, M: 1e6, G: 1e9, T: 1e12 }[m[2] as '' | 'k' | 'K' | 'M' | 'G' | 'T'] ?? 1
+  return Number(m[1]) * unit
 }
 
 export function DockerPanel() {
@@ -193,9 +207,9 @@ export function DockerPanel() {
             </span>
             <Button variant="quiet" icon={<RefreshCw className="h-3.5 w-3.5" aria-hidden />} onClick={() => void manage.refetch()} aria-label="Refresh" title="Refresh" />
             {daemon?.running ? (
-              <Button variant="dangerSoft" loading={act.isPending && act.variables?.action === 'daemon_stop'} onClick={() => void onDaemonStop()}>Stop</Button>
+              <Button variant="dangerSoft" icon={<CircleStop className="h-3.5 w-3.5" aria-hidden />} loading={act.isPending && act.variables?.action === 'daemon_stop'} onClick={() => void onDaemonStop()}>Stop</Button>
             ) : (
-              <Button variant="successSoft" loading={act.isPending && act.variables?.action === 'daemon_start'} onClick={() => act.mutate({ action: 'daemon_start' })}>Start</Button>
+              <Button variant="successSoft" icon={<Play className="h-3.5 w-3.5" aria-hidden />} loading={act.isPending && act.variables?.action === 'daemon_start'} onClick={() => act.mutate({ action: 'daemon_start' })}>Start</Button>
             )}
           </div>
 
@@ -203,27 +217,33 @@ export function DockerPanel() {
             <Empty compact title="Docker inventory unavailable" body={err} />
           ) : (
             <>
+              {/* One chip per resource: count, size, and running state for containers. */}
               <div className="stat-strip">
                 {(disk.length
                   ? disk.filter((d) => ['Images', 'Containers', 'Local Volumes', 'Build Cache'].includes(d.type))
                   : [
-                      { type: 'Images', total_count: images.length, size: '—' },
-                      { type: 'Containers', total_count: containers.length, size: '—' },
-                      { type: 'Local Volumes', total_count: volumes.length, size: '—' },
+                      { type: 'Images', total_count: images.length, size: '' },
+                      { type: 'Containers', total_count: containers.length, size: '' },
+                      { type: 'Local Volumes', total_count: volumes.length, size: '' },
                     ]
-                ).map((d) => (
-                  <div key={d.type} className="stat-chip">
-                    <span>{d.type.replace('Local ', '')}</span>
-                    <b>{d.total_count ?? 0}</b>
-                    <small>{d.size}</small>
-                  </div>
-                ))}
+                )
+                  .filter((d) => d.type !== 'Build Cache' || (d.total_count ?? 0) > 0)
+                  .map((d) => {
+                    const Icon = chipIcon[d.type] || Layers
+                    const bytes = dockerSize(d.size)
+                    return (
+                      <div key={d.type} className="stat-chip" title={d.type === 'Containers' ? `${managedN} managed by FireWifi` : undefined}>
+                        <Icon aria-hidden />
+                        <span>{d.type.replace('Local ', '')}</span>
+                        <b>{d.type === 'Containers' ? `${runningN}/${containers.length}` : (d.total_count ?? 0)}</b>
+                        {d.type === 'Containers' ? <small>running</small> : bytes ? <small>{fmtBytes(bytes)}</small> : null}
+                      </div>
+                    )
+                  })}
+                {docker?.reclaim_bytes ? (
+                  <div className="stat-chip is-hint" title="Space that cleanup can free"><Sparkles aria-hidden /><span>Reclaimable</span><b>{fmtBytes(docker.reclaim_bytes)}</b></div>
+                ) : null}
               </div>
-              <p className="meta m-0">
-                <span>{runningN} of {containers.length} running</span>
-                <span>{managedN} managed by FireWifi</span>
-                {docker?.reclaim_bytes ? <span>{fmtBytes(docker.reclaim_bytes)} reclaimable</span> : null}
-              </p>
 
               <div>
               <Disclosure id="docker.containers" title="Containers" icon={Container} summary={`${runningN} of ${containers.length} running`}>

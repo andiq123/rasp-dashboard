@@ -95,7 +95,7 @@ export function DashboardExposure() {
   const connectorTitle = !status?.active
     ? 'Local only'
     : status.connected
-      ? 'Public connector connected'
+      ? 'Online'
       : status.state === 'starting'
         ? 'Connector starting'
         : 'Connector needs attention'
@@ -155,7 +155,7 @@ export function DashboardExposure() {
             ) : status?.connected && !status.verified ? (
               <p className={`text-xs m-0 ${muted}`}>Connected. Public DNS and route checks retry automatically.</p>
             ) : null}
-            <p className="meta m-0"><ShieldCheck className="h-3.5 w-3.5 text-success shrink-0" aria-hidden /><span className="whitespace-normal">Protect public access with Cloudflare Access or HTTP authentication.</span></p>
+            <p className="meta m-0"><ShieldCheck className="h-3.5 w-3.5 text-success shrink-0" aria-hidden /><span className="whitespace-normal">Tip: put Cloudflare Access in front of it.</span></p>
           </>
         )}
       </Panel>
