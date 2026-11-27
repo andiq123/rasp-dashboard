@@ -46,6 +46,9 @@ export function SettingsPage() {
   const { '*': splat } = useParams()
   const navigate = useNavigate()
   const section = sectionFrom(splat)
+  // The first section rides the page intro; later switches rise in on their own.
+  const [switches, setSwitches] = useState({ section, count: 0 })
+  if (switches.section !== section) setSwitches({ section, count: switches.count + 1 })
   const { showToast } = useToast()
   const { confirm } = useConfirm()
   const qc = useQueryClient()
@@ -335,7 +338,7 @@ export function SettingsPage() {
       <div className="settings-shell">
         <SettingsNav current={section} onPick={(id) => navigate(`/settings/${id}`)} />
         {/* Keyed by section: each one rises in on its own when picked. */}
-        <div key={section} className="settings-section">{content[section]}</div>
+        <div key={section} className={`settings-section${switches.count ? ' is-switched' : ''}`}>{content[section]}</div>
       </div>
     </div>
   )

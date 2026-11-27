@@ -1250,7 +1250,11 @@ button:not(:disabled), summary { cursor: pointer; }
 .settings-nav-text small.tone-ok { color: var(--color-success); }
 .settings-nav-text small.tone-warn { color: var(--color-warning); }
 .settings-nav-text small.tone-bad { color: var(--color-error); }
-.settings-section { display: grid; gap: 14px; min-width: 0; animation: rise-in var(--dur-slow) var(--ease-out-soft) both; }
+.settings-section { display: grid; gap: 14px; min-width: 0; }
+/* A picked section: its groups and cards rise in, one after another. */
+.settings-section.is-switched > * { animation: rise-in var(--dur-slow) var(--ease-out-soft) backwards; }
+.settings-section.is-switched > :nth-child(2) { animation-delay: 70ms; }
+.settings-section.is-switched :is(.settings-pair, .settings-stack) > :nth-child(2) { animation: rise-in var(--dur-slow) var(--ease-out-soft) 60ms backwards; }
 .settings-pair { display: grid; gap: 14px; align-items: stretch; }
 /* Paired panels share one height; their content stays at the top. */
 .settings-pair > .card { height: 100%; }
