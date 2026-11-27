@@ -24,6 +24,7 @@ import { useToast } from '@/components/ui/Toast/Toast'
 import { usePendingAddGo } from '@/features/projects/pendingAddGo'
 import { DashboardExposure } from '@/features/settings/DashboardExposure'
 import { DockerPanel } from '@/features/settings/DockerPanel'
+import { AlertsPanel } from '@/features/settings/AlertsPanel'
 import { MullvadPanel } from '@/features/settings/MullvadPanel'
 import { writeClipboardText } from '@/lib/clipboard'
 import { codeSurface, muted } from '@/lib/ui'
@@ -157,7 +158,7 @@ export function SettingsPage() {
   return (
     <div className="grid gap-3.5">
       <PageHeader title="Settings">
-        <PageSub>GitHub, Mullvad, remote access, shared engines and Docker on this Pi</PageSub>
+        <PageSub>GitHub, Mullvad, alerts, remote access, shared engines and Docker on this Pi</PageSub>
       </PageHeader>
 
       <div className="settings-grid">
@@ -228,6 +229,7 @@ export function SettingsPage() {
           </Panel>
 
           <MullvadPanel />
+          <AlertsPanel />
           <DashboardExposure />
         </div>
 

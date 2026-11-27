@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"firewifi/dashboard/internal/alerts"
 	"fmt"
 	"log"
 	"net/http"
@@ -50,6 +51,7 @@ type Server struct {
 	Deploy    *deploy.Manager
 	Postgres  *infra.Postgres
 	History   *monitor.Store
+	Alerts    *alerts.Engine
 	vpnRepair *vpnRepairCoordinator
 	// bgCtx is the lifetime context from StartBackground. Long-lived streams
 	// watch it so graceful shutdown is not held open by idle SSE clients.
@@ -95,6 +97,9 @@ func (s *Server) StartBackground(ctx context.Context) {
 	if s != nil && s.History != nil {
 		go s.monitorHistory(ctx)
 	}
+	if s != nil && s.Alerts != nil {
+		go s.watchAlerts(ctx)
+	}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -119,6 +124,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/ready", s.handleReady)
 	mux.HandleFunc("/api/config", s.handleAPIConfig)
 	mux.HandleFunc("/api/mullvad/account", s.handleMullvadAccount)
+	mux.HandleFunc("/api/alerts", s.handleAlerts)
+	mux.HandleFunc("/api/alerts/test", s.handleAlerts)
 	mux.HandleFunc("/api/ports", s.handlePorts)
 	mux.HandleFunc("/api/github/", s.handleGitHub)
 	mux.HandleFunc("/api/github/status", s.handleGitHub)

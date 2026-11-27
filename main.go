@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"firewifi/dashboard/internal/alerts"
 	"firewifi/dashboard/internal/deploy"
 	"firewifi/dashboard/internal/infra"
 	"firewifi/dashboard/internal/runner"
@@ -42,6 +43,8 @@ func main() {
 		dep,
 		pg,
 	)
+
+	srv.Alerts = alerts.New(filepath.Join(baseDir, "config", "alerts.json"))
 
 	httpSrv := &http.Server{
 		Addr:              "0.0.0.0:" + port,

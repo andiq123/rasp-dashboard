@@ -536,3 +536,6 @@ export const LINKED_BUCKET_KEYS = [
   'SECRET_ACCESS_KEY',
   'FORCE_PATH_STYLE',
 ] as const
+
+export type AlertSettings = { enabled: boolean; ntfy_url: string }
+export type AlertStatus = AlertSettings & { active: string[]; last_sent?: string; last_error?: string }
