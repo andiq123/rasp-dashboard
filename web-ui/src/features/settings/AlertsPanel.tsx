@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Boxes, ExternalLink, Globe, Send, ShieldCheck, Thermometer, TriangleAlert, Wifi, type LucideIcon } from 'lucide-react'
+import { Bell, Boxes, Check, ExternalLink, Globe, Send, ShieldCheck, Thermometer, TriangleAlert, Wifi, type LucideIcon } from 'lucide-react'
 import { fetchAlerts, saveAlerts, testAlerts } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import type { AlertEvent, AlertSettings, AlertStatus } from '@/api/types'
@@ -67,14 +67,29 @@ export function AlertsPanel() {
       showToast(e.message, 'error')
     },
   })
+  // Test the key being typed (before saving) or the saved one.
   const test = useMutation({
-    mutationFn: () => testAlerts(),
-    onSuccess: (data) => {
-      qc.setQueryData<AlertStatus>(queryKeys.alerts, data)
-      showToast('Test sent. Check your iPhone.')
-    },
+    mutationFn: () => (a?.enabled ? testAlerts() : testAlerts(target?.server, target?.key)),
+    onSuccess: (data) => qc.setQueryData<AlertStatus>(queryKeys.alerts, data),
     onError: (e: Error) => showToast(e.message, 'error'),
   })
+  // "Sent" shows on the button for a moment, then it is ready again.
+  const { isSuccess: testSent, reset: resetTest } = test
+  useEffect(() => {
+    if (!testSent) return
+    const t = window.setTimeout(resetTest, 2500)
+    return () => window.clearTimeout(t)
+  }, [testSent, resetTest])
+  const testButton = (disabled = false) => (
+    <Button
+      icon={testSent ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Send className="h-3.5 w-3.5" aria-hidden />}
+      loading={test.isPending}
+      disabled={disabled}
+      onClick={() => test.mutate()}
+    >
+      <SwapText>{testSent ? 'Sent' : 'Test'}</SwapText>
+    </Button>
+  )
 
   /** One step: save the key, switch on, and send a welcome push to prove it works. */
   const connect = useMutation({
@@ -120,7 +135,7 @@ export function AlertsPanel() {
                   {a.server !== BARK_SERVER ? <span>{hostOf(a.server)}</span> : null}
                 </span>
               </span>
-              <Button icon={<Send className="h-3.5 w-3.5" aria-hidden />} loading={test.isPending} onClick={() => test.mutate()}>Test</Button>
+              {testButton()}
             </div>
           ) : (
             <form
@@ -155,7 +170,10 @@ export function AlertsPanel() {
                 <a className="btn btn-sm btn-ghost" href={BARK_APP} target="_blank" rel="noreferrer">
                   Get Bark <ExternalLink className="h-3.5 w-3.5" aria-hidden />
                 </a>
-                <Button type="submit" variant="primary" loading={connect.isPending} disabled={!target}>Turn on</Button>
+                <span className="flex gap-2">
+                  {testButton(!target || connect.isPending)}
+                  <Button type="submit" variant="primary" loading={connect.isPending} disabled={!target}>Turn on</Button>
+                </span>
               </div>
             </form>
           )}
