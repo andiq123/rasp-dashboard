@@ -3,7 +3,7 @@ import type { AppState, ConnectedDevice } from '@/api/types'
 import { AnimatedNumber } from '@/components/ui/AnimatedNumber/AnimatedNumber'
 import { KeyValues, type KeyValue } from '@/components/ui/KeyValues/KeyValues'
 import { deviceKind, fmtDuration, signalBars } from '@/lib/devices'
-import { daysLeftText, daysLeftTone, expiryDate } from '@/lib/mullvad'
+import { daysLeftText, daysLeftTone, expiryDate, leakRow } from '@/lib/mullvad'
 import { fmtBytes, fmtPct, fmtRate } from '@/lib/format'
 import type { FlowNode } from './TrafficFlow'
 
@@ -88,6 +88,7 @@ export function FlowInfo({ node, state }: { node: FlowNode; state: AppState }) {
         { label: 'Endpoint', value: vpn.endpoint || '—' },
         { label: 'Handshake', value: vpn.handshake_healthy ? `${Number(vpn.handshake_age_seconds || 0)}s ago` : 'None', tone: vpn.handshake_healthy ? undefined : 'bad' },
         { label: 'Exit check', value: vpn.egress_ok ? 'Romania verified' : 'Not verified', tone: vpn.egress_ok ? 'ok' : 'bad' },
+        ...(leakRow(state.leak_check) ? [leakRow(state.leak_check) as KeyValue] : []),
         ...(state.mullvad_account?.configured
           ? [{ label: 'Time left', value: `${daysLeftText(state.mullvad_account)}, until ${expiryDate(state.mullvad_account)}`, tone: daysLeftTone(state.mullvad_account) === 'ok' ? undefined : daysLeftTone(state.mullvad_account) }]
           : []),

@@ -39,7 +39,7 @@ import { useLiveState } from '@/hooks/useLiveState'
 import { useSettled } from '@/hooks/useSettled'
 import { actionDoneLabel } from '@/lib/actions'
 import { fmtBytes, fmtPct } from '@/lib/format'
-import { MULLVAD_ACCOUNT_URL } from '@/lib/mullvad'
+import { leakRow, MULLVAD_ACCOUNT_URL } from '@/lib/mullvad'
 import { appUsage, fmtMB, hostCapacity, reservedFromServices } from '@/lib/resources'
 import { MullvadTime } from './MullvadTime'
 import { ResourceUsage } from './ResourceUsage'
@@ -256,6 +256,7 @@ export function OverviewPage() {
             tone: vpn.handshake_healthy ? undefined : 'bad',
           },
           { label: 'Exit check', value: vpn.egress_ok ? 'Verified' : 'Failed', tone: vpn.egress_ok ? 'ok' : 'bad' },
+          ...(leakRow(state.leak_check) ? [leakRow(state.leak_check) as KeyValue] : []),
           {
             label: 'Country rule',
             value: vpn.country_allowed ? 'Romania only' : 'Blocked: outside Romania',

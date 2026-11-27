@@ -1,4 +1,4 @@
-import type { MullvadAccount } from '@/api/types'
+import type { LeakCheck, MullvadAccount } from '@/api/types'
 
 export const MULLVAD_ACCOUNT_URL = 'https://mullvad.net/en/account'
 
@@ -20,4 +20,12 @@ export function daysLeftTone(a?: MullvadAccount): 'ok' | 'warn' | 'bad' | undefi
 export function expiryDate(a?: MullvadAccount): string {
   if (!a?.expires_at) return '—'
   return new Date(a.expires_at).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+/** Leak check in a few words, with its tone, for detail rows. */
+export function leakRow(lc: LeakCheck | undefined): { label: string; value: string; tone?: 'ok' | 'bad' } | null {
+  if (!lc?.checked) return null
+  return lc.ok
+    ? { label: 'Leak check', value: 'No leaks (kill switch, DNS, IPv6)', tone: 'ok' }
+    : { label: 'Leak check', value: (lc.problems || []).join(', ') || 'Failed', tone: 'bad' }
 }

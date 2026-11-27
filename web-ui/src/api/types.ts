@@ -108,6 +108,7 @@ export type AppState = {
   net_users?: { kind: 'app' | 'links' | 'pi' | string; name: string; connections: number; rate_bps: number; in_bps: number; out_bps: number }[]
   routing?: { apps_direct?: boolean; tunnels_direct?: boolean }
   devices?: ConnectedDevice[]
+  leak_check?: LeakCheck
   mullvad_account?: MullvadAccount
   device_metrics?: DeviceMetrics
   files_root?: string
@@ -539,3 +540,14 @@ export const LINKED_BUCKET_KEYS = [
 
 export type AlertSettings = { enabled: boolean; ntfy_url: string }
 export type AlertStatus = AlertSettings & { active: string[]; last_sent?: string; last_error?: string }
+
+/** Wi‑Fi traffic can only leave through the tunnel. */
+export type LeakCheck = {
+  checked: boolean
+  ok: boolean
+  kill_switch: boolean
+  ipv6_blocked: boolean
+  dns_via_tunnel: boolean
+  dns_servers?: string[]
+  problems?: string[]
+}

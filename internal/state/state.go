@@ -59,6 +59,7 @@ type State struct {
 	NetUsers       []NetUser       `json:"net_users,omitempty"`
 	Clients        *int            `json:"clients,omitempty"`
 	Devices        []Device        `json:"devices,omitempty"`
+	LeakCheck      *LeakCheck      `json:"leak_check,omitempty"`
 	MullvadAccount *MullvadAccount `json:"mullvad_account,omitempty"`
 	DeviceMetrics  DeviceMetrics   `json:"device_metrics"`
 	FilesRoot      string          `json:"files_root,omitempty"`
@@ -186,6 +187,7 @@ type Reader struct {
 	traffic           trafficCache
 	routing           routingCache
 	netUsers          netUsersCache
+	leaks             leakCache
 }
 
 type metricsSample struct {
@@ -240,6 +242,9 @@ func (r *Reader) Read() (State, error) {
 	}
 	if acct := r.ReadMullvadAccount(); acct.Configured {
 		st.MullvadAccount = &acct
+	}
+	if st.Mode == ModeMullvad && st.HotspotRunning {
+		st.LeakCheck = r.readLeakCheck(cfg.WGInterface)
 	}
 	st.Issues = healthIssues(st)
 	return st, nil
@@ -729,6 +734,9 @@ func healthIssues(st State) []HealthIssue {
 			}
 		}
 		issues = append(issues, HealthIssue{Code: "mullvad-expiring", Severity: sev, Title: title, Detail: "Add time on mullvad.net. When it runs out, the Romanian tunnel stops and the hotspot has no internet.", Action: "mullvad-renew"})
+	}
+	if lc := st.LeakCheck; lc != nil && !lc.OK {
+		issues = append(issues, HealthIssue{Code: "vpn-leak", Severity: "critical", Title: "Traffic could leave outside the VPN", Detail: strings.Join(lc.Problems, ". ") + ".", Action: "restart-hotspot"})
 	}
 	if st.Mode == ModeMullvad {
 		switch {
