@@ -40,9 +40,11 @@ const (
 	EventApps     = "apps"     // crash loops
 	EventLinks    = "links"    // public links down, certificates
 	EventPi       = "pi"       // temperature, disk
+	EventRoute    = "route"    // a Mullvad ⇄ residential switch finished
+	EventCost     = "cost"     // reminders while the paid residential proxy is on
 )
 
-var Events = []string{EventInternet, EventMullvad, EventApps, EventLinks, EventPi}
+var Events = []string{EventInternet, EventMullvad, EventApps, EventLinks, EventPi, EventRoute, EventCost}
 
 func (s Settings) wants(category string) bool {
 	for _, m := range s.Muted {
@@ -65,6 +67,8 @@ type Alert struct {
 	Grace time.Duration
 	// NoResolve skips the "resolved" note (for slow-moving reminders).
 	NoResolve bool
+	// Repeat re-sends the alert at this interval while it stays true (reminders).
+	Repeat time.Duration
 }
 
 // Status is what the dashboard shows.
@@ -76,9 +80,10 @@ type Status struct {
 }
 
 type pending struct {
-	alert Alert
-	since time.Time
-	sent  bool
+	alert  Alert
+	since  time.Time
+	sent   bool
+	sentAt time.Time
 }
 
 type Engine struct {
@@ -199,13 +204,11 @@ func (e *Engine) Evaluate(ctx context.Context, now time.Time, current []Alert) {
 			e.pending[a.Key] = p
 		}
 		p.alert = a
-		if !p.sent && now.Sub(p.since) >= a.Grace && deliver(a) {
-			p.sent = true
-			level := "active"
-			if a.Urgent {
-				level = "timeSensitive"
-			}
-			send = append(send, push{Title: a.Title, Body: a.Body, Level: level})
+		first := !p.sent && now.Sub(p.since) >= a.Grace
+		again := p.sent && a.Repeat > 0 && now.Sub(p.sentAt) >= a.Repeat
+		if (first || again) && deliver(a) {
+			p.sent, p.sentAt = true, now
+			send = append(send, pushFor(a))
 		}
 	}
 	for key, p := range e.pending {
@@ -222,6 +225,24 @@ func (e *Engine) Evaluate(ctx context.Context, now time.Time, current []Alert) {
 	for _, m := range send {
 		e.record(e.post(ctx, s.Server, s.Key, m))
 	}
+}
+
+func pushFor(a Alert) push {
+	level := "active"
+	if a.Urgent {
+		level = "timeSensitive"
+	}
+	return push{Title: a.Title, Body: a.Body, Level: level}
+}
+
+// Notify sends a one-off event (something that happened, not a condition),
+// respecting the on/off switch and muted categories.
+func (e *Engine) Notify(ctx context.Context, a Alert) {
+	s := e.Status().Settings
+	if !s.Enabled || s.Key == "" || !s.wants(a.Category) {
+		return
+	}
+	e.record(e.post(ctx, s.Server, s.Key, pushFor(a)))
 }
 
 // Test sends a sample notification with the given (or saved) server and key.

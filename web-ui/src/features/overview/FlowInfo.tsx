@@ -95,10 +95,17 @@ export function FlowInfo({ node, state }: { node: FlowNode; state: AppState }) {
       ]
       break
     case 'residential':
-      line = node.state === 'ok' ? 'Wi‑Fi web traffic goes out through the IPRoyal residential proxy.'
+      line = node.state === 'ok' ? 'Wi‑Fi web traffic goes out through the IPRoyal residential proxy, billed per GB.'
         : node.state === 'busy' ? 'Applying the change. Traffic resumes once the proxy is running.'
           : 'The proxy is stopped, so Wi‑Fi traffic is held here.'
-      rows = [{ label: 'Proxy', value: state.proxy_running ? 'Running' : 'Stopped', tone: state.proxy_running ? 'ok' : 'bad' }]
+      {
+        const u = state.residential_usage
+        rows = [
+          { label: 'Proxy', value: state.proxy_running ? 'Running' : 'Stopped', tone: state.proxy_running ? 'ok' : 'bad' },
+          ...(u?.active ? [{ label: 'This session', value: `${fmtBytes(u.session_bytes)}${u.session_start ? `, since ${new Date(u.session_start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}` }] : []),
+          ...(u ? [{ label: 'This month', value: fmtBytes(u.month_bytes) }] : []),
+        ]
+      }
       break
     case 'wifi':
       line = state.hotspot_running ? `Broadcasting ${state.ssid || 'the hotspot'} for your devices.` : 'The hotspot is stopped.'

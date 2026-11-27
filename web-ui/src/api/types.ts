@@ -110,6 +110,7 @@ export type AppState = {
   devices?: ConnectedDevice[]
   leak_check?: LeakCheck
   apps?: AppHealth[]
+  residential_usage?: ResidentialUsage
   mullvad_account?: MullvadAccount
   device_metrics?: DeviceMetrics
   files_root?: string
@@ -539,7 +540,7 @@ export const LINKED_BUCKET_KEYS = [
   'FORCE_PATH_STYLE',
 ] as const
 
-export type AlertEvent = 'internet' | 'mullvad' | 'apps' | 'links' | 'pi'
+export type AlertEvent = 'internet' | 'mullvad' | 'apps' | 'links' | 'pi' | 'route' | 'cost'
 export type AlertSettings = { enabled: boolean; server: string; key: string; muted?: AlertEvent[] }
 export type AlertStatus = AlertSettings & { active: string[]; last_sent?: string; last_error?: string }
 
@@ -581,4 +582,13 @@ export type LinkUptime = {
   checks: number
   checked_at: string
   failures: number
+}
+
+/** Wi‑Fi data sent through the paid residential proxy. */
+export type ResidentialUsage = {
+  active: boolean
+  session_start?: string
+  session_bytes: number
+  month: string
+  month_bytes: number
 }

@@ -156,7 +156,7 @@ export function SettingsPage() {
   const login = gh.data?.user?.login || 'GitHub'
 
   return (
-    <div className="grid gap-3.5">
+    <div className="settings-page grid gap-3.5">
       <PageHeader title="Settings">
         <PageSub>GitHub, Mullvad, alerts, remote access, shared engines and Docker on this Pi</PageSub>
       </PageHeader>

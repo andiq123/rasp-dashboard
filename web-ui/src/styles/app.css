@@ -1113,3 +1113,9 @@ button:not(:disabled), summary { cursor: pointer; }
 .scope-rails.is-previewing .scope-preview { opacity: 1; transform: none; }
 .scope-rails .scope-rail { transition: opacity var(--dur-slow) var(--ease-standard), left var(--dur-base) var(--ease-out-soft), width var(--dur-base) var(--ease-out-soft), color var(--dur-slow) var(--ease-standard); }
 .scope-rails.is-previewing .scope-rail { opacity: 0; }
+
+/* Settings: whatever a panel shows (loading line, then content) rises in as it
+   mounts, so each widget settles smoothly once its data arrives. */
+.settings-page .card-body > :not(.panel-heading) { animation: rise-in var(--dur-slow) var(--ease-out-soft) backwards; }
+.settings-page .card-body > :nth-child(3) { animation-delay: 40ms; }
+.settings-page .card-body > :nth-child(n + 4) { animation-delay: 80ms; }

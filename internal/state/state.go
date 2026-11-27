@@ -42,29 +42,30 @@ func ValidMode(m string) bool {
 
 // State is the full runtime snapshot of the system.
 type State struct {
-	Mode           string          `json:"mode"`
-	HotspotRunning bool            `json:"hotspot_running"`
-	SSID           string          `json:"ssid"`
-	HotspotIP      string          `json:"hotspot_ip"`
-	DHCPStart      string          `json:"dhcp_start"`
-	DHCPEnd        string          `json:"dhcp_end"`
-	WGUp           bool            `json:"wg_up"`
-	VPNHealth      VPNHealth       `json:"vpn_health"`
-	VPNRepair      *VPNRepair      `json:"vpn_repair,omitempty"`
-	Issues         []HealthIssue   `json:"issues"`
-	ProxyRunning   bool            `json:"proxy_running"`
-	Uplink         Uplink          `json:"uplink"`
-	Traffic        Traffic         `json:"traffic"`
-	Routing        ServiceRouting  `json:"routing"`
-	NetUsers       []NetUser       `json:"net_users,omitempty"`
-	Clients        *int            `json:"clients,omitempty"`
-	Devices        []Device        `json:"devices,omitempty"`
-	LeakCheck      *LeakCheck      `json:"leak_check,omitempty"`
-	Apps           []AppHealth     `json:"apps,omitempty"`
-	MullvadAccount *MullvadAccount `json:"mullvad_account,omitempty"`
-	DeviceMetrics  DeviceMetrics   `json:"device_metrics"`
-	FilesRoot      string          `json:"files_root,omitempty"`
-	GeneratedAt    string          `json:"generated_at"`
+	Mode           string           `json:"mode"`
+	HotspotRunning bool             `json:"hotspot_running"`
+	SSID           string           `json:"ssid"`
+	HotspotIP      string           `json:"hotspot_ip"`
+	DHCPStart      string           `json:"dhcp_start"`
+	DHCPEnd        string           `json:"dhcp_end"`
+	WGUp           bool             `json:"wg_up"`
+	VPNHealth      VPNHealth        `json:"vpn_health"`
+	VPNRepair      *VPNRepair       `json:"vpn_repair,omitempty"`
+	Issues         []HealthIssue    `json:"issues"`
+	ProxyRunning   bool             `json:"proxy_running"`
+	Uplink         Uplink           `json:"uplink"`
+	Traffic        Traffic          `json:"traffic"`
+	Routing        ServiceRouting   `json:"routing"`
+	NetUsers       []NetUser        `json:"net_users,omitempty"`
+	Clients        *int             `json:"clients,omitempty"`
+	Devices        []Device         `json:"devices,omitempty"`
+	LeakCheck      *LeakCheck       `json:"leak_check,omitempty"`
+	Apps           []AppHealth      `json:"apps,omitempty"`
+	Residential    ResidentialUsage `json:"residential_usage"`
+	MullvadAccount *MullvadAccount  `json:"mullvad_account,omitempty"`
+	DeviceMetrics  DeviceMetrics    `json:"device_metrics"`
+	FilesRoot      string           `json:"files_root,omitempty"`
+	GeneratedAt    string           `json:"generated_at"`
 }
 
 type VPNRepair struct {
@@ -190,6 +191,7 @@ type Reader struct {
 	netUsers          netUsersCache
 	leaks             leakCache
 	appHealth         appHealthCache
+	usage             usageTracker
 }
 
 type metricsSample struct {
@@ -246,6 +248,7 @@ func (r *Reader) Read() (State, error) {
 	if acct := r.ReadMullvadAccount(); acct.Configured {
 		st.MullvadAccount = &acct
 	}
+	st.Residential = r.trackResidential(st.Mode, time.Now())
 	if st.Mode == ModeMullvad && st.HotspotRunning {
 		st.LeakCheck = r.readLeakCheck(cfg.WGInterface)
 	}

@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, Ban, Cable, Cloud, Cpu, Globe, Package, Lock, Shiel
 import type { AppState } from '@/api/types'
 import { AnimatedList } from '@/components/ui/AnimatedList/AnimatedList'
 import { AnimatedNumber } from '@/components/ui/AnimatedNumber/AnimatedNumber'
-import { fmtMbps, fmtRate as fmtBytesRate } from '@/lib/format'
+import { fmtBytes, fmtMbps, fmtRate as fmtBytesRate } from '@/lib/format'
 import { Popover } from '@/components/ui/Popover/Popover'
 import { SwapText } from '@/components/ui/SwapText/SwapText'
 import { FlowInfo } from './FlowInfo'
@@ -98,7 +98,8 @@ export function computeFlow(state: AppState, recovering: boolean, switchingTo?: 
         }
       : {
           id: 'residential', label: 'Residential', icon: Waypoints, scope: 'proxy',
-          detail: switching ? 'Switching' : gateOk ? 'Running' : 'Stopped',
+          // The proxy is billed per GB, so the step shows what this session used.
+          detail: switching ? 'Switching' : gateOk ? (state.residential_usage?.session_bytes ? `${fmtBytes(state.residential_usage.session_bytes)} used` : 'Running') : 'Stopped',
           state: !known ? 'idle' : switching ? 'busy' : gateOk ? 'ok' : 'bad',
         },
     {

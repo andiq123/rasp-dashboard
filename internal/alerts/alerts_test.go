@@ -107,3 +107,24 @@ func TestOldChannelSettingsStartOff(t *testing.T) {
 		t.Fatalf("old channel settings must be removed from disk, got %s", b)
 	}
 }
+
+func TestRepeatAndNotify(t *testing.T) {
+	srv, got := barkServer(t)
+	e := New(filepath.Join(t.TempDir(), "alerts.json"))
+	if err := e.SetSettings(Settings{Enabled: true, Server: srv.URL, Key: testKey, Muted: []string{EventPi}}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, t0 := context.Background(), time.Unix(0, 0)
+	r := Alert{Key: "res", Category: EventCost, Title: "Still on residential", Repeat: 2 * time.Minute, NoResolve: true}
+	for _, m := range []int{0, 1, 2, 3, 4} {
+		e.Evaluate(ctx, t0.Add(time.Duration(m)*time.Minute), []Alert{r})
+	}
+	if len(*got) != 3 {
+		t.Fatalf("a reminder repeats every 2 minutes (0, 2, 4), got %d: %v", len(*got), *got)
+	}
+	e.Notify(ctx, Alert{Category: EventRoute, Title: "Now on Residential"})
+	e.Notify(ctx, Alert{Category: EventPi, Title: "muted"})
+	if len(*got) != 4 || (*got)[3].Title != "Now on Residential" {
+		t.Fatalf("one-off events go out unless muted, got %v", *got)
+	}
+}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Boxes, Check, ExternalLink, Globe, Send, ShieldCheck, Thermometer, TriangleAlert, Wifi, type LucideIcon } from 'lucide-react'
+import { ArrowLeftRight, Bell, Boxes, Check, Coins, ExternalLink, Globe, Send, ShieldCheck, Thermometer, TriangleAlert, Wifi, type LucideIcon } from 'lucide-react'
 import { fetchAlerts, saveAlerts, testAlerts } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import type { AlertEvent, AlertSettings, AlertStatus } from '@/api/types'
@@ -23,6 +23,8 @@ const EVENTS: { id: AlertEvent; icon: LucideIcon; label: string; hint: string }[
   { id: 'apps', icon: Boxes, label: 'An app keeps crashing', hint: '3 restarts in 10 minutes' },
   { id: 'links', icon: Globe, label: 'A public link is down', hint: '2 failed checks in a row' },
   { id: 'pi', icon: Thermometer, label: 'Pi overheating or disk full', hint: 'Disk over 90%' },
+  { id: 'route', icon: ArrowLeftRight, label: 'Route switched', hint: 'Mullvad ⇄ Residential, with the new IP' },
+  { id: 'cost', icon: Coins, label: 'Still on Residential', hint: 'Every 2 minutes, with data used' },
 ]
 
 /** Bark shows a URL like https://api.day.app/<key>/…; a bare key works too. */
