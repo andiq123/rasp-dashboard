@@ -711,10 +711,11 @@ button:not(:disabled), summary { cursor: pointer; }
    and stop at the barrier where traffic is held. */
 .flow { display: flex; align-items: flex-start; margin: 0; padding: 4px 0 2px; list-style: none; }
 /* Steps share the width evenly; each link fills the gap before its node. */
-.flow-step { display: flex; flex: 1 1 0; align-items: flex-start; min-width: 0; }
-.flow-step:first-child { flex: 0 0 auto; }
+/* Steps dissolve into the row so every link shares the free space equally. */
+.flow-step { display: contents; }
 /* Icon on top, label and state centered underneath. */
-.flow-node { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: none; min-width: 64px; text-align: center; }
+.flow-node { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: none; min-width: 56px; max-width: 104px; text-align: center; }
+.flow-node .flow-label, .flow-node .flow-detail { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 /* While one step's popup is open, the rest of the diagram steps back so nothing competes with it. */
 .flow-wrap :is(.pop-trigger, .flow-link, .spur-tags, .flow-legend) { transition: opacity var(--dur-base) var(--ease-standard), background-color var(--dur-quick) var(--ease-standard); }
 .flow-wrap:has(.pop-trigger[aria-expanded='true']) :is(.pop-trigger:not([aria-expanded='true']), .flow-link, .spur-tags, .flow-legend) { opacity: 0.3; }
@@ -728,25 +729,23 @@ button:not(:disabled), summary { cursor: pointer; }
 .flow-node.tone-busy .flow-icon svg { animation: flow-breathe 1.6s ease-in-out infinite; }
 /* The node requesting data gets a calm breathing ring; it fades with the traffic. */
 .flow-icon { position: relative; }
-.flow-icon::after { content: ''; position: absolute; inset: -4px; border-radius: 14px; box-shadow: 0 0 0 2px color-mix(in oklab, var(--tone) 45%, transparent); opacity: 0; transition: opacity 500ms var(--ease-standard); pointer-events: none; }
+.flow-icon::after { content: ''; position: absolute; inset: -4px; border-radius: 14px; box-shadow: 0 0 0 1.5px color-mix(in oklab, var(--tone) 50%, transparent); opacity: 0; transition: opacity 500ms var(--ease-standard); pointer-events: none; }
 .flow-node.is-active .flow-icon::after { opacity: 1; animation: request-breathe 2.2s ease-in-out infinite; }
 .flow-node.is-active .flow-label { color: var(--tone); }
 .flow-label { transition: color 500ms var(--ease-standard); }
-@keyframes request-breathe { 0%, 100% { transform: scale(1); box-shadow: 0 0 0 2px color-mix(in oklab, var(--tone) 45%, transparent); } 50% { transform: scale(1.08); box-shadow: 0 0 0 4px color-mix(in oklab, var(--tone) 18%, transparent); } }
+@keyframes request-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .flow-node.tone-bad .flow-icon { animation: flow-alert 2.4s ease-in-out infinite; }
 .flow-text { display: grid; justify-items: center; gap: 1px; width: 100%; min-width: 0; line-height: 1.2; }
 .flow-label { font-size: var(--text-label); font-weight: 650; white-space: nowrap; }
 .flow-detail { max-width: 100%; font-size: var(--text-micro); color: var(--ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .flow-node.tone-bad .flow-detail { color: var(--color-error); }
 
-.flow-link { position: relative; flex: 1 1 auto; min-width: 16px; height: 2px; margin: 16px 10px 0; border-radius: 2px; background: color-mix(in oklab, var(--tone) 28%, transparent); transition: background-color var(--dur-slow) var(--ease-standard); }
+.flow-link { position: relative; flex: 1 1 0; min-width: 24px; height: 2px; margin: 16px 10px 0; border-radius: 2px; background: color-mix(in oklab, var(--tone) 28%, transparent); transition: background-color var(--dur-slow) var(--ease-standard); }
 .flow-packet { position: absolute; top: 50%; left: 0; width: 5px; height: 5px; margin-top: -2.5px; border-radius: 50%; background: var(--tone); opacity: 0; }
 .flow-link.is-flow .flow-packet { animation: packet-flow var(--flow-dur, 3.4s) linear infinite; }
-.flow-link.is-flow.level-0 { background: color-mix(in oklab, var(--tone) 20%, transparent); }
-.flow-link.is-flow.level-3 { background: color-mix(in oklab, var(--tone) 42%, transparent); }
 /* Packets cross-fade with traffic: invisible when idle, fading in as data flows. */
 .flow-packets { position: absolute; inset: 0; opacity: 1; transition: opacity 700ms var(--ease-standard); }
-.flow-packets.level-0, .flow-link.is-idle .flow-packets { opacity: 0; }
+.flow-link.is-idle .flow-packets { opacity: 0; }
 
 /* Legend for the two packet styles. */
 .flow-under { display: flex; align-items: flex-end; min-height: 16px; }
@@ -784,7 +783,7 @@ button:not(:disabled), summary { cursor: pointer; }
   0% { left: 0; opacity: 0; }
   15% { opacity: 1; }
   85% { opacity: 1; }
-  100% { left: calc(100% - 5px); opacity: 0; }
+  100% { left: calc(100% - 4px); opacity: 0; }
 }
 @keyframes packet-held {
   0% { left: 0; opacity: 0; }
@@ -802,52 +801,57 @@ button:not(:disabled), summary { cursor: pointer; }
 /* Narrow cards (any screen): wrap into rows of compact steps. */
 .flow-wrap { container-type: inline-size; position: relative; z-index: 2; display: grid; gap: 4px; }
 .flow-wrap .flow-node { position: relative; z-index: 1; }
-@container (max-width: 540px) {
+@container (max-width: 560px) {
   .flow { flex-wrap: wrap; justify-content: center; row-gap: 12px; }
-  .flow-step, .flow-step:first-child { flex: 0 0 auto; }
-  .flow-link { flex: 0 0 16px; min-width: 16px; }
-  .flow-spur { display: flex; flex-direction: column; align-items: center; width: 120px; margin-left: calc(var(--pi-x) - 60px); animation: rise-in var(--dur-slow) var(--ease-out-soft) both; }
+  .flow-link { flex: 0 0 20px; min-width: 20px; }
+  /* Wrapped rows: no Pi directly above, so the spur centers and says where it connects. */
+  .flow-under { flex-direction: column; align-items: center; gap: 8px; margin-top: 8px; }
+  .flow-under .flow-spur { margin-left: 0; }
+  .flow-under .flow-spur > .flow-link { display: none; }
+  .flow-under .spur-tag.spur-via { display: inline-flex; }
+  .flow-under .flow-legend { margin-left: 0; }
 }
 
 /* Two-lane links: the top lane brings data in toward whoever asked, the bottom
-   lane carries requests out. Each lane has its own arrowhead. */
-.flow-link.is-road { display: flex; flex-direction: column; justify-content: space-between; height: 10px; margin-top: 11px; background: none !important; overflow: visible; }
-.lane { position: relative; height: 2px; border-radius: 2px; background: color-mix(in oklab, var(--tone) 32%, transparent); transition: background-color 700ms var(--ease-standard); }
-.lane.level-0 { background: color-mix(in oklab, var(--tone) 16%, transparent); }
-.lane::after { content: ''; position: absolute; top: 50%; translate: 0 -50%; border: 4px solid transparent; opacity: 0.7; transition: opacity 700ms var(--ease-standard); }
-.lane.to-end::after { right: -4px; border-left-color: var(--tone); border-right-width: 0; }
-.lane.to-start::after { left: -4px; border-right-color: var(--tone); border-left-width: 0; }
-.lane.level-0::after { opacity: 0.25; }
+   lane carries requests out. Arrowheads keep direction readable when paused;
+   speed, density and lane weight follow the live rate (levels 0–4). */
+.flow-link.is-road { display: flex; flex-direction: column; justify-content: space-between; height: 9px; margin-top: 12px; background: none !important; overflow: visible; }
+.lane { --lane-w: 1.5px; position: relative; height: var(--lane-w); border-radius: 2px; background: color-mix(in oklab, var(--tone) 30%, transparent); transition: background-color 700ms var(--ease-standard), height 700ms var(--ease-standard); }
+.lane.level-0 { background: color-mix(in oklab, var(--tone) 14%, transparent); }
+.lane.level-2 { --lane-w: 2px; background: color-mix(in oklab, var(--tone) 36%, transparent); }
+.lane:is(.level-3, .level-4) { --lane-w: 2.5px; background: color-mix(in oklab, var(--tone) 44%, transparent); }
+.lane::after { content: ''; position: absolute; top: 50%; translate: 0 -50%; border: 3.5px solid transparent; opacity: 0.75; transition: opacity 700ms var(--ease-standard); }
+.lane.to-end::after { right: -3px; border-left-color: var(--tone); border-right-width: 0; }
+.lane.to-start::after { left: -3px; border-right-color: var(--tone); border-left-width: 0; }
+.lane.level-0::after { opacity: 0.3; }
 .lane .flow-packets { position: absolute; inset: 0; transition: opacity 700ms var(--ease-standard); }
 .lane.level-0 .flow-packets { opacity: 0; }
-.lane .flow-packet { top: -2px; margin-top: 0; }
+.lane .flow-packet { top: 50%; width: 4px; height: 4px; margin-top: -2px; }
 .lane.to-start .flow-packet { animation-direction: reverse; }
-.lane.is-out .flow-packet { background: var(--surface-panel); box-shadow: inset 0 0 0 1.5px var(--tone); }
-.lane:is(.level-0, .level-1) .flow-packet:nth-child(2) { animation-delay: calc(var(--flow-dur) * -0.5); }
-.lane:is(.level-2, .level-3) .flow-packet:nth-child(2) { animation-delay: calc(var(--flow-dur) * -0.33); }
-.lane:is(.level-2, .level-3) .flow-packet:nth-child(3) { animation-delay: calc(var(--flow-dur) * -0.66); }
-.lane.level-3:not(.is-out) .flow-packet { box-shadow: 0 0 6px 1px color-mix(in oklab, var(--tone) 55%, transparent); }
+.lane.is-out .flow-packet { background: var(--surface-panel); box-shadow: inset 0 0 0 1.25px var(--tone); }
+.lane.level-4:not(.is-out) .flow-packet { box-shadow: 0 0 5px 1px color-mix(in oklab, var(--tone) 50%, transparent); }
 
 /* Vertical road under the Pi: apps run on the Pi and use its Ethernet uplink. */
-.flow-link.is-vertical { flex: none; flex-direction: row; width: 10px; min-width: 0; height: 20px; margin: 8px 0 10px; }
-.flow-link.is-vertical:not(.is-road) { width: 2px; }
-.flow-link.is-vertical .lane { width: 2px; height: 100%; }
+.flow-link.is-vertical { flex: none; flex-direction: row; width: 9px; min-width: 0; height: 22px; margin: 8px 0 10px; }
+.flow-link.is-vertical:not(.is-road) { width: 1.5px; }
+.flow-link.is-vertical .lane { width: var(--lane-w); height: 100%; transition: background-color 700ms var(--ease-standard), width 700ms var(--ease-standard); }
 .flow-link.is-vertical .lane::after { left: 50%; translate: -50% 0; }
-.flow-link.is-vertical .lane.to-end::after { top: auto; bottom: -4px; right: auto; border: 4px solid transparent; border-top-color: var(--tone); border-bottom-width: 0; }
-.flow-link.is-vertical .lane.to-start::after { top: -4px; border: 4px solid transparent; border-bottom-color: var(--tone); border-top-width: 0; }
-.flow-link.is-vertical .flow-packet { top: 0; left: -2px; animation-name: packet-flow-v; }
+.flow-link.is-vertical .lane.to-end::after { top: auto; bottom: -3px; right: auto; border: 3.5px solid transparent; border-top-color: var(--tone); border-bottom-width: 0; }
+.flow-link.is-vertical .lane.to-start::after { top: -3px; border: 3.5px solid transparent; border-bottom-color: var(--tone); border-top-width: 0; }
+.flow-link.is-vertical .flow-packet { top: 0; left: 50%; margin: 0 0 0 -2px; animation-name: packet-flow-v; }
 @keyframes packet-flow-v {
   0% { top: 0; opacity: 0; }
   15% { opacity: 1; }
   85% { opacity: 1; }
-  100% { top: calc(100% - 6px); opacity: 0; }
+  100% { top: calc(100% - 4px); opacity: 0; }
 }
 .flow-spur { display: flex; flex-direction: column; align-items: center; width: 120px; margin-left: calc(var(--pi-x) - 60px); animation: rise-in var(--dur-slow) var(--ease-out-soft) both; }
 .spur-tags { display: flex; justify-content: center; gap: 4px; margin-top: 6px; }
 .spur-tag { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 999px; font-size: 10.5px; font-weight: 600; color: var(--ink-muted); background: var(--surface-inset); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .spur-tag svg { width: 11px; height: 11px; color: var(--ink-faint); }
-.spur-tag:first-child svg { color: var(--color-success); }
+.spur-tag.is-links svg { color: var(--color-success); }
 .spur-tag.is-bad svg { color: var(--color-error); }
+.spur-tag.spur-via { display: none; }
 
 /* Text and numbers that change animate in place; unchanged text never moves. */
 .swap-text { display: inline-block; }

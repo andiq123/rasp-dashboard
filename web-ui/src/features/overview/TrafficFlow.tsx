@@ -18,20 +18,27 @@ export const ACTIVE_BPS = 4_000
 export type LinkRate = { down: number; up: number }
 export type Flow = { nodes: FlowNode[]; links: LinkState[]; rates: LinkRate[] }
 
-/** Traffic level 0–3 from bytes/s, on a log scale (idle, light, busy, heavy). */
-export function trafficLevel(bps: number): 0 | 1 | 2 | 3 {
-  if (bps >= 1_000_000) return 3
-  if (bps >= 100_000) return 2
+export type TrafficLevel = 0 | 1 | 2 | 3 | 4
+const MB = 1_000_000
+
+/**
+ * Traffic level from bytes/s: idle (under 4 KB/s), light (under 1 MB/s),
+ * busy (1–10 MB/s), heavy (10–20 MB/s), saturating (above 20 MB/s).
+ */
+export function trafficLevel(bps: number): TrafficLevel {
+  if (bps >= 20 * MB) return 4
+  if (bps >= 10 * MB) return 3
+  if (bps >= MB) return 2
   if (bps >= ACTIVE_BPS) return 1
   return 0
 }
 
-// Calm and honest: everyday traffic (a few KB/s) drifts slowly; only real
-// downloads look fast.
-const levelDuration = ['3.4s', '3.4s', '2.1s', '1.2s']
-// Idle links look still: their packets stay mounted but faded out, so traffic
-// starting or stopping cross-fades instead of popping.
-const levelPackets = [2, 2, 3, 3]
+// Calm and honest: browsing drifts slowly; only real downloads look fast.
+// Discrete steps, so small rate changes never restart the motion.
+const levelDuration = [3.6, 3.6, 2.2, 1.3, 0.8]
+// Idle lanes keep their packets mounted but faded, so traffic starting or
+// stopping cross-fades instead of popping. Heavier traffic means denser packets.
+const levelPackets = [2, 2, 3, 4, 5]
 
 function fmtRate(bps: number): string {
   if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)} MB/s`
@@ -132,9 +139,12 @@ const linkLabel: Record<LinkState, string> = { flow: 'traffic flowing', blocked:
 function Lane({ dir, bps, toward }: { dir: 'in' | 'out'; bps: number; toward: 'start' | 'end' }) {
   const level = trafficLevel(bps)
   return (
-    <span className={`lane is-${dir} to-${toward} level-${level}`} style={{ '--flow-dur': levelDuration[level] } as React.CSSProperties}>
+    <span className={`lane is-${dir} to-${toward} level-${level}`} style={{ '--flow-dur': `${levelDuration[level]}s` } as React.CSSProperties}>
       <span className="flow-packets">
-        {Array.from({ length: levelPackets[level] }, (_, k) => <i key={k} className="flow-packet" />)}
+        {Array.from({ length: levelPackets[level] }, (_, k) => (
+          // Evenly spaced along the lane, whatever the count.
+          <i key={k} className="flow-packet" style={{ animationDelay: `${(-k * levelDuration[level]) / levelPackets[level]}s` }} />
+        ))}
       </span>
     </span>
   )
@@ -254,8 +264,9 @@ function Spur({ branch }: { branch: FlowBranch }) {
         }
       />
       <span className="spur-tags">
+        <span className="spur-tag spur-via" title="Runs on the Pi"><Cpu aria-hidden />Via Pi</span>
         {branch.links ? (
-          <span className={`spur-tag${linksOk ? '' : ' is-bad'}`} title="Public links live"><Cloud aria-hidden />{branch.liveLinks}/{branch.links}</span>
+          <span className={`spur-tag is-links${linksOk ? '' : ' is-bad'}`} title="Public links live"><Cloud aria-hidden />{branch.liveLinks}/{branch.links}</span>
         ) : null}
         <span className="spur-tag" title="Skips the VPN"><ShieldOff aria-hidden />No VPN</span>
       </span>
@@ -269,6 +280,7 @@ export function TrafficFlow({ flow, state, branch }: { flow: Flow; state: AppSta
   const wrap = useRef<HTMLDivElement>(null)
   const [piX, setPiX] = useState(0)
   const hasBranch = !!branch
+  const layoutKey = flow.nodes.map((n) => n.id).join()
   useLayoutEffect(() => {
     const el = wrap.current
     if (!el || !hasBranch) return
@@ -280,10 +292,12 @@ export function TrafficFlow({ flow, state, branch }: { flow: Flow; state: AppSta
       setPiX(Math.round(r.left + r.width / 2 - el.getBoundingClientRect().left))
     }
     measure()
+    // Any node changing width (a label swapping, fonts loading) moves the Pi too.
     const ro = new ResizeObserver(measure)
     ro.observe(el)
+    el.querySelectorAll('.flow .flow-node').forEach((n) => ro.observe(n))
     return () => ro.disconnect()
-  }, [hasBranch])
+  }, [hasBranch, layoutKey])
   return (
     <div className="flow-wrap" ref={wrap}>
     <ol className="flow" aria-label="Traffic path">

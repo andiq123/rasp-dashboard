@@ -65,7 +65,8 @@ assert.ok(/<button[^>]*disabled/.test(pendingMarkup), 'Retry must disable while 
 assert.equal(retryLabel(failed.next_retry_at, Date.parse('2026-10-05T12:04:01Z')), 'Automatic retry in 59s, if the connection is still unhealthy.')
 assert.equal(retryLabel(failed.next_retry_at, Date.parse('2026-10-05T12:05:01Z')), 'Checking whether another retry is needed…')
 assert.ok(!retryLabel('invalid', Date.now()).includes('NaN'))
-const { computeFlow } = await load('features/overview/TrafficFlow.tsx')
+const { computeFlow, trafficLevel } = await load('features/overview/TrafficFlow.tsx')
+assert.deepEqual([3_000, 500_000, 5_000_000, 15_000_000, 40_000_000].map(trafficLevel), [0, 1, 2, 3, 4], 'Speed tiers: idle, under 1 MB/s, 1–10, 10–20, above 20 MB/s')
 const base = {
   generated_at: '2026-11-26T18:00:00Z', mode: 'mullvad', hotspot_running: true, ssid: 'FireWifi', clients: 2,
   uplink: { interface: 'eth0', link_up: true, internet: true, checked: true },
