@@ -1,7 +1,7 @@
-// Package alerts pushes problems to the owner's phone through ntfy
-// (https://ntfy.sh or a self-hosted server). An alert fires once after its
-// condition has held for a grace period, and sends a "resolved" note when the
-// condition clears, so a flapping check never floods the phone.
+// Package alerts pushes problems to the owner's iPhone through Bark
+// (https://bark.day.app, or a self-hosted bark-server). An alert fires once
+// after its condition has held for a grace period, and sends a quiet
+// "resolved" note when it clears, so a flapping check never floods the phone.
 package alerts
 
 import (
@@ -14,15 +14,20 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 )
 
+// DefaultServer is Bark's public push server.
+const DefaultServer = "https://api.day.app"
+
 // Settings is what the owner configures.
 type Settings struct {
 	Enabled bool   `json:"enabled"`
-	NtfyURL string `json:"ntfy_url"`
+	Server  string `json:"server"`
+	Key     string `json:"key"`
 	// Muted lists event categories the owner turned off; everything else is on,
 	// so categories added later are delivered by default.
 	Muted []string `json:"muted,omitempty"`
@@ -54,8 +59,8 @@ type Alert struct {
 	Category string
 	Title    string
 	Body     string
-	Priority string // ntfy priority: min, low, default, high, urgent
-	Tags     string // ntfy emoji tags, comma separated
+	// Urgent alerts are time-sensitive: they break through Focus modes.
+	Urgent bool
 	// Grace is how long the condition must hold before the phone is told.
 	Grace time.Duration
 	// NoResolve skips the "resolved" note (for slow-moving reminders).
@@ -89,8 +94,18 @@ type Engine struct {
 
 func New(path string) *Engine {
 	e := &Engine{path: path, client: &http.Client{Timeout: 10 * time.Second}, pending: map[string]*pending{}}
-	if b, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(b, &e.settings)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return e
+	}
+	_ = json.Unmarshal(b, &e.settings)
+	// Settings from an older channel (no Bark key) start switched off, and the
+	// file is rewritten so nothing from that channel stays on disk.
+	if e.settings.Key == "" {
+		e.settings = Settings{Muted: e.settings.Muted}
+		if clean, err := json.MarshalIndent(e.settings, "", "  "); err == nil && !bytes.Equal(clean, b) {
+			_ = os.WriteFile(path, clean, 0o600)
+		}
 	}
 	return e
 }
@@ -107,38 +122,52 @@ func (e *Engine) Status() Status {
 	return st
 }
 
-// ValidateURL accepts an http(s) ntfy topic URL such as https://ntfy.sh/my-topic.
-func ValidateURL(raw string) (string, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", nil
+var keyPattern = regexp.MustCompile(`^[A-Za-z0-9]{8,64}$`)
+
+// ParseTarget accepts a bare device key or the URL the Bark app shows
+// (https://api.day.app/<key>/…) and returns the server and key.
+func ParseTarget(server, key string) (string, string, error) {
+	server, key = strings.TrimSpace(server), strings.TrimSpace(key)
+	if strings.Contains(key, "/") {
+		u, err := url.Parse(key)
+		if err != nil || u.Host == "" {
+			return "", "", errors.New("paste the key or the URL the Bark app shows")
+		}
+		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+		server, key = u.Scheme+"://"+u.Host, parts[0]
 	}
-	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || strings.Trim(u.Path, "/") == "" {
-		return "", errors.New("use a topic URL like https://ntfy.sh/your-topic")
+	if server == "" {
+		server = DefaultServer
 	}
-	return u.String(), nil
+	u, err := url.Parse(server)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return "", "", errors.New("the Bark server must be an http(s) address")
+	}
+	if key != "" && !keyPattern.MatchString(key) {
+		return "", "", errors.New("that does not look like a Bark key; copy it from the Bark app")
+	}
+	return strings.TrimRight(u.String(), "/"), key, nil
 }
 
 func (e *Engine) SetSettings(s Settings) error {
-	clean, err := ValidateURL(s.NtfyURL)
+	server, key, err := ParseTarget(s.Server, s.Key)
 	if err != nil {
 		return err
 	}
-	s.NtfyURL = clean
+	s.Server, s.Key = server, key
 	known := map[string]bool{}
 	for _, ev := range Events {
 		known[ev] = true
 	}
-	muted := s.Muted[:0]
+	muted := []string{}
 	for _, m := range s.Muted {
 		if known[m] {
 			muted = append(muted, m)
 		}
 	}
 	s.Muted = muted
-	if s.Enabled && s.NtfyURL == "" {
-		return errors.New("add a topic URL before turning alerts on")
+	if s.Enabled && s.Key == "" {
+		return errors.New("add your Bark key before turning alerts on")
 	}
 	b, _ := json.MarshalIndent(s, "", "  ")
 	if err := os.MkdirAll(filepath.Dir(e.path), 0o700); err != nil {
@@ -159,9 +188,9 @@ func (e *Engine) SetSettings(s Settings) error {
 func (e *Engine) Evaluate(ctx context.Context, now time.Time, current []Alert) {
 	e.mu.Lock()
 	s := e.settings
-	deliver := func(a Alert) bool { return s.Enabled && s.NtfyURL != "" && s.wants(a.Category) }
+	deliver := func(a Alert) bool { return s.Enabled && s.Key != "" && s.wants(a.Category) }
 	seen := map[string]bool{}
-	var send []Alert
+	var send []push
 	for _, a := range current {
 		seen[a.Key] = true
 		p, ok := e.pending[a.Key]
@@ -172,7 +201,11 @@ func (e *Engine) Evaluate(ctx context.Context, now time.Time, current []Alert) {
 		p.alert = a
 		if !p.sent && now.Sub(p.since) >= a.Grace && deliver(a) {
 			p.sent = true
-			send = append(send, a)
+			level := "active"
+			if a.Urgent {
+				level = "timeSensitive"
+			}
+			send = append(send, push{Title: a.Title, Body: a.Body, Level: level})
 		}
 	}
 	for key, p := range e.pending {
@@ -181,28 +214,30 @@ func (e *Engine) Evaluate(ctx context.Context, now time.Time, current []Alert) {
 		}
 		delete(e.pending, key)
 		if p.sent && !p.alert.NoResolve && deliver(p.alert) {
-			send = append(send, Alert{Key: key, Category: p.alert.Category, Title: "Resolved: " + p.alert.Title, Body: "Back to normal.", Priority: "low", Tags: "white_check_mark"})
+			// Resolved notes land quietly in Notification Center.
+			send = append(send, push{Title: "Resolved: " + p.alert.Title, Body: "Back to normal.", Level: "passive"})
 		}
 	}
 	e.mu.Unlock()
-	for _, a := range send {
-		e.record(e.post(ctx, s.NtfyURL, a))
+	for _, m := range send {
+		e.record(e.post(ctx, s.Server, s.Key, m))
 	}
 }
 
-// Test sends a sample notification with the given (or saved) URL.
-func (e *Engine) Test(ctx context.Context, rawURL string) error {
-	target, err := ValidateURL(rawURL)
+// Test sends a sample notification with the given (or saved) server and key.
+func (e *Engine) Test(ctx context.Context, server, key string) error {
+	saved := e.Status().Settings
+	if strings.TrimSpace(key) == "" {
+		server, key = saved.Server, saved.Key
+	}
+	server, key, err := ParseTarget(server, key)
 	if err != nil {
 		return err
 	}
-	if target == "" {
-		target = e.Status().NtfyURL
+	if key == "" {
+		return errors.New("add your Bark key first")
 	}
-	if target == "" {
-		return errors.New("add a topic URL first")
-	}
-	err = e.post(ctx, target, Alert{Title: "FireWifi alerts work", Body: "You will get a notification here when something on the Pi needs you.", Priority: "default", Tags: "tada"})
+	err = e.post(ctx, server, key, push{Title: "FireWifi alerts work", Body: "You will get a notification here when something on the Pi needs you.", Level: "active"})
 	e.record(err)
 	return err
 }
@@ -217,41 +252,41 @@ func (e *Engine) record(err error) {
 	e.lastSent, e.lastErr = time.Now(), ""
 }
 
-var priorities = map[string]int{"min": 1, "low": 2, "default": 3, "high": 4, "urgent": 5}
+type push struct {
+	Title string
+	Body  string
+	Level string // active, timeSensitive, passive
+}
 
-// post publishes as JSON (POST to the server root with the topic in the body),
-// so titles with any Unicode survive; headers would mangle them.
-func (e *Engine) post(ctx context.Context, target string, a Alert) error {
-	u, err := url.Parse(target)
+// post uses Bark's JSON API (POST /push), so any Unicode title survives.
+func (e *Engine) post(ctx context.Context, server, key string, m push) error {
+	body, _ := json.Marshal(map[string]string{
+		"device_key": key,
+		"title":      m.Title,
+		"body":       m.Body,
+		"level":      m.Level,
+		"group":      "FireWifi",
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, server+"/push", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
-	path := strings.Trim(u.Path, "/")
-	base, topic := "", path
-	if i := strings.LastIndex(path, "/"); i >= 0 {
-		base, topic = path[:i], path[i+1:]
-	}
-	u.Path, u.RawQuery = "/"+base, ""
-	msg := map[string]any{"topic": topic, "title": a.Title, "message": a.Body}
-	if p, ok := priorities[a.Priority]; ok {
-		msg["priority"] = p
-	}
-	if a.Tags != "" {
-		msg["tags"] = strings.Split(a.Tags, ",")
-	}
-	body, _ := json.Marshal(msg)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	resp, err := e.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("could not reach ntfy: %w", err)
+		return fmt.Errorf("could not reach Bark: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return fmt.Errorf("ntfy answered %s", resp.Status)
+	var reply struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&reply)
+	if resp.StatusCode >= 300 || (reply.Code != 0 && reply.Code != 200) {
+		if reply.Message != "" {
+			return fmt.Errorf("Bark: %s", reply.Message)
+		}
+		return fmt.Errorf("Bark answered %s", resp.Status)
 	}
 	return nil
 }

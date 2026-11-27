@@ -1,6 +1,6 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Boxes, Copy, Dices, ExternalLink, Globe, Send, ShieldCheck, Thermometer, TriangleAlert, Wifi, type LucideIcon } from 'lucide-react'
+import { Bell, Boxes, ExternalLink, Globe, Send, ShieldCheck, Thermometer, TriangleAlert, Wifi, type LucideIcon } from 'lucide-react'
 import { fetchAlerts, saveAlerts, testAlerts } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import type { AlertEvent, AlertSettings, AlertStatus } from '@/api/types'
@@ -12,10 +12,9 @@ import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { SwapText } from '@/components/ui/SwapText/SwapText'
 import { useToast } from '@/components/ui/Toast/Toast'
 
-const NTFY_APP = 'https://ntfy.sh/app'
-const NTFY_SERVER = 'https://ntfy.sh'
-const TOPIC_RE = /^[A-Za-z0-9_-]{1,64}$/
-const hostLabel = (url: string) => url.replace(/^https?:\/\//, '')
+const BARK_APP = 'https://apps.apple.com/app/id1403753865'
+const BARK_SERVER = 'https://api.day.app'
+const KEY_RE = /^[A-Za-z0-9]{8,64}$/
 
 /** What can reach the phone, in the backend's categories. */
 const EVENTS: { id: AlertEvent; icon: LucideIcon; label: string; hint: string }[] = [
@@ -26,55 +25,42 @@ const EVENTS: { id: AlertEvent; icon: LucideIcon; label: string; hint: string }[
   { id: 'pi', icon: Thermometer, label: 'Pi overheating or disk full', hint: 'Disk over 90%' },
 ]
 
-/** A topic is its password on the public server: long and random. */
-function randomTopic(): string {
-  const alphabet = 'abcdefghijkmnpqrstuvwxyz23456789'
-  const bytes = crypto.getRandomValues(new Uint8Array(16))
-  return `firewifi-${Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('')}`
-}
-
-/** Split a saved or pasted value into server and topic; a bare topic uses ntfy.sh. */
-function splitTopic(raw: string): { server: string; topic: string } {
+/** Bark shows a URL like https://api.day.app/<key>/…; a bare key works too. */
+function parseTarget(raw: string): { server: string; key: string } | null {
   const v = raw.trim()
-  if (!v.includes('/')) return { server: NTFY_SERVER, topic: v }
+  if (!v) return null
+  if (!v.includes('/')) return KEY_RE.test(v) ? { server: BARK_SERVER, key: v } : null
   try {
     const u = new URL(v.includes('://') ? v : `https://${v}`)
-    const parts = u.pathname.split('/').filter(Boolean)
-    const topic = parts.pop() || ''
-    return { server: `${u.origin}${parts.length ? `/${parts.join('/')}` : ''}`, topic }
+    const key = u.pathname.split('/').filter(Boolean)[0] || ''
+    return KEY_RE.test(key) ? { server: u.origin, key } : null
   } catch {
-    return { server: NTFY_SERVER, topic: v }
+    return null
   }
 }
 
-/** Phone notifications through ntfy when the Pi needs attention. */
+const masked = (key: string) => `•••• ${key.slice(-4)}`
+const hostOf = (server: string) => server.replace(/^https?:\/\//, '')
+
+/** Phone notifications through Bark when the Pi needs attention. */
 export function AlertsPanel() {
   const { showToast } = useToast()
   const qc = useQueryClient()
   const q = useQuery({ queryKey: queryKeys.alerts, queryFn: fetchAlerts, refetchInterval: 30_000 })
   const a = q.data
-  const [edit, setEdit] = useState<{ server: string; topic: string } | null>(null)
+  const [draft, setDraft] = useState('')
   const [mutedDraft, setMutedDraft] = useState<AlertEvent[] | null>(null)
-  const { server, topic } = edit ?? splitTopic(a?.ntfy_url || '')
   const muted = mutedDraft ?? a?.muted ?? []
-  const topicOk = TOPIC_RE.test(topic)
-  const url = topicOk ? `${server}/${topic}` : ''
-
-  // The topic starts right after the server prefix, however wide it renders.
-  const prefixRef = useRef<HTMLSpanElement>(null)
-  const [prefixW, setPrefixW] = useState(0)
-  useLayoutEffect(() => {
-    if (prefixRef.current) setPrefixW(prefixRef.current.offsetWidth)
-  }, [server, a?.enabled])
+  const target = parseTarget(draft)
 
   const save = useMutation({
     mutationFn: (body: AlertSettings) => saveAlerts(body),
     onSuccess: (data, body) => {
       qc.setQueryData<AlertStatus>(queryKeys.alerts, data)
-      setEdit(null)
       // A newer toggle may still be saving: keep it until its own save lands.
       setMutedDraft((d) => (d && d.join() !== (body.muted || []).join() ? d : null))
-      if (body.enabled !== a?.enabled) showToast(data.enabled ? 'Alerts turned on' : 'Alerts turned off')
+      if (body.enabled === a?.enabled) return
+      if (!data.enabled) showToast('Alerts turned off')
     },
     onError: (e: Error) => {
       setMutedDraft(null)
@@ -82,35 +68,43 @@ export function AlertsPanel() {
     },
   })
   const test = useMutation({
-    mutationFn: () => testAlerts(url),
+    mutationFn: () => testAlerts(),
     onSuccess: (data) => {
       qc.setQueryData<AlertStatus>(queryKeys.alerts, data)
-      showToast('Test notification sent')
+      showToast('Test sent. Check your iPhone.')
     },
     onError: (e: Error) => showToast(e.message, 'error'),
+  })
+
+  /** One step: save the key, switch on, and send a welcome push to prove it works. */
+  const connect = useMutation({
+    mutationFn: async (t: { server: string; key: string }) => {
+      await saveAlerts({ enabled: true, server: t.server, key: t.key, muted })
+      return testAlerts()
+    },
+    onSuccess: (data) => {
+      qc.setQueryData<AlertStatus>(queryKeys.alerts, data)
+      setDraft('')
+      showToast('Alerts are on. A welcome notification is on its way.')
+    },
+    onError: (e: Error) => {
+      void qc.invalidateQueries({ queryKey: queryKeys.alerts })
+      showToast(e.message, 'error')
+    },
   })
 
   function toggleEvent(id: AlertEvent) {
     const next = muted.includes(id) ? muted.filter((m) => m !== id) : [...muted, id]
     setMutedDraft(next)
     // Once alerts are on, every change applies right away.
-    if (a?.enabled) save.mutate({ enabled: true, ntfy_url: a.ntfy_url, muted: next })
-  }
-
-  async function copyTopic() {
-    try {
-      await navigator.clipboard.writeText(topic)
-      showToast('Topic copied. Subscribe to it in the ntfy app.')
-    } catch {
-      showToast('Copy failed; select the topic and copy it', 'error')
-    }
+    if (a?.enabled) save.mutate({ enabled: true, server: a.server, key: a.key, muted: next })
   }
 
   return (
     <Panel
       title={<span className="inline-flex items-center gap-1.5"><Bell aria-hidden /> Phone alerts</span>}
-      actions={a?.enabled ? <Button variant="quiet" disabled={save.isPending} onClick={() => save.mutate({ enabled: false, ntfy_url: a.ntfy_url, muted })}>Turn off</Button> : undefined}
-      busy={q.isFetching || save.isPending}
+      actions={a?.enabled ? <Button variant="quiet" disabled={save.isPending} onClick={() => save.mutate({ enabled: false, server: a.server, key: a.key, muted })}>Turn off</Button> : undefined}
+      busy={q.isFetching || save.isPending || connect.isPending}
     >
       {q.isLoading ? (
         <Spinner compact label="Loading alerts…" />
@@ -121,36 +115,49 @@ export function AlertsPanel() {
               <span className={`icon-chip tone-${a.active.length ? 'warn' : 'ok'}`}><Bell aria-hidden /></span>
               <span className="item-text">
                 <strong><SwapText>{a.active.length ? `${a.active.length} open: ${a.active.join(', ')}` : 'On, nothing needs you'}</SwapText></strong>
-                <span className="meta"><span>{hostLabel(a.ntfy_url)}</span></span>
+                <span className="meta">
+                  <span>Bark {masked(a.key)}</span>
+                  {a.server !== BARK_SERVER ? <span>{hostOf(a.server)}</span> : null}
+                </span>
               </span>
               <Button icon={<Send className="h-3.5 w-3.5" aria-hidden />} loading={test.isPending} onClick={() => test.mutate()}>Test</Button>
             </div>
           ) : (
-            <Field
-              label="Topic"
-              tip={server === NTFY_SERVER ? 'Anyone who knows the topic can read it, so keep it random. Subscribe to it in the ntfy app.' : `Sent through ${hostLabel(server)}.`}
-              htmlFor="alerts-topic"
+            <form
+              className="bark-connect"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (target) connect.mutate(target)
+              }}
             >
-              <div className="password-input topic-input">
-                <span ref={prefixRef} className="topic-prefix" aria-hidden>{hostLabel(server)}/</span>
+              <Field label="Bark key" tip="Open Bark on your iPhone, copy the URL it shows and paste it here. That is all." htmlFor="alerts-key">
                 <Input
-                  id="alerts-topic"
+                  id="alerts-key"
                   autoComplete="off"
                   spellCheck={false}
-                  placeholder="your-secret-topic"
-                  value={topic}
-                  onChange={(e) => setEdit(e.target.value.includes('/') ? splitTopic(e.target.value) : { server, topic: e.target.value.trim() })}
-                  aria-invalid={topic !== '' && !topicOk}
-                  style={prefixW ? { paddingLeft: prefixW + 13 } : undefined}
+                  placeholder="https://api.day.app/your-key"
+                  value={draft}
+                  disabled={connect.isPending}
+                  aria-invalid={draft.trim() !== '' && !target}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onPaste={(e) => {
+                    // Pasting is the whole setup: connect right away.
+                    const t = parseTarget(e.clipboardData.getData('text'))
+                    if (t) {
+                      e.preventDefault()
+                      setDraft(e.clipboardData.getData('text').trim())
+                      connect.mutate(t)
+                    }
+                  }}
                 />
-                <button type="button" className="password-btn" title="Generate a random topic" aria-label="Generate a random topic" onClick={() => setEdit({ server, topic: randomTopic() })}>
-                  <Dices aria-hidden />
-                </button>
-                <button type="button" className="password-btn" title="Copy topic" aria-label="Copy topic" disabled={!topicOk} onClick={() => void copyTopic()}>
-                  <Copy aria-hidden />
-                </button>
+              </Field>
+              <div className="flex items-center justify-between gap-2">
+                <a className="btn btn-sm btn-ghost" href={BARK_APP} target="_blank" rel="noreferrer">
+                  Get Bark <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                </a>
+                <Button type="submit" variant="primary" loading={connect.isPending} disabled={!target}>Turn on</Button>
               </div>
-            </Field>
+            </form>
           )}
 
           <fieldset className="event-list">
@@ -168,16 +175,6 @@ export function AlertsPanel() {
           </fieldset>
 
           {a?.last_error ? <Notice icon={TriangleAlert} tone="warn" title="Last send failed">{a.last_error}</Notice> : null}
-
-          {!a?.enabled ? (
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <a className="btn btn-sm btn-ghost mr-auto" href={NTFY_APP} target="_blank" rel="noreferrer">
-                Get ntfy <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-              </a>
-              <Button icon={<Send className="h-3.5 w-3.5" aria-hidden />} loading={test.isPending} disabled={!topicOk} onClick={() => test.mutate()}>Send test</Button>
-              <Button variant="primary" loading={save.isPending} disabled={!topicOk} onClick={() => save.mutate({ enabled: true, ntfy_url: url, muted })}>Turn on</Button>
-            </div>
-          ) : null}
         </>
       )}
     </Panel>

@@ -59,7 +59,7 @@ export const saveMullvadAccount = (accountNumber: string) =>
 export const fetchUptime = () => api<LinkUptime[]>('/api/uptime')
 export const fetchAlerts = () => api<AlertStatus>('/api/alerts')
 export const saveAlerts = (body: AlertSettings) => api<AlertStatus>('/api/alerts', { method: 'POST', body })
-export const testAlerts = (ntfyURL: string) => api<AlertStatus>('/api/alerts/test', { method: 'POST', body: { ntfy_url: ntfyURL } })
+export const testAlerts = (server = '', key = '') => api<AlertStatus>('/api/alerts/test', { method: 'POST', body: { server, key } })
 export const clearMullvadAccount = () => api<MullvadAccount>('/api/mullvad/account', { method: 'DELETE' })
 export const fetchRepos = () =>
   api<{ repos: GitHubRepo[] }>('/api/github/repos').then((r) => r.repos || [])

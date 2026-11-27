@@ -38,16 +38,17 @@ func (s *Server) watchAlerts(ctx context.Context) {
 func alertsFromState(st state.State) []alerts.Alert {
 	var out []alerts.Alert
 	for _, is := range st.Issues {
-		a := alerts.Alert{Key: is.Code, Title: is.Title, Body: is.Detail, Priority: "high", Tags: "warning", Grace: 2 * time.Minute}
+		a := alerts.Alert{Key: is.Code, Title: is.Title, Body: is.Detail, Grace: 2 * time.Minute}
 		switch {
 		case is.Code == "mullvad-expiring":
-			a.Category, a.Priority, a.Tags, a.Grace, a.NoResolve = alerts.EventMullvad, "default", "hourglass", 0, true
+			a.Category, a.Grace, a.NoResolve = alerts.EventMullvad, 0, true
 		case strings.HasPrefix(is.Code, "app-crash:"):
-			a.Category, a.Tags, a.Grace = alerts.EventApps, "boom", 0
+			a.Category, a.Grace = alerts.EventApps, 0
 		case is.Code == "temperature-high" || is.Code == "thermal-throttling":
-			a.Category, a.Tags, a.Grace = alerts.EventPi, "thermometer", 5*time.Minute
+			a.Category, a.Grace = alerts.EventPi, 5*time.Minute
 		case is.Code == "uplink-offline" || strings.HasPrefix(is.Code, "vpn-") || is.Code == "hotspot-down" || is.Code == "proxy-down":
-			a.Category, a.Priority, a.Tags = alerts.EventInternet, "urgent", "rotating_light"
+			// Outages break through Focus: the Wi-Fi is unusable until fixed.
+			a.Category, a.Urgent = alerts.EventInternet, true
 		case is.Severity == "critical":
 			a.Category = alerts.EventInternet
 		default:
@@ -59,7 +60,7 @@ func alertsFromState(st state.State) []alerts.Alert {
 		out = append(out, a)
 	}
 	if p := st.DeviceMetrics.Storage.UsedPercent; p >= 90 {
-		out = append(out, alerts.Alert{Key: "disk-full", Category: alerts.EventPi, Title: "The Pi's disk is almost full", Body: fmt.Sprintf("%.0f%% used. Deploys and databases may fail; clear old files or images.", p), Priority: "high", Tags: "floppy_disk"})
+		out = append(out, alerts.Alert{Key: "disk-full", Category: alerts.EventPi, Title: "The Pi's disk is almost full", Body: fmt.Sprintf("%.0f%% used. Deploys and databases may fail; clear old files or images.", p)})
 	}
 	return out
 }
@@ -85,10 +86,11 @@ func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 		jsonReply(w, s.Alerts.Status())
 	case r.URL.Path == "/api/alerts/test" && r.Method == http.MethodPost:
 		var body struct {
-			NtfyURL string `json:"ntfy_url"`
+			Server string `json:"server"`
+			Key    string `json:"key"`
 		}
 		_ = decodeJSONBody(r, &body)
-		if err := s.Alerts.Test(r.Context(), body.NtfyURL); err != nil {
+		if err := s.Alerts.Test(r.Context(), body.Server, body.Key); err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}

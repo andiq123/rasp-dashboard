@@ -540,7 +540,7 @@ export const LINKED_BUCKET_KEYS = [
 ] as const
 
 export type AlertEvent = 'internet' | 'mullvad' | 'apps' | 'links' | 'pi'
-export type AlertSettings = { enabled: boolean; ntfy_url: string; muted?: AlertEvent[] }
+export type AlertSettings = { enabled: boolean; server: string; key: string; muted?: AlertEvent[] }
 export type AlertStatus = AlertSettings & { active: string[]; last_sent?: string; last_error?: string }
 
 /** Wi‑Fi traffic can only leave through the tunnel. */

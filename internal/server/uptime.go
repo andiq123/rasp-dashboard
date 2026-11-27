@@ -190,10 +190,10 @@ func (s *Server) uptimeAlerts() []alerts.Alert {
 			name = l.Slug
 		}
 		if l.Failures >= 2 {
-			out = append(out, alerts.Alert{Key: "link-down:" + l.Group + "/" + l.Slug, Category: alerts.EventLinks, Title: name + " public link is down", Body: fmt.Sprintf("%s: %s", l.URL, l.Error), Priority: "high", Tags: "globe_with_meridians"})
+			out = append(out, alerts.Alert{Key: "link-down:" + l.Group + "/" + l.Slug, Category: alerts.EventLinks, Title: name + " public link is down", Body: fmt.Sprintf("%s: %s", l.URL, l.Error)})
 		}
 		if l.CertDays != nil && *l.CertDays < certWarnDays {
-			out = append(out, alerts.Alert{Key: "link-cert:" + l.Group + "/" + l.Slug, Category: alerts.EventLinks, Title: name + " certificate expires soon", Body: fmt.Sprintf("%s: %d days left.", l.URL, *l.CertDays), Priority: "default", Tags: "lock", NoResolve: true})
+			out = append(out, alerts.Alert{Key: "link-cert:" + l.Group + "/" + l.Slug, Category: alerts.EventLinks, Title: name + " certificate expires soon", Body: fmt.Sprintf("%s: %d days left.", l.URL, *l.CertDays), NoResolve: true})
 		}
 	}
 	return out
