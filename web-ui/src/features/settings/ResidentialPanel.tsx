@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Coins, Waypoints } from 'lucide-react'
+import { Coins, Pencil, Plus, Waypoints } from 'lucide-react'
 import { fetchResidential } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import type { ResidentialSession } from '@/api/types'
@@ -36,7 +36,7 @@ export function ResidentialPanel() {
   return (
     <Panel
       title={<span className="inline-flex items-center gap-1.5"><Waypoints aria-hidden /> Residential data</span>}
-      actions={u?.balance_set_at ? <Button variant="quiet" onClick={() => setEditing(true)}>Update balance</Button> : undefined}
+      actions={u?.balance_set_at ? <Button variant="infoSoft" icon={<Pencil className="h-3.5 w-3.5" aria-hidden />} onClick={() => setEditing(true)}>Update balance</Button> : undefined}
       busy={q.isFetching}
     >
 
@@ -61,7 +61,7 @@ export function ResidentialPanel() {
                   )}
                 </span>
               </span>
-              {!u?.balance_set_at ? <Button variant="primary" onClick={() => setEditing(true)}>Set balance</Button> : null}
+              {!u?.balance_set_at ? <Button variant="primary" icon={<Plus className="h-3.5 w-3.5" aria-hidden />} onClick={() => setEditing(true)}>Set balance</Button> : null}
             </div>
 
             {u?.balance_bytes ? (

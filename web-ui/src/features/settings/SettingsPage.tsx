@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Copy, Database, FolderGit2, HardDrive, KeyRound, Settings2, TriangleAlert } from 'lucide-react'
+import { Copy, Database, FolderGit2, HardDrive, KeyRound, Settings2, TriangleAlert, Unlink } from 'lucide-react'
 import {
   clearGitHubToken,
   engineAction,
@@ -168,7 +168,7 @@ export function SettingsPage() {
             title={<span className="inline-flex items-center gap-1.5"><FolderGit2 aria-hidden /> GitHub</span>}
             actions={
               gh.data?.connected ? (
-                <Button variant="quiet" loading={disconnect.isPending} onClick={() => void onDisconnect()}>
+                <Button variant="dangerSoft" icon={<Unlink className="h-3.5 w-3.5" aria-hidden />} loading={disconnect.isPending} onClick={() => void onDisconnect()}>
                   Disconnect
                 </Button>
               ) : undefined
@@ -231,6 +231,12 @@ export function SettingsPage() {
 
           <MullvadPanel />
           <ResidentialPanel />
+          <DashboardExposure />
+        </div>
+
+        {/* Balanced columns: accounts, data and remote access left; alerts and engines right. */}
+        <div className="settings-col">
+          <AlertsPanel />
         <Panel
           title={<span className="inline-flex items-center gap-1.5"><Database aria-hidden /> Engines</span>}
           busy={engine.isFetching}
@@ -300,12 +306,6 @@ export function SettingsPage() {
             </>
           )}
         </Panel>
-        </div>
-
-        {/* Balanced columns: accounts and engines left, alerts and remote access right. */}
-        <div className="settings-col">
-          <AlertsPanel />
-          <DashboardExposure />
         </div>
       </div>
 

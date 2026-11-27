@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeftRight, Bell, Boxes, Check, Coins, ExternalLink, X, Globe, Send, ShieldCheck, Thermometer, TriangleAlert, Wifi, type LucideIcon } from 'lucide-react'
+import { ArrowLeftRight, Bell, BellOff, Boxes, Check, Coins, ExternalLink, Globe, Send, ShieldCheck, Thermometer, TriangleAlert, Wifi, X, type LucideIcon } from 'lucide-react'
 import { clearAlertsError, fetchAlerts, saveAlerts, testAlerts } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import type { AlertEvent, AlertSettings, AlertStatus } from '@/api/types'
@@ -18,14 +18,16 @@ const BARK_SERVER = 'https://api.day.app'
 const KEY_RE = /^[A-Za-z0-9]{8,64}$/
 
 /** What can reach the phone, in the backend's categories. */
-const EVENTS: { id: AlertEvent; icon: LucideIcon; label: string; hint: string }[] = [
-  { id: 'internet', icon: Wifi, label: 'Internet or VPN down', hint: 'After 2 minutes, or a leak' },
-  { id: 'mullvad', icon: ShieldCheck, label: 'Mullvad time running low', hint: 'From 7 days left' },
-  { id: 'apps', icon: Boxes, label: 'An app keeps crashing', hint: '3 restarts in 10 minutes' },
-  { id: 'links', icon: Globe, label: 'A public link is down', hint: '2 failed checks in a row' },
-  { id: 'pi', icon: Thermometer, label: 'Pi overheating or disk full', hint: 'Disk over 90%' },
-  { id: 'route', icon: ArrowLeftRight, label: 'Route switched', hint: 'Mullvad ⇄ Residential, with the new IP' },
-  { id: 'cost', icon: Coins, label: 'Still on Residential', hint: 'Every 2 minutes, with data used' },
+// Colors follow the flow diagram: VPN indigo, apps and links sky, the Pi amber,
+// residential cost in the proxy color, route switches green.
+const EVENTS: { id: AlertEvent; icon: LucideIcon; label: string; hint: string; color: string }[] = [
+  { id: 'internet', icon: Wifi, label: 'Internet or VPN down', hint: 'After 2 minutes, or a leak', color: 'var(--route-tunnel)' },
+  { id: 'mullvad', icon: ShieldCheck, label: 'Mullvad time running low', hint: 'From 7 days left', color: 'var(--route-tunnel)' },
+  { id: 'apps', icon: Boxes, label: 'An app keeps crashing', hint: '3 restarts in 10 minutes', color: 'var(--route-direct)' },
+  { id: 'links', icon: Globe, label: 'A public link is down', hint: '2 failed checks in a row', color: 'var(--route-direct)' },
+  { id: 'pi', icon: Thermometer, label: 'Pi overheating or disk full', hint: 'Disk over 90%', color: 'var(--color-warning)' },
+  { id: 'route', icon: ArrowLeftRight, label: 'Route switched', hint: 'Verified, with the new IP', color: 'var(--color-success)' },
+  { id: 'cost', icon: Coins, label: 'Still on Residential', hint: 'Every 2 minutes, with data used', color: 'var(--route-proxy)' },
 ]
 
 /** Bark shows a URL like https://api.day.app/<key>/…; a bare key works too. */
@@ -128,7 +130,7 @@ export function AlertsPanel() {
   return (
     <Panel
       title={<span className="inline-flex items-center gap-1.5"><Bell aria-hidden /> Phone alerts</span>}
-      actions={a?.enabled ? <Button variant="quiet" disabled={save.isPending} onClick={() => save.mutate({ enabled: false, server: a.server, key: a.key, muted })}>Turn off</Button> : undefined}
+      actions={a?.enabled ? <Button icon={<BellOff className="h-3.5 w-3.5" aria-hidden />} disabled={save.isPending} onClick={() => save.mutate({ enabled: false, server: a.server, key: a.key, muted })}>Turn off</Button> : undefined}
       busy={q.isFetching || save.isPending || connect.isPending}
     >
       {q.isLoading ? (
@@ -191,8 +193,8 @@ export function AlertsPanel() {
           <fieldset className="event-list">
             <legend>Notify me when</legend>
             {EVENTS.map((ev) => (
-              <label key={ev.id} className="event-row">
-                <ev.icon aria-hidden />
+              <label key={ev.id} className={`event-row${muted.includes(ev.id) ? ' is-off' : ''}`} style={{ '--tone': ev.color } as React.CSSProperties}>
+                <span className="event-icon"><ev.icon aria-hidden /></span>
                 <span className="event-text">
                   <strong>{ev.label}</strong>
                   <small>{ev.hint}</small>

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ExternalLink, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { ExternalLink, Plus, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react'
 import { clearMullvadAccount, fetchMullvadAccount, saveMullvadAccount } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import { Button } from '@/components/ui/Button/Button'
@@ -59,7 +59,7 @@ export function MullvadPanel() {
   return (
     <Panel
       title={<span className="inline-flex items-center gap-1.5"><ShieldCheck aria-hidden /> Mullvad</span>}
-      actions={a?.configured ? <Button variant="quiet" loading={clear.isPending} onClick={() => void onRemove()}>Remove</Button> : undefined}
+      actions={a?.configured ? <Button variant="dangerSoft" icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />} loading={clear.isPending} onClick={() => void onRemove()}>Remove</Button> : undefined}
       busy={acct.isFetching || save.isPending}
     >
       {acct.isLoading ? (
@@ -77,8 +77,8 @@ export function MullvadPanel() {
                 <span>{a.masked}</span>
               </span>
             </span>
-            <a className={`btn btn-sm ${tone && tone !== 'ok' ? 'btn-primary' : 'btn-ghost'}`} href={MULLVAD_ACCOUNT_URL} target="_blank" rel="noreferrer">
-              Add time <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+            <a className={`btn btn-sm ${tone && tone !== 'ok' ? 'btn-primary' : 'btn-success btn-soft'}`} href={MULLVAD_ACCOUNT_URL} target="_blank" rel="noreferrer">
+              <Plus className="h-3.5 w-3.5" aria-hidden /> Add time <ExternalLink className="h-3 w-3 opacity-70" aria-hidden />
             </a>
           </div>
           {a.error ? (
