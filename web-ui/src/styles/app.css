@@ -601,6 +601,10 @@ button:not(:disabled), summary { cursor: pointer; }
 .device-text strong { font-size: var(--text-label); font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .device-text small { display: flex; gap: 8px; font-size: var(--text-micro); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
 .device-signal { flex-shrink: 0; color: var(--color-success); }
+.device-rates { display: grid; justify-items: end; gap: 1px; flex: none; font-size: var(--text-micro); }
+.device-rates .use-rate { min-width: 0; }
+.device-row .device-icon { transition: color var(--dur-base) var(--ease-standard), background-color var(--dur-base) var(--ease-standard); }
+.device-row.is-active .device-icon { color: var(--color-success); background: color-mix(in oklab, var(--color-success) 14%, transparent); }
 .device-signal.bars-1, .device-signal.bars-0 { color: var(--color-warning); }
 .device-signal svg { width: 15px; height: 15px; }
 

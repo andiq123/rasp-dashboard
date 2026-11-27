@@ -65,6 +65,10 @@ export type ConnectedDevice = {
   connected_seconds?: number
   rx_bytes?: number
   tx_bytes?: number
+  /** Live bytes/s the hotspot sends to the device. */
+  down_bps?: number
+  /** Live bytes/s the device sends. */
+  up_bps?: number
 }
 
 export type MullvadAccount = {

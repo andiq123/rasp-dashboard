@@ -1,5 +1,6 @@
-import { Signal, SignalHigh, SignalLow, SignalMedium, SignalZero } from 'lucide-react'
+import { ArrowDown, ArrowUp, Signal, SignalHigh, SignalLow, SignalMedium, SignalZero } from 'lucide-react'
 import type { AppState, ConnectedDevice } from '@/api/types'
+import { AnimatedNumber } from '@/components/ui/AnimatedNumber/AnimatedNumber'
 import { KeyValues, type KeyValue } from '@/components/ui/KeyValues/KeyValues'
 import { deviceKind, fmtDuration, signalBars } from '@/lib/devices'
 import { daysLeftText, daysLeftTone, expiryDate } from '@/lib/mullvad'
@@ -9,12 +10,17 @@ import type { FlowNode } from './TrafficFlow'
 const stateWord: Record<FlowNode['state'], string> = { ok: 'Working', bad: 'Failing', busy: 'Changing', idle: 'Idle' }
 const signalIcon = [SignalZero, SignalLow, SignalMedium, SignalHigh, Signal]
 
+/** Same threshold as the flow: below this a device counts as idle. */
+const DEVICE_ACTIVE_BPS = 4_000
+const deviceRate = (d: ConnectedDevice) => (d.down_bps || 0) + (d.up_bps || 0)
+
 function DeviceRow({ device }: { device: ConnectedDevice }) {
   const kind = deviceKind(device.name)
   const bars = signalBars(device.signal_dbm)
   const Bars = signalIcon[bars]
+  const active = deviceRate(device) >= DEVICE_ACTIVE_BPS
   return (
-    <li className="device-row">
+    <li className={`device-row${active ? ' is-active' : ''}`}>
       <span className="device-icon" title={kind.label}><kind.icon aria-hidden /></span>
       <span className="device-text">
         <strong>{device.name || 'Unnamed device'}</strong>
@@ -23,6 +29,10 @@ function DeviceRow({ device }: { device: ConnectedDevice }) {
           <span>{fmtDuration(device.connected_seconds)}</span>
           <span>{fmtBytes((device.rx_bytes || 0) + (device.tx_bytes || 0))}</span>
         </small>
+      </span>
+      <span className="device-rates" title="Live speed">
+        <span className="use-rate"><ArrowDown aria-hidden /><AnimatedNumber value={device.down_bps || 0} format={fmtRate} /></span>
+        <span className="use-rate is-out"><ArrowUp aria-hidden /><AnimatedNumber value={device.up_bps || 0} format={fmtRate} /></span>
       </span>
       <span className={`device-signal bars-${bars}`} title={device.signal_dbm ? `${device.signal_dbm} dBm` : 'Signal unknown'}>
         <Bars aria-hidden />
@@ -97,7 +107,8 @@ export function FlowInfo({ node, state }: { node: FlowNode; state: AppState }) {
       ]
       break
     case 'devices': {
-      const devices = state.devices || []
+      // Busiest first, so whoever is using the bandwidth is on top.
+      const devices = [...(state.devices || [])].sort((a, b) => deviceRate(b) - deviceRate(a))
       return (
         <div className="pop-body">
           <div className="pop-head">

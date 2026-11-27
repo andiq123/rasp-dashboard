@@ -39,6 +39,13 @@ type linkCache struct {
 	probeIface string
 	devicesAt  time.Time
 	devices    []Device
+	// Previous byte counters per MAC, to turn totals into live rates.
+	deviceSeen map[string]deviceSample
+}
+
+type deviceSample struct {
+	rx, tx uint64
+	at     time.Time
 }
 
 // Device is one Wi-Fi station on the hotspot, joined with its DHCP lease.
@@ -50,6 +57,10 @@ type Device struct {
 	ConnectedSeconds int64  `json:"connected_seconds"`
 	RxBytes          uint64 `json:"rx_bytes"`
 	TxBytes          uint64 `json:"tx_bytes"`
+	// Live rates in bytes/s from the device's point of view: down is what the
+	// hotspot sends it (station tx), up is what it sends (station rx).
+	DownBPS float64 `json:"down_bps"`
+	UpBPS   float64 `json:"up_bps"`
 }
 
 const dnsmasqLeases = "/var/lib/misc/dnsmasq.leases"
@@ -100,9 +111,28 @@ func (r *Reader) readDevices() []Device {
 				devices[i].IP, devices[i].Name = l.ip, l.name
 			}
 		}
-		c.devices, c.devicesAt = devices, time.Now()
+		now := time.Now()
+		c.deviceSeen = applyDeviceRates(devices, c.deviceSeen, now)
+		c.devices, c.devicesAt = devices, now
 	}
 	return append([]Device(nil), c.devices...)
+}
+
+// applyDeviceRates fills live rates from the previous sample and returns the
+// new samples. Counter resets (reconnects) and first sightings read as zero.
+func applyDeviceRates(devices []Device, prev map[string]deviceSample, now time.Time) map[string]deviceSample {
+	next := make(map[string]deviceSample, len(devices))
+	for i := range devices {
+		d := &devices[i]
+		if p, ok := prev[d.MAC]; ok {
+			if dt := now.Sub(p.at).Seconds(); dt > 0.5 && d.RxBytes >= p.rx && d.TxBytes >= p.tx {
+				d.DownBPS = float64(d.TxBytes-p.tx) / dt
+				d.UpBPS = float64(d.RxBytes-p.rx) / dt
+			}
+		}
+		next[d.MAC] = deviceSample{rx: d.RxBytes, tx: d.TxBytes, at: now}
+	}
+	return next
 }
 
 func interfaceUp(iface string) bool {

@@ -3,6 +3,7 @@ package state
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestCountStations(t *testing.T) {
@@ -28,5 +29,24 @@ func TestParseStationsAndLeases(t *testing.T) {
 	l := readLeases(path)
 	if l["aa:bb:cc:dd:ee:ff"].name != "Andis-iPhone" || l["11:22:33:44:55:66"].name != "" || l["11:22:33:44:55:66"].ip != "192.168.5.43" {
 		t.Fatalf("readLeases = %+v", l)
+	}
+}
+
+func TestApplyDeviceRates(t *testing.T) {
+	t0 := time.Unix(1000, 0)
+	devs := []Device{{MAC: "aa", RxBytes: 1000, TxBytes: 5000}}
+	seen := applyDeviceRates(devs, nil, t0)
+	if devs[0].DownBPS != 0 || devs[0].UpBPS != 0 {
+		t.Fatalf("first sighting must read as idle, got %+v", devs[0])
+	}
+	devs = []Device{{MAC: "aa", RxBytes: 2000, TxBytes: 25000}}
+	seen = applyDeviceRates(devs, seen, t0.Add(5*time.Second))
+	if devs[0].DownBPS != 4000 || devs[0].UpBPS != 200 {
+		t.Fatalf("want down 4000 up 200, got %+v", devs[0])
+	}
+	devs = []Device{{MAC: "aa", RxBytes: 10, TxBytes: 10}}
+	applyDeviceRates(devs, seen, t0.Add(10*time.Second))
+	if devs[0].DownBPS != 0 {
+		t.Fatalf("counter reset must not produce a rate, got %+v", devs[0])
 	}
 }
