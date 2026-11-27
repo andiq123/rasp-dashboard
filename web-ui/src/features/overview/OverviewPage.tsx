@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Activity,
@@ -43,7 +43,7 @@ import { leakRow, MULLVAD_ACCOUNT_URL } from '@/lib/mullvad'
 import { appUsage, fmtMB, hostCapacity, reservedFromServices } from '@/lib/resources'
 import { MullvadTime } from './MullvadTime'
 import { ResourceUsage } from './ResourceUsage'
-import { computeFlow, TrafficFlow, type FlowBranch, type LinkState } from './TrafficFlow'
+import { computeFlow, TrafficFlow, type FlowBranch, type FlowPreview, type LinkState } from './TrafficFlow'
 import { VPNRepairFlow } from './VPNRepairFlow'
 
 type Mode = 'mullvad' | 'residential'
@@ -162,6 +162,24 @@ export function OverviewPage() {
     if (ok) modeMut.mutate(next)
   }
 
+  // Resting on an action previews it: the circuit marks what it touches and the
+  // status line says what will happen, before anything runs.
+  const [preview, setPreviewNow] = useState<FlowPreview | null>(null)
+  // Clearing waits a beat, so sliding from one button to the next never flashes.
+  const clearTimer = useRef<number | undefined>(undefined)
+  const setPreview = (p: FlowPreview | null) => {
+    window.clearTimeout(clearTimer.current)
+    if (p) setPreviewNow(p)
+    else clearTimer.current = window.setTimeout(() => setPreviewNow(null), 120)
+  }
+  const previewOn = (p: FlowPreview) => ({
+    onPointerEnter: () => setPreview(p),
+    onPointerLeave: () => setPreview(null),
+    onFocus: () => setPreview(p),
+    onBlur: () => setPreview(null),
+    onPointerDown: () => setPreview(null),
+  })
+
   async function onHotspot(a: 'start' | 'stop' | 'restart') {
     if (a === 'start') {
       hs.mutate(a)
@@ -213,6 +231,16 @@ export function OverviewPage() {
       }
     : undefined
   const devicesText = deviceCount === 1 ? '1 device' : `${deviceCount} devices`
+  const who = deviceCount ? devicesText : 'anyone who connects'
+  const previewLine: Record<FlowPreview, string> = {
+    stop: `Stop turns off ${state.ssid || 'the Wi‑Fi'} for ${who}. Your apps keep running.`,
+    restart: `Restart drops ${who} for a few seconds while the hotspot comes back. Your apps keep running.`,
+    repair: 'Repair picks a fresh Romanian relay and checks the exit again. Wi‑Fi pauses briefly.',
+    switch: mode === 'mullvad'
+      ? 'Wi‑Fi traffic would leave through the residential proxy instead of Mullvad. Your apps are not affected.'
+      : 'Wi‑Fi traffic would leave through Mullvad in Romania instead of the proxy. Your apps are not affected.',
+  }
+
   const c = configQ.data || {}
   const busy = modeMut.isPending || hs.isPending || save.isPending || recoveringVPN
   const actionsLocked = hs.isPending || modeMut.isPending
@@ -336,7 +364,7 @@ export function OverviewPage() {
                   loading={hs.isPending && hs.variables === 'repair-vpn'}
                   disabled={actionsLocked || !state.hotspot_running}
                   onClick={() => void onRepairVPN()}
-                  title="Refresh the relay and verify the Romanian exit"
+                  {...previewOn('repair')}
                 >
                   Repair
                 </Button>
@@ -348,6 +376,7 @@ export function OverviewPage() {
                     loading={hs.isPending && hs.variables === 'restart'}
                     disabled={actionsLocked || recoveringVPN}
                     onClick={() => void onHotspot('restart')}
+                    {...previewOn('restart')}
                   >
                     Restart
                   </Button>
@@ -357,6 +386,7 @@ export function OverviewPage() {
                     loading={hs.isPending && hs.variables === 'stop'}
                     disabled={actionsLocked}
                     onClick={() => void onHotspot('stop')}
+                    {...previewOn('stop')}
                   >
                     Stop
                   </Button>
@@ -374,7 +404,7 @@ export function OverviewPage() {
               )}
             </div>
           </div>
-          <TrafficFlow flow={flow} state={state} branch={branch} branchPending={!!state.routing?.apps_direct && (groupsQ.isLoading || svcQueries.some((q) => q.isLoading))} />
+          <TrafficFlow flow={flow} state={state} branch={branch} preview={preview} previewText={preview ? previewLine[preview] : ''} branchPending={!!state.routing?.apps_direct && (groupsQ.isLoading || svcQueries.some((q) => q.isLoading))} />
 
           <AnimatedList
             items={vpnRepair ? [vpnRepair] : []}
@@ -436,6 +466,7 @@ export function OverviewPage() {
               onChange={(next) => void onMode(next)}
               disabled={actionsLocked}
               pending={modeMut.isPending ? modeMut.variables : undefined}
+              onPreview={(v) => setPreview(v ? 'switch' : null)}
             />
           </div>
           <div>

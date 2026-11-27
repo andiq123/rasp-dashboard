@@ -10,10 +10,12 @@ type Props<T extends string> = {
   disabled?: boolean
   /** Option currently being applied; shows a spinner in place. */
   pending?: T
+  /** Hovering or focusing another option previews it (null when the pointer leaves). */
+  onPreview?: (value: T | null) => void
 }
 
 /** Mutually exclusive choice with one sliding thumb. */
-export function Segmented<T extends string>({ label, options, value, onChange, disabled, pending }: Props<T>) {
+export function Segmented<T extends string>({ label, options, value, onChange, disabled, pending, onPreview }: Props<T>) {
   const index = Math.max(0, options.findIndex((o) => o.value === value))
   return (
     <div
@@ -31,7 +33,14 @@ export function Segmented<T extends string>({ label, options, value, onChange, d
           aria-checked={o.value === value}
           className="segmented-option"
           disabled={disabled}
-          onClick={() => o.value !== value && onChange(o.value)}
+          onClick={() => {
+            onPreview?.(null)
+            if (o.value !== value) onChange(o.value)
+          }}
+          onPointerEnter={() => o.value !== value && onPreview?.(o.value)}
+          onPointerLeave={() => onPreview?.(null)}
+          onFocus={() => o.value !== value && onPreview?.(o.value)}
+          onBlur={() => onPreview?.(null)}
         >
           {pending === o.value ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
           {o.label}

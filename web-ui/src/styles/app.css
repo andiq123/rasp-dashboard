@@ -142,6 +142,13 @@
 .status-hero, .flow-node, .flow-link, .metric-row, .notice { transition: --tone var(--dur-slow) var(--ease-standard); }
 
 .tone-ok { --tone: var(--color-success); }
+/* Route scopes: shared uplink, Wi‑Fi through the VPN (or proxy), apps going direct.
+   A healthy step takes its route's color; problems keep their state color. */
+:root { --route-uplink: var(--color-success); --route-tunnel: oklch(0.55 0.16 278); --route-proxy: oklch(0.64 0.14 62); --route-direct: oklch(0.6 0.12 228); }
+:is(.flow-node, .flow-link).tone-ok.scope-tunnel, .scope-rail.scope-tunnel { --tone: var(--route-tunnel); }
+:is(.flow-node, .flow-link).tone-ok.scope-proxy, .scope-rail.scope-proxy { --tone: var(--route-proxy); }
+:is(.flow-node, .flow-link).tone-ok.scope-direct { --tone: var(--route-direct); }
+.scope-rail.scope-uplink { --tone: var(--route-uplink); }
 .tone-warn { --tone: var(--color-warning); }
 .tone-bad { --tone: var(--color-error); }
 .tone-busy { --tone: var(--color-info); }
@@ -766,12 +773,11 @@ button:not(:disabled), summary { cursor: pointer; }
 .flow-rates { display: grid; gap: 3px; margin: 0 0 0 auto; font-size: var(--text-micro); }
 .flow-rate { display: grid; grid-template-columns: auto auto; align-items: baseline; justify-content: end; column-gap: 10px; }
 .flow-rate dt { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-muted); }
-.flow-rate dt i { width: 6px; height: 6px; border-radius: 50%; }
+.flow-rate dt svg { width: 12px; height: 12px; color: var(--color-success); }
+.flow-rate:last-child dt svg { color: var(--ink-faint); }
 .flow-rate dd { display: inline-flex; align-items: baseline; justify-content: flex-end; gap: 6px; margin: 0; min-width: 132px; font-variant-numeric: tabular-nums; }
 .flow-rate strong { font-size: var(--text-label); font-weight: 650; color: var(--color-base-content); }
 .flow-rate small { min-width: 64px; text-align: right; font-size: 10.5px; color: var(--ink-faint); }
-.legend-in { background: var(--color-success); }
-.legend-out { box-shadow: inset 0 0 0 1.5px var(--color-success); }
 
 /* Who is using the internet, in popups. */
 .use-list { display: grid; margin: 0; padding: 0; list-style: none; }
@@ -822,12 +828,12 @@ button:not(:disabled), summary { cursor: pointer; }
 @container (max-width: 560px) {
   .flow { flex-wrap: wrap; justify-content: center; row-gap: 12px; }
   .flow-link { flex: 0 0 20px; min-width: 20px; }
-  /* Wrapped rows: no Pi directly above, so the spur centers and says where it connects. */
+  /* Wrapped rows: brackets cannot span a broken row, and the spur centers on its own. */
+  .scope-rails { display: none; }
   .flow-under { flex-direction: column; align-items: center; gap: 8px; margin-top: 8px; }
   .flow-under .flow-spur { margin-left: 0; }
   .flow-under .flow-spur > .flow-link { display: none; }
-  .flow-under .spur-tag.spur-via { display: inline-flex; }
-  .flow-under .flow-rates { margin-left: 0; }
+  .flow-under   .flow-under .flow-rates { margin-left: 0; }
 }
 
 /* Two-lane links: the top lane brings data in toward whoever asked, the bottom
@@ -842,7 +848,7 @@ button:not(:disabled), summary { cursor: pointer; }
 .lane.to-end::after { right: -3px; border-left-color: var(--tone); border-right-width: 0; }
 .lane.to-start::after { left: -3px; border-right-color: var(--tone); border-left-width: 0; }
 .lane.level-0::after { opacity: 0.3; }
-.lane .flow-packets { position: absolute; inset: 0; transition: opacity 700ms var(--ease-standard); }
+.lane .flow-packets { position: absolute; inset: 0; transition: opacity 600ms var(--ease-standard); }
 .lane.level-0 .flow-packets { opacity: 0; }
 .lane .flow-packet { top: 50%; width: 4px; height: 4px; margin-top: -2px; }
 .lane.to-start .flow-packet { animation-direction: reverse; }
@@ -864,12 +870,11 @@ button:not(:disabled), summary { cursor: pointer; }
   100% { top: calc(100% - 4px); opacity: 0; }
 }
 .flow-spur { display: flex; flex-direction: column; align-items: center; width: 120px; margin-left: calc(var(--pi-x) - 60px); animation: rise-in var(--dur-slow) var(--ease-out-soft) both; }
-.spur-tags { display: flex; justify-content: center; gap: 4px; margin-top: 6px; }
-.spur-tag { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 999px; font-size: 10.5px; font-weight: 600; color: var(--ink-muted); background: var(--surface-inset); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.spur-scope { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 10.5px; font-weight: 600; color: var(--route-direct); }
+.spur-scope svg { width: 11px; height: 11px; }
+.spur-tag { margin-top: 6px; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 999px; font-size: 10.5px; font-weight: 600; color: var(--ink-muted); background: var(--surface-inset); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .spur-tag svg { width: 11px; height: 11px; color: var(--ink-faint); }
-.spur-tag.is-links svg { color: var(--color-success); }
 .spur-tag.is-bad svg { color: var(--color-error); }
-.spur-tag.spur-via { display: none; }
 
 /* Text and numbers that change animate in place; unchanged text never moves. */
 .swap-text { display: inline-block; }
@@ -1088,3 +1093,23 @@ button:not(:disabled), summary { cursor: pointer; }
 .event-text { display: grid; flex: 1; min-width: 0; line-height: 1.3; }
 .event-text strong { font-size: var(--text-label); font-weight: 600; }
 .event-text small { font-size: var(--text-micro); color: var(--ink-faint); }
+
+/* Scope brackets: a label in the route's color over the steps that route covers. */
+.scope-rails { position: relative; height: 24px; margin-bottom: 2px; }
+.scope-rail { position: absolute; top: 0; height: 24px; display: flex; justify-content: center; align-items: flex-start; gap: 5px; font-size: 10.5px; font-weight: 650; line-height: 14px; color: var(--tone); white-space: nowrap; overflow: hidden; transition: left var(--dur-base) var(--ease-out-soft), width var(--dur-base) var(--ease-out-soft), color var(--dur-slow) var(--ease-standard); animation: fade-in var(--dur-slow) var(--ease-out-soft) backwards; }
+.scope-rail svg { width: 11px; height: 11px; flex: none; margin-top: 1.5px; }
+.scope-rail::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 6px; border: 1.5px solid color-mix(in oklab, var(--tone) 38%, transparent); border-bottom: 0; border-radius: 6px 6px 0 0; }
+
+/* Action previews: resting on Stop, Restart, Repair or a mode marks exactly the
+   steps it would touch. Stop goes red and still; the others go amber. */
+.flow-wrap[data-preview] .is-affected .flow-icon { outline: 1.5px dashed color-mix(in oklab, var(--tone) 75%, transparent); outline-offset: 3px; }
+.flow-icon { outline: 1.5px dashed transparent; outline-offset: 3px; transition: outline-color var(--dur-slow) var(--ease-standard), color var(--dur-slow) var(--ease-standard), background-color var(--dur-slow) var(--ease-standard), box-shadow var(--dur-slow) var(--ease-standard); }
+.flow-wrap[data-preview='stop'] .is-affected .flow-node, .flow-wrap[data-preview='stop'] .is-affected > .flow-link { --tone: var(--color-error); }
+.flow-wrap[data-preview='stop'] .is-affected .flow-packets { opacity: 0; }
+.flow-wrap[data-preview='stop'] .is-affected .flow-label { color: var(--color-error); }
+.flow-wrap:is([data-preview='restart'], [data-preview='repair'], [data-preview='switch']) :is(.is-affected .flow-node, .is-affected > .flow-link) { --tone: var(--color-warning); }
+
+.scope-preview { position: absolute; inset: 0 0 auto; height: 24px; display: flex; align-items: center; justify-content: center; padding: 0 8px; font-size: var(--text-micro); font-weight: 650; color: var(--tone); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transform: translateY(3px); transition: opacity var(--dur-slow) var(--ease-standard), transform var(--dur-slow) var(--ease-out-soft); pointer-events: none; }
+.scope-rails.is-previewing .scope-preview { opacity: 1; transform: none; }
+.scope-rails .scope-rail { transition: opacity var(--dur-slow) var(--ease-standard), left var(--dur-base) var(--ease-out-soft), width var(--dur-base) var(--ease-out-soft), color var(--dur-slow) var(--ease-standard); }
+.scope-rails.is-previewing .scope-rail { opacity: 0; }

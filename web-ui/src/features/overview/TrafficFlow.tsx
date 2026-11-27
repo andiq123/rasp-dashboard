@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, Ban, Cable, Cloud, Cpu, Globe, Package, ShieldCheck, ShieldOff, Smartphone, Waypoints, Wifi, type LucideIcon } from 'lucide-react'
+import { ArrowDown, ArrowUp, Ban, Cable, Cloud, Cpu, Globe, Package, Lock, ShieldCheck, ShieldOff, Smartphone, Waypoints, Wifi, type LucideIcon } from 'lucide-react'
 import type { AppState } from '@/api/types'
 import { AnimatedList } from '@/components/ui/AnimatedList/AnimatedList'
 import { AnimatedNumber } from '@/components/ui/AnimatedNumber/AnimatedNumber'
@@ -12,13 +12,24 @@ export type NodeState = 'ok' | 'bad' | 'busy' | 'idle'
 /** flow: traffic moving · blocked: stopped at the next hop · busy: being repaired · idle: nothing to carry */
 export type LinkState = 'flow' | 'blocked' | 'busy' | 'idle'
 
-export type FlowNode = { id: string; label: string; detail: string; state: NodeState; icon: LucideIcon; active?: boolean }
+/** Which route a piece of traffic takes: the shared uplink, the Wi‑Fi gate (VPN or proxy), or apps going direct. */
+export type Scope = 'uplink' | 'tunnel' | 'proxy' | 'direct'
+export type FlowNode = { id: string; label: string; detail: string; state: NodeState; icon: LucideIcon; active?: boolean; scope?: Scope }
 
 /** Above this rate a node counts as actively requesting data. */
 export const ACTIVE_BPS = 4_000
 /** Live rate on one link: `down` travels to whoever asked, `up` toward the internet. */
 export type LinkRate = { down: number; up: number }
-export type Flow = { nodes: FlowNode[]; links: LinkState[]; rates: LinkRate[] }
+type Span = { left: number; width: number }
+/** An action the pointer is resting on, previewed on the circuit before it runs. */
+export type FlowPreview = 'stop' | 'restart' | 'repair' | 'switch'
+const previewSteps: Record<FlowPreview, string[]> = {
+  stop: ['wifi', 'devices'],
+  restart: ['wifi', 'devices'],
+  repair: ['mullvad'],
+  switch: ['mullvad', 'residential', 'wifi', 'devices'],
+}
+export type Flow = { nodes: FlowNode[]; links: LinkState[]; rates: LinkRate[]; gateScope: Scope }
 
 export type TrafficLevel = 0 | 1 | 2 | 3 | 4
 const MB = 1_000_000
@@ -62,40 +73,41 @@ export function computeFlow(state: AppState, recovering: boolean, switchingTo?: 
   const uplinkKnown = known && !!uplink?.checked
   const clients = state.clients ?? 0
 
+  const gateScope: Scope = mode === 'mullvad' ? 'tunnel' : 'proxy'
   const gateOk = mode === 'mullvad'
     ? !!(vpn.country_allowed && vpn.interface_up && vpn.handshake_healthy && vpn.egress_ok)
     : !!state.proxy_running
 
   const nodes: FlowNode[] = [
     {
-      id: 'internet', label: 'Internet', icon: Globe,
+      id: 'internet', label: 'Internet', icon: Globe, scope: 'uplink',
       detail: !uplinkKnown ? 'Checking…' : uplink?.internet ? 'Reachable' : 'Unreachable',
       state: !uplinkKnown ? 'idle' : uplink?.internet ? 'ok' : 'bad',
     },
     {
-      id: 'uplink', label: 'Ethernet in', icon: Cable,
-      detail: !known ? 'Checking…' : uplink?.link_up ? uplink.interface || 'eth0' : 'No link',
+      id: 'uplink', label: 'Ethernet in', icon: Cable, scope: 'uplink',
+      detail: !known ? 'Checking…' : uplink?.link_up ? 'Connected' : 'No cable',
       state: !known ? 'idle' : uplink?.link_up ? 'ok' : 'bad',
     },
-    { id: 'pi', label: 'Pi', icon: Cpu, detail: state.hotspot_ip || 'This device', state: known ? 'ok' : 'idle' },
+    { id: 'pi', label: 'Pi', icon: Cpu, scope: 'uplink', detail: 'Splits traffic', state: known ? 'ok' : 'idle' },
     mode === 'mullvad'
       ? {
-          id: 'mullvad', label: 'Mullvad', icon: ShieldCheck,
-          detail: switching ? 'Switching' : recovering ? 'Repairing' : gateOk ? vpn.relay || 'Romania' : !vpn.country_allowed ? 'Not Romania' : vpn.interface_up ? 'Not verified' : 'Tunnel down',
+          id: 'mullvad', label: 'Mullvad', icon: ShieldCheck, scope: 'tunnel',
+          detail: switching ? 'Switching' : recovering ? 'Repairing' : gateOk ? 'Romania' : !vpn.country_allowed ? 'Not Romania' : vpn.interface_up ? 'Not verified' : 'Tunnel down',
           state: !known ? 'idle' : switching || recovering ? 'busy' : gateOk ? 'ok' : 'bad',
         }
       : {
-          id: 'residential', label: 'Residential', icon: Waypoints,
+          id: 'residential', label: 'Residential', icon: Waypoints, scope: 'proxy',
           detail: switching ? 'Switching' : gateOk ? 'Running' : 'Stopped',
           state: !known ? 'idle' : switching ? 'busy' : gateOk ? 'ok' : 'bad',
         },
     {
-      id: 'wifi', label: 'Wi‑Fi out', icon: Wifi,
+      id: 'wifi', label: 'Wi‑Fi out', icon: Wifi, scope: gateScope,
       detail: state.hotspot_running ? state.ssid || 'Broadcasting' : 'Stopped',
       state: !known ? 'idle' : state.hotspot_running ? 'ok' : 'bad',
     },
     {
-      id: 'devices', label: 'Devices', icon: Smartphone,
+      id: 'devices', label: 'Devices', icon: Smartphone, scope: gateScope,
       detail: !state.hotspot_running ? 'Offline' : clients === 1 ? '1 device' : clients ? `${clients} devices` : 'None yet',
       state: state.hotspot_running && clients > 0 ? 'ok' : 'idle',
     },
@@ -131,7 +143,7 @@ export function computeFlow(state: AppState, recovering: boolean, switchingTo?: 
   const pi = nodes.find((n) => n.id === 'pi')
   if (devices) devices.active = hotspotRate >= ACTIVE_BPS
   if (pi) pi.active = mode === 'mullvad' && gateRate - hotspotRate * 1.1 >= ACTIVE_BPS
-  return { nodes, links, rates: [uplinkLink, uplinkLink, gateLink, hotspotLink, hotspotLink] }
+  return { nodes, links, rates: [uplinkLink, uplinkLink, gateLink, hotspotLink, hotspotLink], gateScope }
 }
 
 const linkTone: Record<LinkState, string> = { flow: 'tone-ok', blocked: 'tone-bad', busy: 'tone-busy', idle: 'tone-idle' }
@@ -157,11 +169,11 @@ function Lane({ dir, bps, toward }: { dir: 'in' | 'out'; bps: number; toward: 's
  * asked; the bottom lane carries requests out toward the internet. Each lane
  * moves at its own live speed and stays still when quiet.
  */
-function FlowLink({ state, rate, requester = 'end', vertical = false }: { state: LinkState; rate: LinkRate; requester?: 'start' | 'end'; vertical?: boolean }) {
+function FlowLink({ state, rate, scope, requester = 'end', vertical = false }: { state: LinkState; rate: LinkRate; scope: Scope; requester?: 'start' | 'end'; vertical?: boolean }) {
   const away = requester === 'end' ? 'start' : 'end'
   if (state !== 'flow') {
     return (
-      <span className={`flow-link is-${state} ${linkTone[state]}${vertical ? ' is-vertical' : ''}`} aria-hidden title={linkLabel[state]}>
+      <span className={`flow-link is-${state} ${linkTone[state]} scope-${scope}${vertical ? ' is-vertical' : ''}`} aria-hidden title={linkLabel[state]}>
         <span className="flow-packets">{[0, 1].map((k) => <i key={k} className="flow-packet" />)}</span>
         {state === 'blocked' ? <Ban className="flow-barrier" /> : null}
       </span>
@@ -170,7 +182,7 @@ function FlowLink({ state, rate, requester = 'end', vertical = false }: { state:
   const level = Math.max(trafficLevel(rate.down), trafficLevel(rate.up))
   const title = level === 0 ? 'connected, idle' : `in ${fmtRate(rate.down)}, out ${fmtRate(rate.up)}`
   return (
-    <span className={`flow-link is-flow is-road tone-ok level-${level}${vertical ? ' is-vertical' : ''}`} aria-hidden title={title}>
+    <span className={`flow-link is-flow is-road tone-ok scope-${scope} level-${level}${vertical ? ' is-vertical' : ''}`} aria-hidden title={title}>
       <Lane dir="in" bps={rate.down} toward={requester} />
       <Lane dir="out" bps={rate.up} toward={away} />
     </span>
@@ -193,7 +205,7 @@ export type FlowBranch = {
 function NodeView({ node, info }: { node: FlowNode; info: React.ReactNode }) {
   return (
     <Popover label={`${node.label} details`} align="center" content={info}>
-      <span className={`flow-node tone-${node.state}${node.active ? ' is-active' : ''}`}>
+      <span className={`flow-node tone-${node.state} scope-${node.scope}${node.active ? ' is-active' : ''}`}>
         <span className="flow-icon"><node.icon aria-hidden /></span>
         <span className="flow-text">
           <span className="flow-label">{node.label}</span>
@@ -236,7 +248,7 @@ function Spur({ branch }: { branch: FlowBranch }) {
   const appRate = branch.appUse.reduce<LinkRate>((r, u) => ({ down: r.down + u.in, up: r.up + u.out }), { down: 0, up: 0 })
   const rate: LinkRate = { down: appRate.down + branch.linkUse.down, up: appRate.up + branch.linkUse.up }
   const apps: FlowNode = {
-    id: 'apps', label: 'Your apps', icon: Package,
+    id: 'apps', label: 'Your apps', icon: Package, scope: 'direct',
     detail: branch.apps === 1 ? '1 running' : `${branch.apps} running`,
     state: branch.apps ? 'ok' : 'idle',
     active: rate.down + rate.up >= ACTIVE_BPS,
@@ -245,7 +257,7 @@ function Spur({ branch }: { branch: FlowBranch }) {
   const busy = branch.appUse.filter((u) => u.in + u.out > 0)
   return (
     <div className="flow-spur" aria-label="Apps on the Pi use Ethernet directly, not the VPN">
-      <FlowLink state={branch.internet && branch.apps ? 'flow' : 'idle'} rate={rate} requester="end" vertical />
+      <FlowLink state={branch.internet && branch.apps ? 'flow' : 'idle'} rate={rate} scope="direct" requester="end" vertical />
       <NodeView
         node={apps}
         info={
@@ -265,51 +277,72 @@ function Spur({ branch }: { branch: FlowBranch }) {
           </div>
         }
       />
-      <span className="spur-tags">
-        <span className="spur-tag spur-via" title="Runs on the Pi"><Cpu aria-hidden />Via Pi</span>
-        {branch.links ? (
-          <span className={`spur-tag is-links${linksOk ? '' : ' is-bad'}`} title="Public links live"><Cloud aria-hidden />{branch.liveLinks}/{branch.links}</span>
-        ) : null}
-        <span className="spur-tag" title="Skips the VPN"><ShieldOff aria-hidden />No VPN</span>
-      </span>
+      <span className="spur-scope"><ShieldOff aria-hidden />Direct, no VPN</span>
+      {/* Only a problem earns a chip; healthy links need no badge. */}
+      {!linksOk ? (
+        <span className="spur-tag is-bad" title="Public links live"><Cloud aria-hidden />{branch.links - branch.liveLinks} of {branch.links} links down</span>
+      ) : null}
     </div>
   )
 }
 
 /** Animated diagram of where traffic flows and where it stops. Every step opens an info popup. */
-export function TrafficFlow({ flow, state, branch, branchPending = false }: { flow: Flow; state: AppState; branch?: FlowBranch; branchPending?: boolean }) {
+export function TrafficFlow({ flow, state, branch, branchPending = false, preview, previewText = '' }: { flow: Flow; state: AppState; branch?: FlowBranch; branchPending?: boolean; preview?: FlowPreview | null; previewText?: string }) {
   const last = flow.nodes.length - 1
   const wrap = useRef<HTMLDivElement>(null)
   const [piX, setPiX] = useState(0)
-  const hasBranch = !!branch
+  // Scope brackets above the path, positioned on the measured nodes.
+  const [rails, setRails] = useState<{ uplink: Span; gate: Span } | null>(null)
   const layoutKey = flow.nodes.map((n) => n.id).join()
   const net = state.device_metrics?.network || {}
   useLayoutEffect(() => {
     const el = wrap.current
-    if (!el || !hasBranch) return
-    // The spur hangs from the Pi icon, wherever the layout puts it.
+    if (!el) return
     const measure = () => {
-      const pi = el.querySelector<HTMLElement>('.flow > .flow-step:nth-child(3) .flow-icon')
-      if (!pi) return
-      const r = pi.getBoundingClientRect()
-      setPiX(Math.round(r.left + r.width / 2 - el.getBoundingClientRect().left))
+      const base = el.getBoundingClientRect().left
+      const steps = [...el.querySelectorAll<HTMLElement>('.flow > .flow-step')]
+      const node = (i: number) => steps[i]?.querySelector<HTMLElement>('.flow-node')?.getBoundingClientRect()
+      const link = (i: number) => steps[i]?.querySelector<HTMLElement>(':scope > .flow-link')?.getBoundingClientRect()
+      const pi = steps[2]?.querySelector<HTMLElement>('.flow-icon')?.getBoundingClientRect()
+      if (pi) setPiX(Math.round(pi.left + pi.width / 2 - base))
+      const [n0, n2, l3, n5] = [node(0), node(2), link(3), node(5)]
+      const span = (a: number, b: number): Span => ({ left: Math.round(a - base), width: Math.round(b - a) })
+      setRails(n0 && n2 && l3 && n5 ? { uplink: span(n0.left, n2.right), gate: span(l3.left, n5.right) } : null)
     }
     measure()
-    // Any node changing width (a label swapping, fonts loading) moves the Pi too.
+    // Any node changing width (a label swapping, fonts loading) moves everything after it.
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     el.querySelectorAll('.flow .flow-node').forEach((n) => ro.observe(n))
     return () => ro.disconnect()
-  }, [hasBranch, layoutKey])
+  }, [layoutKey])
+  const tunnel = flow.gateScope === 'tunnel'
+  // Keep the last preview text while it fades out, so it never blanks mid-fade.
+  const [shownPreview, setShownPreview] = useState(previewText)
+  if (previewText && previewText !== shownPreview) setShownPreview(previewText)
   return (
-    <div className="flow-wrap" ref={wrap}>
+    <div className="flow-wrap" ref={wrap} data-preview={preview || undefined}>
+      {/* Who takes which route: one bracket per scope, in that scope's color. */}
+      <div className={`scope-rails${preview ? ' is-previewing' : ''}`} aria-hidden>
+        {/* Action preview reuses this fixed row: brackets fade out, one line fades in, nothing moves. */}
+        <span className={`scope-preview ${preview === 'stop' ? 'tone-bad' : 'tone-warn'}`}>{shownPreview}</span>
+        {rails ? (
+          <>
+            <span className="scope-rail scope-uplink" style={rails.uplink}><Cable />Shared connection</span>
+            <span className={`scope-rail scope-${flow.gateScope}`} style={rails.gate}>
+              {tunnel ? <Lock /> : <Waypoints />}
+              {tunnel ? 'Wi‑Fi devices, encrypted to Romania' : 'Wi‑Fi devices, through the residential proxy'}
+            </span>
+          </>
+        ) : null}
+      </div>
     <ol className="flow" aria-label="Traffic path">
       {flow.nodes.map((node, i) => (
         // Steps are keyed by position: when the gate changes (Mullvad ⇄ Residential)
         // the old node slides out while the new one drops into the same place.
-        <li key={i} className="flow-step">
+        <li key={i} className={`flow-step${preview && previewSteps[preview].includes(node.id) ? ' is-affected' : ''}`}>
           {i > 0 ? (
-            <FlowLink state={flow.links[i - 1]} rate={flow.rates[i - 1] || { down: 0, up: 0 }} requester="end" />
+            <FlowLink state={flow.links[i - 1]} rate={flow.rates[i - 1] || { down: 0, up: 0 }} scope={i <= 2 ? 'uplink' : flow.gateScope} requester="end" />
           ) : null}
           <AnimatedList
             swap
@@ -317,7 +350,7 @@ export function TrafficFlow({ flow, state, branch, branchPending = false }: { fl
             getKey={(n) => n.id}
             render={(n) => (
               <Popover label={`${n.label} details`} align={i === 0 ? 'start' : i === last ? 'end' : 'center'} content={<FlowInfo node={n} state={state} />}>
-                <span className={`flow-node tone-${n.state}${n.active ? ' is-active' : ''}`}>
+                <span className={`flow-node tone-${n.state} scope-${n.scope}${n.active ? ' is-active' : ''}`}>
                   <span className="flow-icon"><n.icon aria-hidden /></span>
                   <span className="flow-text">
                     <span className="flow-label">{n.label}</span>
@@ -335,14 +368,13 @@ export function TrafficFlow({ flow, state, branch, branchPending = false }: { fl
     </ol>
       <div className={`flow-under${!branch && branchPending ? ' is-reserving' : ''}`} style={piX ? ({ '--pi-x': `${piX}px` } as React.CSSProperties) : undefined}>
         {branch && piX ? <Spur branch={branch} /> : null}
-        {/* Live totals double as the key: solid dot = data in, ring = requests out. */}
         <dl className="flow-rates" aria-label="Network throughput">
           <div className="flow-rate">
-            <dt><i className="legend-in" aria-hidden />In</dt>
+            <dt><ArrowDown aria-hidden />In</dt>
             <dd><strong><AnimatedNumber value={net.down_bytes_per_sec || 0} format={fmtMbps} /></strong><small><AnimatedNumber value={net.down_bytes_per_sec || 0} format={fmtBytesRate} /></small></dd>
           </div>
           <div className="flow-rate">
-            <dt><i className="legend-out" aria-hidden />Out</dt>
+            <dt><ArrowUp aria-hidden />Out</dt>
             <dd><strong><AnimatedNumber value={net.up_bytes_per_sec || 0} format={fmtMbps} /></strong><small><AnimatedNumber value={net.up_bytes_per_sec || 0} format={fmtBytesRate} /></small></dd>
           </div>
         </dl>
