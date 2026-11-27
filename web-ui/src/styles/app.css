@@ -1111,3 +1111,9 @@ button:not(:disabled), summary { cursor: pointer; }
 .scope-rails .scope-rail { transition: opacity var(--dur-slow) var(--ease-standard), left var(--dur-base) var(--ease-out-soft), width var(--dur-base) var(--ease-out-soft), color var(--dur-slow) var(--ease-standard); }
 .scope-rails.is-previewing .scope-rail { opacity: 0; }
 
+
+/* Number with a fixed unit inside the field (GB). */
+.unit-input { position: relative; display: flex; align-items: center; }
+.unit-input .input { padding-right: 44px; font-variant-numeric: tabular-nums; }
+.unit-input > span { position: absolute; right: 12px; font-size: var(--text-body); color: var(--ink-faint); pointer-events: none; }
+.pop-actions { display: flex; justify-content: flex-end; padding-top: 2px; }

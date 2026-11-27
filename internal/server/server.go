@@ -131,6 +131,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/alerts", s.handleAlerts)
 	mux.HandleFunc("/api/alerts/test", s.handleAlerts)
 	mux.HandleFunc("/api/uptime", s.handleUptime)
+	mux.HandleFunc("/api/residential/balance", s.handleResidentialBalance)
 	mux.HandleFunc("/api/ports", s.handlePorts)
 	mux.HandleFunc("/api/github/", s.handleGitHub)
 	mux.HandleFunc("/api/github/status", s.handleGitHub)

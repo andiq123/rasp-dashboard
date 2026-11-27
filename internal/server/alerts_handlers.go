@@ -15,7 +15,22 @@ const (
 	alertInterval  = 15 * time.Second
 	switchDeadline = 3 * time.Minute
 	reminderEvery  = 2 * time.Minute
+	// Below this the paid proxy is about to run dry (decimal bytes, as IPRoyal bills).
+	lowBalanceBytes = 200e6
 )
+
+// gb formats decimal gigabytes, matching the IPRoyal dashboard.
+func gb(b uint64) string { return fmt.Sprintf("%.2f GB", float64(b)/1e9) }
+
+func residentialReminder(u state.ResidentialUsage) string {
+	msg := fmt.Sprintf("On for %s, about %s this session.", humanDuration(time.Since(u.SessionStart)), gb(u.SessionBytes))
+	if u.RemainingBytes != nil {
+		msg += fmt.Sprintf(" About %s left.", gb(*u.RemainingBytes))
+	} else {
+		msg += fmt.Sprintf(" %s this month.", gb(u.MonthBytes))
+	}
+	return msg + " Switch back to Mullvad when you are done."
+}
 
 // ExitLookup reports the public address Wi-Fi leaves from (the state reader).
 type ExitLookup interface {
@@ -107,7 +122,7 @@ func (s *Server) announceSwitch(ctx context.Context, d switchDone, st state.Stat
 			a.Body = strings.TrimSuffix(exit, ".") + " through " + st.VPNHealth.Relay + "."
 		}
 		if u := d.usage; u.SessionBytes > 0 {
-			a.Body += fmt.Sprintf(" Residential used %s in %s.", humanBytes(int64(u.SessionBytes)), humanDuration(time.Since(u.SessionStart)-d.took))
+			a.Body += fmt.Sprintf(" Residential used %s in %s.", gb(u.SessionBytes), humanDuration(time.Since(u.SessionStart)-d.took))
 		}
 	}
 	s.Alerts.Notify(ctx, a)
@@ -154,9 +169,17 @@ func alertsFromState(st state.State) []alerts.Alert {
 	if u := st.Residential; st.Mode == state.ModeResidential && st.ProxyRunning && u.Active {
 		out = append(out, alerts.Alert{
 			Key: "residential-on", Category: alerts.EventCost, Title: "Still on Residential",
-			Body:  fmt.Sprintf("On for %s, about %s this session and %s this month. Switch back to Mullvad when you are done.", humanDuration(time.Since(u.SessionStart)), humanBytes(int64(u.SessionBytes)), humanBytes(int64(u.MonthBytes))),
+			Body:  residentialReminder(u),
 			Grace: reminderEvery, Repeat: reminderEvery, NoResolve: true,
 		})
+		// Running out on residential means no internet: warn while there is time.
+		if left := u.RemainingBytes; left != nil && *left < lowBalanceBytes {
+			out = append(out, alerts.Alert{
+				Key: "residential-low", Category: alerts.EventCost, Urgent: true, NoResolve: true,
+				Title: "Residential data almost used up",
+				Body:  fmt.Sprintf("About %s left. Add data on IPRoyal or switch back to Mullvad.", gb(*left)),
+			})
+		}
 	}
 	if p := st.DeviceMetrics.Storage.UsedPercent; p >= 90 {
 		out = append(out, alerts.Alert{Key: "disk-full", Category: alerts.EventPi, Title: "The Pi's disk is almost full", Body: fmt.Sprintf("%.0f%% used. Deploys and databases may fail; clear old files or images.", p)})

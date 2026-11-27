@@ -1,10 +1,13 @@
+import { useContext } from 'react'
 import { ArrowDown, ArrowUp, Signal, SignalHigh, SignalLow, SignalMedium, SignalZero } from 'lucide-react'
 import type { AppState, ConnectedDevice } from '@/api/types'
 import { AnimatedNumber } from '@/components/ui/AnimatedNumber/AnimatedNumber'
 import { KeyValues, type KeyValue } from '@/components/ui/KeyValues/KeyValues'
 import { deviceKind, fmtDuration, signalBars } from '@/lib/devices'
 import { daysLeftText, daysLeftTone, expiryDate, leakRow } from '@/lib/mullvad'
-import { fmtBytes, fmtPct, fmtRate } from '@/lib/format'
+import { fmtBytes, fmtGB, fmtPct, fmtRate } from '@/lib/format'
+import { Button } from '@/components/ui/Button/Button'
+import { FlowActions } from './flowActions'
 import type { FlowNode } from './TrafficFlow'
 
 const stateWord: Record<FlowNode['state'], string> = { ok: 'Working', bad: 'Failing', busy: 'Changing', idle: 'Idle' }
@@ -49,6 +52,8 @@ export function FlowInfo({ node, state }: { node: FlowNode; state: AppState }) {
   const m = state.device_metrics || {}
   let line = ''
   let rows: KeyValue[] = []
+  let action: React.ReactNode = null
+  const actions = useContext(FlowActions)
 
   switch (node.id) {
     case 'internet':
@@ -102,9 +107,15 @@ export function FlowInfo({ node, state }: { node: FlowNode; state: AppState }) {
         const u = state.residential_usage
         rows = [
           { label: 'Proxy', value: state.proxy_running ? 'Running' : 'Stopped', tone: state.proxy_running ? 'ok' : 'bad' },
-          ...(u?.active ? [{ label: 'This session', value: `${fmtBytes(u.session_bytes)}${u.session_start ? `, since ${new Date(u.session_start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}` }] : []),
-          ...(u ? [{ label: 'This month', value: fmtBytes(u.month_bytes) }] : []),
+          ...(u?.active ? [{ label: 'This session', value: `${fmtGB(u.session_bytes)}${u.session_start ? `, since ${new Date(u.session_start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}` }] : []),
+          ...(u ? [{ label: 'This month', value: fmtGB(u.month_bytes) }] : []),
+          ...(u?.remaining_bytes != null
+            ? [{ label: 'Left', value: `${fmtGB(u.remaining_bytes)}${u.balance_stale ? ', worth a check' : ''}`, tone: u.remaining_bytes < 200e6 ? ('bad' as const) : undefined }]
+            : []),
         ]
+        action = actions.editResidentialBalance ? (
+          <Button size="sm" onClick={actions.editResidentialBalance}>{u?.balance_set_at ? 'Update balance' : 'Set balance'}</Button>
+        ) : null
       }
       break
     case 'wifi':
@@ -141,6 +152,7 @@ export function FlowInfo({ node, state }: { node: FlowNode; state: AppState }) {
       </div>
       <p className="pop-line">{line}</p>
       {rows.length ? <KeyValues items={rows} /> : null}
+      {action ? <div className="pop-actions">{action}</div> : null}
     </div>
   )
 }

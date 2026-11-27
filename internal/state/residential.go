@@ -16,7 +16,12 @@ import (
 	"time"
 )
 
-const usageSaveEvery = time.Minute
+const (
+	usageSaveEvery = time.Minute
+	// After this long the dashboard asks once whether the saved balance still matches IPRoyal.
+	balanceStaleAfter = 7 * 24 * time.Hour
+	maxBalanceBytes   = 100_000 * 1e9
+)
 
 // ResidentialUsage is Wi-Fi traffic sent through the paid residential proxy:
 // the current session and the calendar month. Counted from the hotspot
@@ -28,6 +33,74 @@ type ResidentialUsage struct {
 	SessionBytes uint64    `json:"session_bytes"`
 	Month        string    `json:"month"`
 	MonthBytes   uint64    `json:"month_bytes"`
+	// TotalBytes never resets; the balance counts down against it.
+	TotalBytes uint64 `json:"total_bytes"`
+	// Balance as the owner entered it (from the IPRoyal dashboard), when, and
+	// TotalBytes at that moment. Remaining = balance − bytes used since.
+	BalanceBytes   uint64    `json:"balance_bytes,omitempty"`
+	BalanceSetAt   time.Time `json:"balance_set_at,omitzero"`
+	BalanceTotalAt uint64    `json:"balance_total_at,omitempty"`
+	// Derived for the dashboard; not meaningful on disk.
+	RemainingBytes *uint64 `json:"remaining_bytes,omitempty"`
+	BalanceStale   bool    `json:"balance_stale,omitempty"`
+}
+
+// withBalance fills the derived balance fields.
+func (u ResidentialUsage) withBalance(now time.Time) ResidentialUsage {
+	u.RemainingBytes, u.BalanceStale = nil, false
+	if u.BalanceSetAt.IsZero() {
+		return u
+	}
+	used := u.TotalBytes - u.BalanceTotalAt
+	left := uint64(0)
+	if used < u.BalanceBytes {
+		left = u.BalanceBytes - used
+	}
+	u.RemainingBytes = &left
+	u.BalanceStale = now.Sub(u.BalanceSetAt) > balanceStaleAfter
+	return u
+}
+
+// SetResidentialBalance records the balance shown in the IPRoyal dashboard;
+// counting down starts from now.
+func (r *Reader) SetResidentialBalance(bytes uint64) (ResidentialUsage, error) {
+	if bytes > maxBalanceBytes {
+		return ResidentialUsage{}, errors.New("that balance is too large")
+	}
+	now := time.Now()
+	t := &r.usage
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.ensureLoaded(r.usagePath())
+	t.usage.BalanceBytes, t.usage.BalanceSetAt, t.usage.BalanceTotalAt = bytes, now, t.usage.TotalBytes
+	if err := t.save(r.usagePath(), now); err != nil {
+		return ResidentialUsage{}, err
+	}
+	return t.usage.withBalance(now), nil
+}
+
+func (t *usageTracker) ensureLoaded(path string) {
+	if t.loaded {
+		return
+	}
+	t.loaded = true
+	if b, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(b, &t.usage)
+	}
+}
+
+func (t *usageTracker) save(path string, now time.Time) error {
+	disk := t.usage
+	disk.RemainingBytes, disk.BalanceStale = nil, false
+	b, err := json.MarshalIndent(disk, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		return err
+	}
+	t.savedAt = now
+	return nil
 }
 
 type usageTracker struct {
@@ -49,23 +122,16 @@ func (r *Reader) trackResidential(mode string, now time.Time) ResidentialUsage {
 	t := &r.usage
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if !t.loaded {
-		t.loaded = true
-		if b, err := os.ReadFile(r.usagePath()); err == nil {
-			_ = json.Unmarshal(b, &t.usage)
-		}
-	}
+	t.ensureLoaded(r.usagePath())
 	total, ok := hotspotBytes()
 	t.usage = advanceUsage(t.usage, mode == ModeResidential, total, ok, t.last, t.hasLast, now)
 	if ok {
 		t.last, t.hasLast = total, true
 	}
-	if now.Sub(t.savedAt) >= usageSaveEvery || !t.usage.Active && t.usage.SessionBytes > 0 {
-		if b, err := json.MarshalIndent(t.usage, "", "  "); err == nil && os.WriteFile(r.usagePath(), b, 0o600) == nil {
-			t.savedAt = now
-		}
+	if now.Sub(t.savedAt) >= usageSaveEvery {
+		_ = t.save(r.usagePath(), now)
 	}
-	return t.usage
+	return t.usage.withBalance(now)
 }
 
 // advanceUsage is the pure accounting step, separated for tests.
@@ -87,6 +153,7 @@ func advanceUsage(u ResidentialUsage, residential bool, total uint64, ok bool, l
 		}
 		u.SessionBytes += delta
 		u.MonthBytes += delta
+		u.TotalBytes += delta
 	}
 	return u
 }

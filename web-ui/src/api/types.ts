@@ -591,4 +591,12 @@ export type ResidentialUsage = {
   session_bytes: number
   month: string
   month_bytes: number
+  total_bytes: number
+  /** As entered from the IPRoyal dashboard, in decimal bytes. */
+  balance_bytes?: number
+  balance_set_at?: string
+  /** Balance minus what the Pi counted since it was entered. */
+  remaining_bytes?: number
+  /** The entry is over a week old: worth a quick check. */
+  balance_stale?: boolean
 }

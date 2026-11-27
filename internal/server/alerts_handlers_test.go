@@ -41,10 +41,31 @@ func TestResidentialReminder(t *testing.T) {
 	var found bool
 	for _, a := range alertsFromState(st) {
 		if a.Key == "residential-on" {
-			found = a.Repeat == reminderEvery && a.Body == "On for 1 h 15 min, about 350 MB this session and 2.00 GB this month. Switch back to Mullvad when you are done."
+			found = a.Repeat == reminderEvery && a.Body == "On for 1 h 15 min, about 0.37 GB this session. 2.15 GB this month. Switch back to Mullvad when you are done."
 		}
 	}
 	if !found {
 		t.Fatalf("residential reminder missing or wrong: %+v", alertsFromState(st))
+	}
+}
+
+func TestResidentialLowBalance(t *testing.T) {
+	left := uint64(150e6)
+	st := state.State{Mode: state.ModeResidential, ProxyRunning: true}
+	st.Residential = state.ResidentialUsage{Active: true, SessionStart: time.Now(), RemainingBytes: &left}
+	var low, reminder string
+	for _, a := range alertsFromState(st) {
+		switch a.Key {
+		case "residential-low":
+			low = a.Body
+		case "residential-on":
+			reminder = a.Body
+		}
+	}
+	if low != "About 0.15 GB left. Add data on IPRoyal or switch back to Mullvad." {
+		t.Fatalf("low balance alert: %q", low)
+	}
+	if reminder != "On for under a minute, about 0.00 GB this session. About 0.15 GB left. Switch back to Mullvad when you are done." {
+		t.Fatalf("reminder includes what is left: %q", reminder)
 	}
 }

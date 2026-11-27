@@ -43,6 +43,8 @@ import { leakRow, MULLVAD_ACCOUNT_URL } from '@/lib/mullvad'
 import { appUsage, fmtMB, hostCapacity, reservedFromServices } from '@/lib/resources'
 import { MullvadTime } from './MullvadTime'
 import { ResourceUsage } from './ResourceUsage'
+import { FlowActions } from './flowActions'
+import { needsBalance, ResidentialBalanceDialog } from './ResidentialBalance'
 import { computeFlow, TrafficFlow, type FlowBranch, type FlowPreview, type LinkState } from './TrafficFlow'
 import { VPNRepairFlow } from './VPNRepairFlow'
 
@@ -153,7 +155,15 @@ export function OverviewPage() {
     onError: (e: Error) => showToast(e.message, 'error'),
   })
 
+  // Residential is billed per GB: before switching, ask for the balance once
+  // (and again only when the last entry is over a week old).
+  const [balanceDialog, setBalanceDialog] = useState<{ open: boolean; switching: boolean }>({ open: false, switching: false })
+  const flowActions = { editResidentialBalance: () => setBalanceDialog({ open: true, switching: false }) }
   async function onMode(next: Mode) {
+    if (next === 'residential' && needsBalance(state.residential_usage)) {
+      setBalanceDialog({ open: true, switching: true })
+      return
+    }
     const ok = await confirm({
       title: `Switch to ${next === 'residential' ? 'Residential' : 'Mullvad'}?`,
       body: 'Connected devices may drop for a moment while the route changes.',
@@ -404,7 +414,19 @@ export function OverviewPage() {
               )}
             </div>
           </div>
+          <FlowActions.Provider value={flowActions}>
           <TrafficFlow flow={flow} state={state} branch={branch} preview={preview} previewText={preview ? previewLine[preview] : ''} branchPending={!!state.routing?.apps_direct && (groupsQ.isLoading || svcQueries.some((q) => q.isLoading))} />
+          </FlowActions.Provider>
+          <ResidentialBalanceDialog
+            open={balanceDialog.open}
+            switching={balanceDialog.switching}
+            usage={state.residential_usage}
+            onClose={() => setBalanceDialog((d) => ({ ...d, open: false }))}
+            onDone={() => {
+              if (balanceDialog.switching) modeMut.mutate('residential')
+              setBalanceDialog((d) => ({ ...d, open: false }))
+            }}
+          />
 
           <AnimatedList
             items={vpnRepair ? [vpnRepair] : []}

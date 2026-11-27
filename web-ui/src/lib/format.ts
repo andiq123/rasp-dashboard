@@ -50,3 +50,8 @@ export function slugify(s: string): string {
     .slice(0, 48)
     .replace(/-+$/g, '')
 }
+
+/** Decimal gigabytes, the way IPRoyal shows and bills residential data. */
+export function fmtGB(bytes: number | undefined | null): string {
+  return `${((Number(bytes) || 0) / 1e9).toFixed(2)} GB`
+}
