@@ -234,6 +234,9 @@ func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		jsonReply(w, s.Alerts.Status())
+	case r.URL.Path == "/api/alerts/error" && r.Method == http.MethodDelete:
+		s.Alerts.ClearError()
+		jsonReply(w, s.Alerts.Status())
 	case r.URL.Path == "/api/alerts/test" && r.Method == http.MethodPost:
 		var body struct {
 			Server string `json:"server"`

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeftRight, Bell, Boxes, Check, Coins, ExternalLink, Globe, Send, ShieldCheck, Thermometer, TriangleAlert, Wifi, type LucideIcon } from 'lucide-react'
-import { fetchAlerts, saveAlerts, testAlerts } from '@/api/endpoints'
+import { ArrowLeftRight, Bell, Boxes, Check, Coins, ExternalLink, X, Globe, Send, ShieldCheck, Thermometer, TriangleAlert, Wifi, type LucideIcon } from 'lucide-react'
+import { clearAlertsError, fetchAlerts, saveAlerts, testAlerts } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import type { AlertEvent, AlertSettings, AlertStatus } from '@/api/types'
+import { AnimatedList } from '@/components/ui/AnimatedList/AnimatedList'
 import { Button } from '@/components/ui/Button/Button'
 import { Field, Input } from '@/components/ui/Field/Field'
 import { Notice } from '@/components/ui/Notice/Notice'
@@ -110,6 +111,13 @@ export function AlertsPanel() {
     },
   })
 
+  // Dismissing clears the error on the Pi too, so it stays gone after a reload.
+  const dismissError = useMutation({
+    mutationFn: clearAlertsError,
+    onMutate: () => qc.setQueryData<AlertStatus>(queryKeys.alerts, (d) => (d ? { ...d, last_error: undefined } : d)),
+    onSuccess: (data) => qc.setQueryData<AlertStatus>(queryKeys.alerts, data),
+  })
+
   function toggleEvent(id: AlertEvent) {
     const next = muted.includes(id) ? muted.filter((m) => m !== id) : [...muted, id]
     setMutedDraft(next)
@@ -194,7 +202,20 @@ export function AlertsPanel() {
             ))}
           </fieldset>
 
-          {a?.last_error ? <Notice icon={TriangleAlert} tone="warn" title="Last send failed">{a.last_error}</Notice> : null}
+          <AnimatedList
+            items={a?.last_error ? [a.last_error] : []}
+            getKey={() => 'send-error'}
+            render={(message) => (
+              <Notice
+                icon={TriangleAlert}
+                tone="warn"
+                title="Last send failed"
+                action={<Button variant="quiet" icon={<X className="h-3.5 w-3.5" aria-hidden />} aria-label="Dismiss" title="Dismiss" onClick={() => dismissError.mutate()} />}
+              >
+                {message}
+              </Notice>
+            )}
+          />
         </>
       )}
     </Panel>

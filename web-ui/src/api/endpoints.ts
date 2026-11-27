@@ -62,6 +62,7 @@ export const setResidentialBalance = (gb: number) => api<ResidentialUsage>('/api
 export const fetchUptime = () => api<LinkUptime[]>('/api/uptime')
 export const fetchAlerts = () => api<AlertStatus>('/api/alerts')
 export const saveAlerts = (body: AlertSettings) => api<AlertStatus>('/api/alerts', { method: 'POST', body })
+export const clearAlertsError = () => api<AlertStatus>('/api/alerts/error', { method: 'DELETE' })
 export const testAlerts = (server = '', key = '') => api<AlertStatus>('/api/alerts/test', { method: 'POST', body: { server, key } })
 export const clearMullvadAccount = () => api<MullvadAccount>('/api/mullvad/account', { method: 'DELETE' })
 export const fetchRepos = () =>

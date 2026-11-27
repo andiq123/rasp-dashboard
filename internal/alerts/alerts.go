@@ -271,6 +271,13 @@ func (e *Engine) sender() {
 	}
 }
 
+// ClearError dismisses the last delivery error shown in the dashboard.
+func (e *Engine) ClearError() {
+	e.mu.Lock()
+	e.lastErr = ""
+	e.mu.Unlock()
+}
+
 // Wait blocks until every queued push was delivered or given up (tests, shutdown).
 func (e *Engine) Wait() { e.inflight.Wait() }
 
@@ -345,7 +352,11 @@ func (e *Engine) post(ctx context.Context, server, key string, m push) error {
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	resp, err := e.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("could not reach Bark: %w", err)
+		var ne interface{ Timeout() bool }
+		if errors.As(err, &ne) && ne.Timeout() {
+			return errors.New("Bark did not answer in time, even after retrying")
+		}
+		return errors.New("could not reach Bark, even after retrying")
 	}
 	defer resp.Body.Close()
 	var reply struct {

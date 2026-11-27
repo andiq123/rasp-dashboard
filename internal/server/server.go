@@ -130,6 +130,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/mullvad/account", s.handleMullvadAccount)
 	mux.HandleFunc("/api/alerts", s.handleAlerts)
 	mux.HandleFunc("/api/alerts/test", s.handleAlerts)
+	mux.HandleFunc("/api/alerts/error", s.handleAlerts)
 	mux.HandleFunc("/api/uptime", s.handleUptime)
 	mux.HandleFunc("/api/residential", s.handleResidentialBalance)
 	mux.HandleFunc("/api/residential/balance", s.handleResidentialBalance)
