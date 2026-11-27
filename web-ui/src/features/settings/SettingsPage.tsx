@@ -1,6 +1,7 @@
 import { useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Copy, Database, FolderGit2, HardDrive, KeyRound, Settings2, TriangleAlert, Unlink } from 'lucide-react'
+import { Copy, Database, FolderGit2, HardDrive, KeyRound, Link2, Route, Settings2, TriangleAlert, Unlink, type LucideIcon } from 'lucide-react'
 import {
   clearGitHubToken,
   engineAction,
@@ -27,10 +28,24 @@ import { DockerPanel } from '@/features/settings/DockerPanel'
 import { AlertsPanel } from '@/features/settings/AlertsPanel'
 import { MullvadPanel } from '@/features/settings/MullvadPanel'
 import { ResidentialPanel } from '@/features/settings/ResidentialPanel'
+import { sectionFrom, SettingsNav, type SettingsSection } from '@/features/settings/SettingsNav'
 import { writeClipboardText } from '@/lib/clipboard'
 import { codeSurface, muted } from '@/lib/ui'
 
+/** A titled pair of related panels inside a section. */
+function SettingsGroup({ title, icon: Icon, children }: { title: string; icon: LucideIcon; children: React.ReactNode }) {
+  return (
+    <section className="settings-group" aria-label={title}>
+      <h2 className="settings-group-title"><Icon aria-hidden />{title}</h2>
+      <div className="settings-pair">{children}</div>
+    </section>
+  )
+}
+
 export function SettingsPage() {
+  const { '*': splat } = useParams()
+  const navigate = useNavigate()
+  const section = sectionFrom(splat)
   const { showToast } = useToast()
   const { confirm } = useConfirm()
   const qc = useQueryClient()
@@ -156,14 +171,7 @@ export function SettingsPage() {
   const goLabel = (engine.data?.go_options || []).find((o) => o.id === goToolchain)?.label || goToolchain || 'From go.mod'
   const login = gh.data?.user?.login || 'GitHub'
 
-  return (
-    <div className="settings-page grid gap-3.5">
-      <PageHeader title="Settings">
-        <PageSub>GitHub, Mullvad, alerts, remote access, shared engines and Docker on this Pi</PageSub>
-      </PageHeader>
-
-      <div className="settings-grid">
-        <div className="settings-col">
+  const githubPanel = (
           <Panel
             title={<span className="inline-flex items-center gap-1.5"><FolderGit2 aria-hidden /> GitHub</span>}
             actions={
@@ -228,15 +236,8 @@ export function SettingsPage() {
               </div>
             )}
           </Panel>
-
-          <MullvadPanel />
-          <ResidentialPanel />
-          <DashboardExposure />
-        </div>
-
-        {/* Balanced columns: accounts, data and remote access left; alerts and engines right. */}
-        <div className="settings-col">
-          <AlertsPanel />
+  )
+  const enginesPanel = (
         <Panel
           title={<span className="inline-flex items-center gap-1.5"><Database aria-hidden /> Engines</span>}
           busy={engine.isFetching}
@@ -306,10 +307,36 @@ export function SettingsPage() {
             </>
           )}
         </Panel>
-        </div>
-      </div>
+  )
 
-      <DockerPanel />
+  const content: Record<SettingsSection, React.ReactNode> = {
+    connections: (
+      <>
+        <SettingsGroup title="Internet routes" icon={Route}>
+          <MullvadPanel />
+          <ResidentialPanel />
+        </SettingsGroup>
+        <SettingsGroup title="Code and access" icon={Link2}>
+          {githubPanel}
+          <DashboardExposure />
+        </SettingsGroup>
+      </>
+    ),
+    alerts: <AlertsPanel />,
+    system: <div className="settings-stack">{enginesPanel}<DockerPanel /></div>,
+  }
+
+  return (
+    <div className="settings-page grid gap-3.5">
+      <PageHeader title="Settings">
+        <PageSub>Connections, alerts and the services this Pi runs</PageSub>
+      </PageHeader>
+
+      <div className="settings-shell">
+        <SettingsNav current={section} onPick={(id) => navigate(`/settings/${id}`)} />
+        {/* Keyed by section: each one rises in on its own when picked. */}
+        <div key={section} className="settings-section">{content[section]}</div>
+      </div>
     </div>
   )
 }

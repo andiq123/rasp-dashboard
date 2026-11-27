@@ -504,7 +504,9 @@ button:not(:disabled), summary { cursor: pointer; }
 
 /* Item rows: icon chip, title with metadata, trailing action. */
 .item-list { display: grid; }
-.item-row { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 9px 0; }
+.item-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; padding: 9px 0; }
+/* Text takes the room; actions wrap under it on narrow cards instead of overlapping. */
+.item-row > .item-text { flex: 1 1 12rem; }
 .item-list > .item-row + .item-row { border-top: 1px solid var(--line-soft); }
 .item-text { display: grid; gap: 2px; flex: 1; min-width: 0; line-height: 1.3; }
 .item-text strong { font-size: var(--text-label); font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -568,10 +570,6 @@ button:not(:disabled), summary { cursor: pointer; }
 .password-btn:nth-of-type(2) { right: 4px; }
 .password-btn:disabled { opacity: 0.4; pointer-events: none; }
 
-/* Settings: two columns on wide screens. */
-.settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
-.settings-col { display: grid; gap: 14px; min-width: 0; }
-@media (max-width: 900px) { .settings-grid { grid-template-columns: minmax(0, 1fr); } }
 
 /* Stretched row link: the row's button covers the whole row, focus ring included. */
 .row-link::after { content: ''; position: absolute; inset: 0; border-radius: 6px; }
@@ -1130,6 +1128,8 @@ button:not(:disabled), summary { cursor: pointer; }
 .res-meter { height: 6px; border-radius: 999px; background: var(--surface-inset); overflow: hidden; }
 .res-meter > span { display: block; height: 100%; border-radius: inherit; background: var(--tone); transition: width var(--dur-slow) var(--ease-out-soft); }
 .res-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.res-stats.is-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.res-stats strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .res-stats > div { display: grid; gap: 2px; padding: 8px 10px; border-radius: 10px; background: var(--surface-inset); }
 .res-stats small { font-size: var(--text-micro); color: var(--ink-muted); }
 .res-stats strong { font-size: var(--text-label); font-weight: 650; font-variant-numeric: tabular-nums; }
@@ -1231,3 +1231,31 @@ button:not(:disabled), summary { cursor: pointer; }
 .vars-masked:hover { border-color: color-mix(in oklab, var(--color-primary) 35%, var(--color-base-300)); }
 .vars-masked:focus-visible { outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 16%, transparent); }
 .vars-masked pre { margin: 0; padding: 10px 12px; max-height: 16rem; overflow: auto; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; color: var(--color-base-content); }
+
+/* Settings: a section sidebar beside one focused section. */
+.settings-shell { display: grid; gap: 14px; align-items: start; }
+@media (min-width: 900px) { .settings-shell { grid-template-columns: 220px minmax(0, 1fr); } }
+.settings-nav { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.settings-nav::-webkit-scrollbar { display: none; }
+@media (min-width: 900px) { .settings-nav { position: sticky; top: 76px; flex-direction: column; gap: 4px; overflow: visible; padding: 6px; border-radius: var(--radius-box, 16px); background: var(--color-base-100); box-shadow: 0 0 0 1px var(--color-base-300); } }
+.settings-nav-item { display: flex; align-items: center; gap: 10px; flex: none; padding: 8px 10px; border-radius: 12px; text-align: left; color: var(--ink-muted); transition: background-color var(--dur-base) var(--ease-standard), color var(--dur-base) var(--ease-standard); }
+.settings-nav-item:hover { color: var(--color-base-content); background: color-mix(in oklab, var(--color-base-content) 4%, transparent); }
+.settings-nav-item.is-active { color: var(--color-primary); background: color-mix(in oklab, var(--color-primary) 10%, transparent); }
+.settings-nav-icon { display: grid; place-items: center; width: 30px; height: 30px; flex: none; border-radius: 9px; background: var(--surface-inset); transition: background-color var(--dur-base) var(--ease-standard); }
+.settings-nav-item.is-active .settings-nav-icon { background: color-mix(in oklab, var(--color-primary) 14%, var(--color-base-100)); }
+.settings-nav-icon svg { width: 15px; height: 15px; }
+.settings-nav-text { display: grid; min-width: 0; line-height: 1.25; }
+.settings-nav-text strong { font-size: var(--text-label); font-weight: 650; }
+.settings-nav-text small { min-height: 1.25em; font-size: var(--text-micro); color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color var(--dur-slow) var(--ease-standard); }
+.settings-nav-text small.tone-ok { color: var(--color-success); }
+.settings-nav-text small.tone-warn { color: var(--color-warning); }
+.settings-nav-text small.tone-bad { color: var(--color-error); }
+.settings-section { display: grid; gap: 14px; min-width: 0; animation: rise-in var(--dur-slow) var(--ease-out-soft) both; }
+.settings-pair { display: grid; gap: 14px; align-items: stretch; }
+/* Paired panels share one height; their content stays at the top. */
+.settings-pair > .card { height: 100%; }
+@media (min-width: 1300px) { .settings-pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.settings-stack { display: grid; gap: 14px; }
+.settings-group { display: grid; gap: 8px; }
+.settings-group-title { display: flex; align-items: center; gap: 6px; margin: 0; padding-left: 4px; font-size: var(--text-micro); font-weight: 650; color: var(--ink-muted); }
+.settings-group-title svg { width: 13px; height: 13px; color: var(--ink-faint); }

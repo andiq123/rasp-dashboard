@@ -12,6 +12,7 @@ import { PanelSkeleton } from '@/components/ui/Skeleton/Skeleton'
 import { SwapText } from '@/components/ui/SwapText/SwapText'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { daysLeftText, daysLeftTone, expiryDate, MULLVAD_ACCOUNT_URL } from '@/lib/mullvad'
+import { useLiveState } from '@/hooks/useLiveState'
 import { muted } from '@/lib/ui'
 
 /** Mullvad subscription: days left, renewal link, and the account number form. */
@@ -56,6 +57,9 @@ export function MullvadPanel() {
 
   const a = acct.data
   const tone = daysLeftTone(a)
+  const { state } = useLiveState()
+  const vpn = state.vpn_health || {}
+  const leaks = state.leak_check
   return (
     <Panel
       title={<span className="inline-flex items-center gap-1.5"><ShieldCheck aria-hidden /> Mullvad</span>}
@@ -80,6 +84,12 @@ export function MullvadPanel() {
             <a className={`btn btn-sm ${tone && tone !== 'ok' ? 'btn-primary' : 'btn-success btn-soft'}`} href={MULLVAD_ACCOUNT_URL} target="_blank" rel="noreferrer">
               <Plus className="h-3.5 w-3.5" aria-hidden /> Add time <ExternalLink className="h-3 w-3 opacity-70" aria-hidden />
             </a>
+          </div>
+          {/* Live tunnel facts, in the same tiles as Residential data beside it. */}
+          <div className="res-stats is-three">
+            <div><small>Relay</small><strong>{vpn.relay || '—'}</strong></div>
+            <div><small>Exit</small><strong className={vpn.egress_ok ? 'text-success' : 'text-error'}>{vpn.egress_ok ? 'Romania' : 'Not verified'}</strong></div>
+            <div><small>Leaks</small><strong className={leaks?.ok === false ? 'text-error' : leaks?.ok ? 'text-success' : undefined}>{leaks?.checked ? (leaks.ok ? 'None' : 'Found') : '—'}</strong></div>
           </div>
           {a.error ? (
             <Notice icon={TriangleAlert} tone="warn" title="Could not refresh">
