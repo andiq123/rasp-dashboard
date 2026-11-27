@@ -1082,8 +1082,11 @@ button:not(:disabled), summary { cursor: pointer; }
 
 /* Alert events: one row each, the whole row toggles. */
 .event-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 2px 12px; margin: 0; padding: 0; border: 0; min-width: 0; }
-.event-list legend { float: left; grid-column: 1 / -1; padding: 0 0 4px; font-size: var(--text-micro); font-weight: 650; color: var(--ink-muted); }
+.event-list legend { float: left; grid-column: 1 / -1; display: flex; justify-content: space-between; width: 100%; padding: 0 0 4px; font-size: var(--text-micro); font-weight: 650; color: var(--ink-muted); }
 .event-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; background: var(--surface-inset); border-radius: 10px; cursor: pointer; transition: background-color var(--dur-quick) var(--ease-standard); }
+.event-count { font-weight: 500; color: var(--ink-faint); }
+/* An odd last event takes the full row (the legend is child 1, so "even" here). */
+.event-list > .event-row:last-child:nth-child(even) { grid-column: 1 / -1; }
 .event-row:hover { background: color-mix(in oklab, var(--color-base-content) 6%, var(--surface-inset)); }
 .event-list { row-gap: 6px; }
 .event-icon { display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: 9px; color: var(--tone); background: color-mix(in oklab, var(--tone) 13%, transparent); transition: color var(--dur-slow) var(--ease-standard), background-color var(--dur-slow) var(--ease-standard); }

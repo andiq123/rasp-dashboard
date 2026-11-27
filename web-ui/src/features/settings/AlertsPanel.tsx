@@ -12,6 +12,7 @@ import { Panel } from '@/components/ui/Panel/Panel'
 import { PanelSkeleton } from '@/components/ui/Skeleton/Skeleton'
 import { SwapText } from '@/components/ui/SwapText/SwapText'
 import { useToast } from '@/components/ui/Toast/Toast'
+import { fmtRelative } from '@/lib/format'
 
 const BARK_APP = 'https://apps.apple.com/app/id1403753865'
 const BARK_SERVER = 'https://api.day.app'
@@ -20,14 +21,25 @@ const KEY_RE = /^[A-Za-z0-9]{8,64}$/
 /** What can reach the phone, in the backend's categories. */
 // Colors follow the flow diagram: VPN indigo, apps and links sky, the Pi amber,
 // residential cost in the proxy color, route switches green.
-const EVENTS: { id: AlertEvent; icon: LucideIcon; label: string; hint: string; color: string }[] = [
-  { id: 'internet', icon: Wifi, label: 'Internet or VPN down', hint: 'After 2 minutes, or a leak', color: 'var(--route-tunnel)' },
-  { id: 'mullvad', icon: ShieldCheck, label: 'Mullvad time running low', hint: 'From 7 days left', color: 'var(--route-tunnel)' },
-  { id: 'apps', icon: Boxes, label: 'An app keeps crashing', hint: '3 restarts in 10 minutes', color: 'var(--route-direct)' },
-  { id: 'links', icon: Globe, label: 'A public link is down', hint: '2 failed checks in a row', color: 'var(--route-direct)' },
-  { id: 'pi', icon: Thermometer, label: 'Pi overheating or disk full', hint: 'Disk over 90%', color: 'var(--color-warning)' },
-  { id: 'route', icon: ArrowLeftRight, label: 'Route switched', hint: 'Verified, with the new IP', color: 'var(--color-success)' },
-  { id: 'cost', icon: Coins, label: 'Still on Residential', hint: 'Every 2 minutes, with data used', color: 'var(--route-proxy)' },
+type EventDef = { id: AlertEvent; icon: LucideIcon; label: string; hint: string; color: string }
+const EVENT_GROUPS: { title: string; events: EventDef[] }[] = [
+  {
+    title: 'When something breaks',
+    events: [
+      { id: 'internet', icon: Wifi, label: 'Internet or VPN down', hint: 'After 2 minutes, or a leak', color: 'var(--route-tunnel)' },
+      { id: 'apps', icon: Boxes, label: 'An app keeps crashing', hint: '3 restarts in 10 minutes', color: 'var(--route-direct)' },
+      { id: 'links', icon: Globe, label: 'A public link is down', hint: '2 failed checks in a row', color: 'var(--route-direct)' },
+      { id: 'pi', icon: Thermometer, label: 'Pi overheating or disk full', hint: 'Disk over 90%', color: 'var(--color-warning)' },
+    ],
+  },
+  {
+    title: 'Routes and costs',
+    events: [
+      { id: 'route', icon: ArrowLeftRight, label: 'Route switched', hint: 'Verified, with the new IP', color: 'var(--color-success)' },
+      { id: 'cost', icon: Coins, label: 'Still on Residential', hint: 'Every 2 minutes, with data left', color: 'var(--route-proxy)' },
+      { id: 'mullvad', icon: ShieldCheck, label: 'Mullvad time running low', hint: 'From 7 days left', color: 'var(--route-tunnel)' },
+    ],
+  },
 ]
 
 /** Bark shows a URL like https://api.day.app/<key>/…; a bare key works too. */
@@ -145,6 +157,7 @@ export function AlertsPanel() {
                 <span className="meta">
                   <span>Bark {masked(a.key)}</span>
                   {a.server !== BARK_SERVER ? <span>{hostOf(a.server)}</span> : null}
+                  {a.last_sent ? <span>Last sent {fmtRelative(a.last_sent)}</span> : null}
                 </span>
               </span>
               {testButton()}
@@ -190,19 +203,27 @@ export function AlertsPanel() {
             </form>
           )}
 
-          <fieldset className="event-list">
-            <legend>Notify me when</legend>
-            {EVENTS.map((ev) => (
-              <label key={ev.id} className={`event-row${muted.includes(ev.id) ? ' is-off' : ''}`} style={{ '--tone': ev.color } as React.CSSProperties}>
-                <span className="event-icon"><ev.icon aria-hidden /></span>
-                <span className="event-text">
-                  <strong>{ev.label}</strong>
-                  <small>{ev.hint}</small>
-                </span>
-                <input type="checkbox" className="toggle toggle-sm toggle-primary" checked={!muted.includes(ev.id)} onChange={() => toggleEvent(ev.id)} />
-              </label>
-            ))}
-          </fieldset>
+          {EVENT_GROUPS.map((group) => {
+            const on = group.events.filter((ev) => !muted.includes(ev.id)).length
+            return (
+              <fieldset key={group.title} className="event-list">
+                <legend>
+                  <span>{group.title}</span>
+                  <span className="event-count">{on === group.events.length ? 'All on' : `${on} of ${group.events.length} on`}</span>
+                </legend>
+                {group.events.map((ev) => (
+                  <label key={ev.id} className={`event-row${muted.includes(ev.id) ? ' is-off' : ''}`} style={{ '--tone': ev.color } as React.CSSProperties}>
+                    <span className="event-icon"><ev.icon aria-hidden /></span>
+                    <span className="event-text">
+                      <strong>{ev.label}</strong>
+                      <small>{ev.hint}</small>
+                    </span>
+                    <input type="checkbox" className="toggle toggle-sm toggle-primary" checked={!muted.includes(ev.id)} onChange={() => toggleEvent(ev.id)} />
+                  </label>
+                ))}
+              </fieldset>
+            )
+          })}
 
           <AnimatedList
             items={a?.last_error ? [a.last_error] : []}

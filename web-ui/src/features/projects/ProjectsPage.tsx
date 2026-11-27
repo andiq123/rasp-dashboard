@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  Check,
   Archive,
   ArrowLeft,
   Box,
@@ -540,7 +541,7 @@ export function ProjectsPage() {
                       />
                       {nameDirty ? (
                         <span className="flex gap-1 appear">
-                          <Button variant="primary" loading={renameMut.isPending} onClick={() => renameMut.mutate()}>Save</Button>
+                          <Button variant="primary" icon={<Check className="h-3.5 w-3.5" aria-hidden />} loading={renameMut.isPending} onClick={() => renameMut.mutate()}>Save</Button>
                           <Button variant="quiet" onClick={() => setDraftName(groupName0)}>Cancel</Button>
                         </span>
                       ) : null}
@@ -560,8 +561,7 @@ export function ProjectsPage() {
                   </div>
                   <div className="col-span-2 flex flex-wrap justify-end gap-1.5 sm:ml-auto">
                     <Button
-                      variant="quiet"
-                      className="text-error"
+                      variant="dangerSoft"
                       icon={<Trash2 className="h-3.5 w-3.5" aria-hidden />}
                       loading={deleteGroupMut.isPending}
                       onClick={() => void onDeleteGroup()}
