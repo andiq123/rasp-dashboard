@@ -42,6 +42,8 @@ func alertsFromState(st state.State) []alerts.Alert {
 		switch {
 		case is.Code == "mullvad-expiring":
 			a.Priority, a.Tags, a.Grace, a.NoResolve = "default", "hourglass", 0, true
+		case strings.HasPrefix(is.Code, "app-crash:"):
+			a.Tags, a.Grace = "boom", 0
 		case is.Code == "temperature-high" || is.Code == "thermal-throttling":
 			a.Tags, a.Grace = "thermometer", 5*time.Minute
 		case is.Code == "uplink-offline" || strings.HasPrefix(is.Code, "vpn-") || is.Code == "hotspot-down":

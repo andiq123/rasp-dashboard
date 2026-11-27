@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { Link } from 'react-router-dom'
-import { CircleStop, Loader2, Play, RotateCw } from 'lucide-react'
-import type { ActivitySnapshot, Service } from '@/api/types'
+import { CircleStop, Loader2, Play, RotateCw, TriangleAlert } from 'lucide-react'
+import type { ActivitySnapshot, AppHealth, Service } from '@/api/types'
 import { Button } from '@/components/ui/Button/Button'
 import { ServiceUsage } from '@/components/ui/UsageMeter/UsageMeter'
 import { activityMatchesService } from '@/hooks/useActivity'
@@ -25,10 +25,11 @@ type Props = {
   actPending: boolean
   onAction: (slug: string, action: string) => void
   sseLive?: boolean
+  health?: AppHealth
 }
 
 /** Whole-card hit target to open details; action buttons sit above the link. */
-export function ServiceCard({ group, svc, selected, activity, actPending, onAction, sseLive }: Props) {
+export function ServiceCard({ group, svc, selected, activity, actPending, onAction, sseLive, health }: Props) {
   const st = statusLabel(svc)
   const building = isBuilding(svc)
   const queued = isQueued(svc)
@@ -89,6 +90,16 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
             </p>
           </div>
         </div>
+
+        {health?.crash_loop ? (
+          <div className="crash-note" role="status">
+            <TriangleAlert aria-hidden />
+            <span>
+              <strong>Crashing: {health.recent_restarts} restarts in 10 min{health.oom_killed ? ', out of memory' : ''}</strong>
+              {health.last_log ? <code title={health.last_log}>{health.last_log}</code> : null}
+            </span>
+          </div>
+        ) : null}
 
         {showUsage ? (
           <ServiceUsage

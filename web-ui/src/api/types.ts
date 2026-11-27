@@ -109,6 +109,7 @@ export type AppState = {
   routing?: { apps_direct?: boolean; tunnels_direct?: boolean }
   devices?: ConnectedDevice[]
   leak_check?: LeakCheck
+  apps?: AppHealth[]
   mullvad_account?: MullvadAccount
   device_metrics?: DeviceMetrics
   files_root?: string
@@ -550,4 +551,16 @@ export type LeakCheck = {
   dns_via_tunnel: boolean
   dns_servers?: string[]
   problems?: string[]
+}
+
+/** A deployed container's stability (Docker restarts crashes silently). */
+export type AppHealth = {
+  container: string
+  status: string
+  restarts: number
+  recent_restarts: number
+  exit_code?: number
+  oom_killed?: boolean
+  crash_loop?: boolean
+  last_log?: string
 }

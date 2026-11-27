@@ -557,6 +557,10 @@ button:not(:disabled), summary { cursor: pointer; }
 .password-btn svg { width: 15px; height: 15px; }
 .password-btn:nth-of-type(1) { right: 36px; }
 .password-btn:nth-of-type(2) { right: 4px; }
+.password-btn:disabled { opacity: 0.4; pointer-events: none; }
+/* ntfy topic: the server shows as a fixed prefix, you type only the topic. */
+.topic-prefix { position: absolute; left: 12px; z-index: 1; font-size: var(--text-body); color: var(--ink-faint); pointer-events: none; }
+.topic-input .input { font-family: inherit; }
 
 /* Settings: two columns on wide screens. */
 .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
@@ -1059,3 +1063,10 @@ button:not(:disabled), summary { cursor: pointer; }
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
   ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
 }
+
+/* Crash loop on a service card: what happened and the last thing it logged. */
+.crash-note { display: flex; gap: 8px; align-items: flex-start; padding: 7px 9px; border-radius: 10px; font-size: var(--text-micro); color: var(--color-error); background: color-mix(in oklab, var(--color-error) 8%, transparent); animation: item-in var(--dur-slow) var(--ease-out-soft) backwards; }
+.crash-note svg { width: 13px; height: 13px; flex: none; margin-top: 1px; }
+.crash-note span { display: grid; gap: 2px; min-width: 0; }
+.crash-note strong { font-weight: 650; }
+.crash-note code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-muted); font-size: 10.5px; }

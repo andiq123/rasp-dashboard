@@ -617,6 +617,7 @@ export function ProjectsPage() {
                         sseLive={live}
                         actPending={svcAct.isPending && svcAct.variables?.slug === svc.slug}
                         onAction={(slug, action) => void onServiceAction(slug, action)}
+                        health={(state.apps || []).find((a) => a.container === `fw-${groupSlug}-${svc.slug}`)}
                       />
                     )}
                   </AnimatedServiceCollection>

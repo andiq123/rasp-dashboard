@@ -60,6 +60,7 @@ type State struct {
 	Clients        *int            `json:"clients,omitempty"`
 	Devices        []Device        `json:"devices,omitempty"`
 	LeakCheck      *LeakCheck      `json:"leak_check,omitempty"`
+	Apps           []AppHealth     `json:"apps,omitempty"`
 	MullvadAccount *MullvadAccount `json:"mullvad_account,omitempty"`
 	DeviceMetrics  DeviceMetrics   `json:"device_metrics"`
 	FilesRoot      string          `json:"files_root,omitempty"`
@@ -188,6 +189,7 @@ type Reader struct {
 	routing           routingCache
 	netUsers          netUsersCache
 	leaks             leakCache
+	appHealth         appHealthCache
 }
 
 type metricsSample struct {
@@ -228,6 +230,7 @@ func (r *Reader) Read() (State, error) {
 		Traffic:        r.readTraffic(cfg.WANInterface, cfg.WGInterface),
 		Routing:        r.readServiceRouting(),
 		NetUsers:       r.readNetUsers(),
+		Apps:           r.readAppHealth(),
 		DeviceMetrics:  metrics,
 		GeneratedAt:    time.Now().Format(time.RFC3339),
 	}
@@ -734,6 +737,19 @@ func healthIssues(st State) []HealthIssue {
 			}
 		}
 		issues = append(issues, HealthIssue{Code: "mullvad-expiring", Severity: sev, Title: title, Detail: "Add time on mullvad.net. When it runs out, the Romanian tunnel stops and the hotspot has no internet.", Action: "mullvad-renew"})
+	}
+	for _, a := range st.Apps {
+		if !a.CrashLoop {
+			continue
+		}
+		name := strings.TrimPrefix(a.Container, appHealthPrefix)
+		detail := fmt.Sprintf("Restarted %d times in the last 10 minutes.", a.RecentRestarts)
+		if a.OOMKilled {
+			detail += " It ran out of memory; raise its memory limit."
+		} else if a.LastLog != "" {
+			detail += " Last log: " + a.LastLog
+		}
+		issues = append(issues, HealthIssue{Code: "app-crash:" + a.Container, Severity: "critical", Title: name + " keeps crashing", Detail: detail})
 	}
 	if lc := st.LeakCheck; lc != nil && !lc.OK {
 		issues = append(issues, HealthIssue{Code: "vpn-leak", Severity: "critical", Title: "Traffic could leave outside the VPN", Detail: strings.Join(lc.Problems, ". ") + ".", Action: "restart-hotspot"})
