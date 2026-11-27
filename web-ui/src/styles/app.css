@@ -518,7 +518,9 @@ button:not(:disabled), summary { cursor: pointer; }
 .stat-chip small { font-size: inherit; font-variant-numeric: tabular-nums; }
 
 /* Section tabs: quiet labels, an underline that grows into the active one. */
-.svc-tabs { display: flex; gap: 2px; padding: 4px 8px 0; border-bottom: 1px solid var(--line-soft); overflow-x: auto; }
+.svc-tabs { display: flex; gap: 2px; padding: 4px 8px 0; border-bottom: 1px solid var(--line-soft); overflow: visible; }
+/* Narrow screens: tabs scroll sideways (no visible bar); wide screens: fixed in place. */
+@media (max-width: 720px) { .svc-tabs { overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; } .svc-tabs::-webkit-scrollbar { display: none; } }
 .svc-tab { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 9px 12px; border: 0; background: none; border-radius: 9px 9px 0 0; font-size: var(--text-label); font-weight: 600; color: var(--ink-muted); white-space: nowrap; transition: color var(--dur-quick), background-color var(--dur-quick); }
 .svc-tab:hover { color: var(--color-base-content); background: color-mix(in oklab, var(--color-base-content) 4%, transparent); }
 .svc-tab::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--color-primary); transform: scaleX(0); transition: transform var(--dur-base) var(--ease-out-soft); }
@@ -538,7 +540,7 @@ button:not(:disabled), summary { cursor: pointer; }
 .group-enter { animation: rise-in var(--dur-slow) var(--ease-out-soft) both; }
 
 /* Skeletons: calm placeholders shaped like the content they stand in for. */
-.skeleton-row, .skeleton-card {
+.skeleton-row, .skeleton-card, .skel {
   display: block; border-radius: var(--radius-control);
   background: linear-gradient(90deg, var(--surface-inset) 30%, color-mix(in oklab, var(--color-base-300) 45%, var(--surface-inset)) 50%, var(--surface-inset) 70%) 0 0 / 300% 100%;
   animation: skeleton 1.6s ease-in-out infinite;
@@ -1206,3 +1208,26 @@ button:not(:disabled), summary { cursor: pointer; }
 .picker-list .picker-go { width: 14px; height: 14px; margin-left: auto; color: var(--ink-faint); opacity: 0; transition: opacity var(--dur-quick), transform var(--dur-quick); }
 .picker-list li button:hover .picker-go { opacity: 1; transform: translateX(2px); }
 .picker-empty { margin: 0; padding: 12px; font-size: var(--text-micro); color: var(--ink-faint); text-align: center; }
+/* Floating save bar: appears with the first edit, stays in reach while scrolling. */
+.config-actions { position: sticky; bottom: 12px; z-index: 5; display: flex; align-items: center; gap: 8px; justify-self: end; padding: 6px 6px 6px 14px; border-radius: 14px; background: var(--color-base-100); box-shadow: 0 8px 24px -10px color-mix(in oklab, var(--color-base-content) 30%, transparent), 0 0 0 1px var(--color-base-300); animation: rise-in var(--dur-base) var(--ease-out-soft) both; }
+.config-dirty { display: inline-flex; align-items: center; gap: 6px; margin-right: 4px; font-size: var(--text-micro); font-weight: 600; color: var(--ink-muted); }
+.config-dirty > span { width: 7px; height: 7px; border-radius: 50%; background: var(--color-warning); }
+
+/* Service detail skeleton: the same shape as the loaded page, so nothing jumps. */
+.skel { height: 12px; border-radius: 6px; }
+.svc-skel { display: grid; overflow: hidden; }
+.svc-skel-head { display: flex; gap: 12px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line-soft); }
+.svc-skel-meters { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding: 12px 16px; border-bottom: 1px solid var(--line-soft); }
+.svc-skel-tabs { display: flex; gap: 18px; padding: 14px 16px; border-bottom: 1px solid var(--line-soft); }
+.svc-skel-body { display: grid; gap: 14px; padding: 14px 16px; }
+@media (min-width: 1200px) { .svc-skel-body { grid-template-columns: 1fr 1fr; } }
+
+/* Variables: own values masked until Edit, linked values beside them on wide screens. */
+.vars-layout { display: grid; gap: 14px; align-items: start; }
+@media (min-width: 1200px) { .vars-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.vars-head { display: flex; align-items: center; gap: 8px; }
+.vars-count { font-size: var(--text-micro); color: var(--ink-faint); margin-right: auto; }
+.vars-masked { display: block; width: 100%; padding: 0; border: 1px solid var(--color-base-300); border-radius: var(--radius-field, 12px); background: var(--color-base-100); text-align: left; cursor: text; transition: border-color var(--dur-quick), box-shadow var(--dur-quick); }
+.vars-masked:hover { border-color: color-mix(in oklab, var(--color-primary) 35%, var(--color-base-300)); }
+.vars-masked:focus-visible { outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 16%, transparent); }
+.vars-masked pre { margin: 0; padding: 10px 12px; max-height: 16rem; overflow: auto; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; color: var(--color-base-content); }

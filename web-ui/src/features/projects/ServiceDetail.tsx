@@ -10,6 +10,7 @@ import {
   Globe,
   Hash,
   Link2,
+  Pencil,
   GitBranch,
   CircleStop,
   Cloud,
@@ -21,6 +22,7 @@ import {
   Loader2,
   Play,
   PlugZap,
+  RotateCcw,
   RotateCw,
   Settings2,
   Terminal,
@@ -40,6 +42,8 @@ import {
   unexposeService,
   updateServiceSettings,
   fetchUptime,
+  fetchBranches,
+  fetchDirs,
 } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import type { ActivityLine, ActivitySnapshot, Deployment, Progress, Service } from '@/api/types'
@@ -53,10 +57,10 @@ import { Modal } from '@/components/ui/Modal/Modal'
 import { RepoRootPicker } from '@/components/RepoRootPicker/RepoRootPicker'
 import { Disclosure } from '@/components/ui/Disclosure/Disclosure'
 import { ResourceBudget } from '@/components/ui/ResourceBudget/ResourceBudget'
-import { SecretValue } from '@/components/ui/SecretValue/SecretValue'
+import { maskEnv, SecretValue } from '@/components/ui/SecretValue/SecretValue'
 import { clampCpu, clampMem, ResourceSlider } from '@/components/ui/ResourceSlider/ResourceSlider'
 import { ServiceUsage } from '@/components/ui/UsageMeter/UsageMeter'
-import { Spinner } from '@/components/ui/Spinner/Spinner'
+import { PanelSkeleton } from '@/components/ui/Skeleton/Skeleton'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { activityMatchesService, useActivity } from '@/hooks/useActivity'
 import { useLiveState } from '@/hooks/useLiveState'
@@ -98,6 +102,33 @@ const TABS: Array<{ id: Tab; label: string; icon: LucideIcon }> = [
   { id: 'console', label: 'Console', icon: Terminal },
   { id: 'deploys', label: 'Deploys', icon: History },
 ]
+
+/** Placeholder in the shape of the loaded detail: header, meters, tabs, two columns. */
+function ServiceSkeleton() {
+  return (
+    <div className={`card ${surface} svc-skel`} role="status" aria-label="Loading service">
+      <div className="svc-skel-head">
+        <span className="skel" style={{ width: 40, height: 40, borderRadius: 12 }} />
+        <span className="grid gap-2 flex-1">
+          <span className="skel" style={{ width: '30%', height: 16 }} />
+          <span className="skel" style={{ width: '45%' }} />
+        </span>
+        <span className="skel" style={{ width: 180, height: 30, borderRadius: 10 }} />
+      </div>
+      <div className="svc-skel-meters">
+        <span className="skel" style={{ height: 22 }} />
+        <span className="skel" style={{ height: 22 }} />
+      </div>
+      <div className="svc-skel-tabs">
+        {[64, 72, 76, 80, 70, 68].map((w, i) => <span key={i} className="skel" style={{ width: w, height: 14 }} />)}
+      </div>
+      <div className="svc-skel-body">
+        <span className="skel" style={{ height: 260, borderRadius: 14 }} />
+        <span className="skel" style={{ height: 260, borderRadius: 14 }} />
+      </div>
+    </div>
+  )
+}
 
 export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Props) {
   // Link health is shared with the cards (same cached query).
@@ -254,7 +285,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
     if (ok) del.mutate()
   }
 
-  if (svcQ.isLoading) return <Spinner compact label="Loading service…" />
+  if (svcQ.isLoading) return <ServiceSkeleton />
   if (svcQ.isError || !svc) {
     return (
       <Empty
@@ -905,13 +936,12 @@ function IntegrateTab({ svc, siblings }: { svc: Service; siblings: Service[] }) 
       <div className="grid gap-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <span className="badge badge-primary badge-sm mb-2">Runtime integrations</span>
-            <h4 className="text-base font-bold m-0">Dependencies for {svc.name || svc.slug}</h4>
+            <h4 className="text-base font-bold m-0 inline-flex items-center gap-2"><PlugZap className="h-4 w-4 text-primary" aria-hidden />What {svc.name || svc.slug} uses</h4>
             <p className={`text-xs mt-1 mb-0 ${muted}`}>
-              Links stay inside this group. Credentials are injected into this container at start and never committed to the repository.
+              Credentials are added at start and never go into the repo.
             </p>
           </div>
-          <CopyCode value={appIntegrationGuide(svc, siblings)} label="Copy all instructions" prominent />
+          <CopyCode value={appIntegrationGuide(svc, siblings)} label="Copy setup notes" prominent />
         </div>
         <div className="grid gap-2 sm:grid-cols-3">
           <IntegrationState
@@ -936,7 +966,7 @@ function IntegrateTab({ svc, siblings }: { svc: Service; siblings: Service[] }) 
         <div className={`${tile} p-3 flex gap-2.5`}>
           <ShieldNote />
           <p className={`text-xs m-0 ${muted}`}>
-            Read configuration once at startup, validate required values, reuse connection pools and SDK clients, and never print secrets or full connection URLs in logs.
+            Read config once at startup, reuse connection pools, and never log secrets.
           </p>
         </div>
       </div>
@@ -978,7 +1008,7 @@ function IntegrateTab({ svc, siblings }: { svc: Service; siblings: Service[] }) 
             Open the app’s Config tab, select <strong>{svc.name || svc.slug}</strong> under {selector}, then save. A running app is recreated with the scoped variables.
           </p>
         </div>
-        <CopyCode value={allInstructions} label="Copy all instructions" prominent />
+        <CopyCode value={allInstructions} label="Copy setup notes" prominent />
       </div>
 
       <ol className="grid gap-2 list-none m-0 p-0 sm:grid-cols-3">
@@ -1115,25 +1145,70 @@ function ConfigTab({
   const [redis, setRedis] = useState(svc.linked_redis || '')
   const [autoDeploy, setAutoDeploy] = useState(!!svc.auto_deploy)
 
+  // The saved values, to tell an edit from what is already stored.
+  const saved = {
+    name: svc.name || '',
+    branch: svc.branch || '',
+    root: svc.root_dir || '',
+    build: svc.build_cmd || '',
+    memory: svc.memory_mb || 512,
+    cpus: svc.cpus || 1,
+    db: svc.linked_database || '',
+    bucket: svc.linked_bucket || '',
+    redis: svc.linked_redis || '',
+    auto: !!svc.auto_deploy,
+  }
+  function discard() {
+    setName(saved.name)
+    setBranch(saved.branch)
+    setRoot(saved.root)
+    setBuildCmd(saved.build)
+    setMemory(saved.memory)
+    setCpus(saved.cpus)
+    setDb(saved.db)
+    setBucket(saved.bucket)
+    setRedis(saved.redis)
+    setAutoDeploy(saved.auto)
+  }
   // Refill only when the saved service changes; live stats replace `svc` every tick.
   const savedKey = `${svc.slug}|${svc.updated_at || ''}`
   const [seenSaved, setSeenSaved] = useState(savedKey)
   if (seenSaved !== savedKey) {
     setSeenSaved(savedKey)
-    setName(svc.name || '')
-    setBranch(svc.branch || '')
-    setRoot(svc.root_dir || '')
-    setBuildCmd(svc.build_cmd || '')
-    setMemory(svc.memory_mb || 512)
-    setCpus(svc.cpus || 1)
-    setDb(svc.linked_database || '')
-    setBucket(svc.linked_bucket || '')
-    setRedis(svc.linked_redis || '')
-    setAutoDeploy(!!svc.auto_deploy)
+    discard()
   }
 
   const mem = clampMem(memory)
   const cpu = clampCpu(cpus)
+  // Save appears only once something differs from what is stored.
+  const dirty =
+    name.trim() !== saved.name ||
+    clampMem(saved.memory) !== mem ||
+    clampCpu(saved.cpus) !== cpu ||
+    (svc.type === 'go' &&
+      (branch.trim() !== saved.branch ||
+        root.trim() !== saved.root ||
+        buildCmd.trim() !== saved.build ||
+        db !== saved.db ||
+        bucket !== saved.bucket ||
+        redis !== saved.redis ||
+        autoDeploy !== saved.auto))
+
+  // Typing suggestions: the repo's branches, and builds for each cmd/ folder in the root.
+  const isGo = svc.type === 'go' && !!svc.repo
+  const branchesQ = useQuery({ queryKey: queryKeys.githubBranches(svc.repo || ''), queryFn: () => fetchBranches(svc.repo || ''), enabled: isGo, staleTime: 5 * 60_000 })
+  const cmdPath = [root.trim(), 'cmd'].filter(Boolean).join('/')
+  const cmdQ = useQuery({
+    queryKey: queryKeys.githubDirs(svc.repo || '', branch.trim() || 'main', cmdPath),
+    queryFn: () => fetchDirs(svc.repo || '', branch.trim() || 'main', cmdPath),
+    enabled: isGo,
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+  const buildSuggestions = [
+    ...(cmdQ.data?.dirs || []).map((d) => `go build -o app ./cmd/${d.name}`),
+    'go build -o app .',
+  ]
   const host = hostCapacity(state.device_metrics)
   const reserved = reservedFromServices(siblings, {
     excludeSlug: svc.slug,
@@ -1186,7 +1261,10 @@ function ConfigTab({
             tip="Used on the next redeploy."
             htmlFor="svc-branch"
           >
-            <Input id="svc-branch" value={branch} onChange={(e) => setBranch(e.target.value)} />
+            <Input id="svc-branch" list="svc-branch-list" autoComplete="off" value={branch} onChange={(e) => setBranch(e.target.value)} />
+            <datalist id="svc-branch-list">
+              {(branchesQ.data || []).map((b) => <option key={b.name} value={b.name}>{b.default ? 'default' : undefined}</option>)}
+            </datalist>
           </Field>
         ) : null}
       </div>
@@ -1218,7 +1296,10 @@ function ConfigTab({
             tip="Blank uses the default Go build."
             htmlFor="svc-build"
           >
-            <Input id="svc-build" value={buildCmd} onChange={(e) => setBuildCmd(e.target.value)} />
+            <Input id="svc-build" list="svc-build-list" autoComplete="off" spellCheck={false} placeholder="go build -o app ." value={buildCmd} onChange={(e) => setBuildCmd(e.target.value)} />
+            <datalist id="svc-build-list">
+              {buildSuggestions.map((cmd) => <option key={cmd} value={cmd} />)}
+            </datalist>
           </Field>
           <label className="label cursor-pointer justify-start gap-2 px-0 py-0">
             <input
@@ -1345,11 +1426,16 @@ function ConfigTab({
 
       </section>
 
-      <div className="config-actions">
-        <Button type="submit" variant="primary" icon={<Check className="h-3.5 w-3.5" aria-hidden />} loading={save.isPending}>
-          Save changes
-        </Button>
-      </div>
+      {/* Floats in once there is something to save; Discard puts the stored values back. */}
+      {dirty || save.isPending ? (
+        <div className="config-actions" role="status">
+          <span className="config-dirty"><span aria-hidden />Unsaved changes</span>
+          <Button variant="quiet" icon={<RotateCcw className="h-3.5 w-3.5" aria-hidden />} disabled={save.isPending} onClick={discard}>Discard</Button>
+          <Button type="submit" variant="primary" icon={<Check className="h-3.5 w-3.5" aria-hidden />} loading={save.isPending}>
+            Save changes
+          </Button>
+        </div>
+      ) : null}
     </form>
   )
 }
@@ -1362,6 +1448,7 @@ function VariablesTab({ group, slug, svc }: { group: string; slug: string; svc: 
     queryFn: () => fetchServiceEnv(group, slug),
   })
   const [draft, setDraft] = useState('')
+  const [editing, setEditing] = useState(false)
 
   // Load the saved variables into the editor when they arrive or change.
   const savedEnv = envQ.data?.env
@@ -1375,65 +1462,74 @@ function VariablesTab({ group, slug, svc }: { group: string; slug: string; svc: 
     mutationFn: () => updateServiceSettings(group, slug, { env: draft }),
     onSuccess: async () => {
       showToast('Variables saved')
+      setEditing(false)
       await qc.invalidateQueries({ queryKey: queryKeys.serviceEnv(group, slug) })
     },
     onError: (e: Error) => showToast(e.message, 'error'),
   })
 
-  if (envQ.isLoading) return <Spinner compact label="Loading variables…" />
+  if (envQ.isLoading) return <PanelSkeleton rows={3} label="Loading variables" />
   if (envQ.isError) {
     return <Empty compact title="Could not load env" body={(envQ.error as Error).message} />
   }
 
   const linked = envQ.data?.linked || []
   const kind = envQ.data?.kind || svc.type
-  const isGo = kind === 'go'
   const isConn = kind === 'postgres' || kind === 'bucket' || kind === 'redis'
+  const dirty = draft !== (savedEnv ?? '')
+  const count = draft.split('\n').filter((l) => /^\s*[A-Za-z_][A-Za-z0-9_]*\s*=/.test(l)).length
+  const title = isConn ? 'Connection variables' : 'App variables'
 
   return (
-    <div className="grid gap-3">
-      <Field
-        label={isConn ? 'Connection variables' : 'Service variables'}
-        tip={
-          isConn
-            ? 'Credentials for apps in this group. Each service owns its own env file.'
-            : isGo
-              ? 'This app’s own KEY=value pairs. Linked database, bucket, and Redis values appear below (injected at start).'
-              : 'One KEY=value per line. Secrets stay on this Pi.'
-        }
-      >
-        <TextArea
-          className="min-h-48 font-mono text-xs"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          spellCheck={false}
-          aria-label={isConn ? 'Connection variables' : 'Service variables'}
-        />
-      </Field>
+    <div className="vars-layout">
+      <section className="config-section" aria-label={title}>
+        <div className="vars-head">
+          <h3 className="config-heading"><Braces aria-hidden />{title}</h3>
+          <span className="vars-count">{count === 1 ? '1 variable' : `${count} variables`}</span>
+          {!editing ? (
+            <Button variant="infoSoft" icon={<Pencil className="h-3.5 w-3.5" aria-hidden />} onClick={() => setEditing(true)}>Edit</Button>
+          ) : null}
+        </div>
+        {editing ? (
+          <TextArea
+            className="min-h-56 font-mono text-xs"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            spellCheck={false}
+            autoFocus
+            placeholder="KEY=value, one per line"
+            aria-label={title}
+          />
+        ) : (
+          // Values stay masked until you choose to edit.
+          <button type="button" className="vars-masked" onClick={() => setEditing(true)} title="Edit variables">
+            <pre>{maskEnv(draft) || 'No variables yet. Add KEY=value pairs.'}</pre>
+          </button>
+        )}
+        <p className="pop-line">{isConn ? 'Credentials for apps in this group.' : 'One KEY=value per line. Stored only on this Pi.'}</p>
+      </section>
 
       {linked.length ? (
-        <div className="grid gap-2">
-          <div>
-            <strong className="text-xs">Linked (group-scoped)</strong>
-            <p className={`text-[11px] m-0 mt-0.5 ${muted}`}>
-              Read-only preview from siblings — applied when the container starts, not stored in this file.
-            </p>
-          </div>
+        <section className="config-section" aria-labelledby="vars-linked">
+          <h3 id="vars-linked" className="config-heading"><Link2 aria-hidden />Linked values</h3>
+          <p className="pop-line">Added when the app starts. Read-only.</p>
           {linked.map((block) => (
             <Field key={`${block.kind}-${block.source}`} label={block.label || block.source}>
               {block.env ? <SecretValue value={block.env} kind="env" label="Variables" className="min-h-0 max-h-48" /> : <pre className={`${codeSurface} min-h-0 max-h-48`}>—</pre>}
             </Field>
           ))}
-        </div>
-      ) : isGo && (svc.linked_database || svc.linked_bucket || svc.linked_redis) ? (
-        <p className={`text-xs m-0 ${muted}`}>
-          Linked resource has no connection env yet — open its Variables tab.
-        </p>
+        </section>
+      ) : kind === 'go' && (svc.linked_database || svc.linked_bucket || svc.linked_redis) ? (
+        <p className="pop-line">The linked resource has no connection values yet.</p>
       ) : null}
 
-      <Button variant="primary" loading={save.isPending} onClick={() => save.mutate()}>
-        Save variables
-      </Button>
+      {dirty || save.isPending ? (
+        <div className="config-actions" role="status">
+          <span className="config-dirty"><span aria-hidden />Unsaved changes</span>
+          <Button variant="quiet" icon={<RotateCcw className="h-3.5 w-3.5" aria-hidden />} disabled={save.isPending} onClick={() => setDraft(savedEnv ?? '')}>Discard</Button>
+          <Button variant="primary" icon={<Check className="h-3.5 w-3.5" aria-hidden />} loading={save.isPending} onClick={() => save.mutate()}>Save variables</Button>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -1482,7 +1578,7 @@ function ConsoleTab({
         </Button>
       </div>
       {logsQ.isLoading && !deploying && !runtimeText ? (
-        <Spinner compact label="Loading logs…" />
+        <PanelSkeleton rows={4} label="Loading logs" />
       ) : logsQ.isError && !deploying && !runtimeText ? (
         <Empty
           compact
@@ -1615,7 +1711,7 @@ function DeploysTab({
     return activityToLogLines(logsQ.data || [], 'store')
   }, [selectedLive, activity.lines, logsQ.data])
 
-  if (listQ.isLoading && !items.length) return <Spinner compact label="Loading deploys…" />
+  if (listQ.isLoading && !items.length) return <PanelSkeleton rows={4} label="Loading deploys" />
   if (listQ.isError && !items.length) {
     return <Empty compact title="Could not load deploys" body={(listQ.error as Error).message} />
   }
@@ -1685,7 +1781,7 @@ function DeploysTab({
               </p>
             ) : null}
             {!selectedLive && logsQ.isLoading ? (
-              <Spinner compact label="Loading deploy logs…" />
+              <PanelSkeleton rows={3} label="Loading deploy logs" />
             ) : !selectedLive && logsQ.isError ? (
               <Empty
                 compact
