@@ -23,6 +23,13 @@ export function fmtRate(n: number | undefined | null): string {
   return `${fmtBytes(v)}/s`
 }
 
+/** Bytes/s as megabits per second, the unit internet plans use. */
+export function fmtMbps(n: number | undefined | null): string {
+  const mbps = ((Number(n) || 0) * 8) / 1_000_000
+  if (mbps <= 0) return '0 Mbps'
+  return `${mbps < 1 ? mbps.toFixed(2) : mbps < 10 ? mbps.toFixed(1) : mbps.toFixed(0)} Mbps`
+}
+
 export function fmtRelative(iso: string | undefined | null): string {
   if (!iso) return ''
   const t = Date.parse(iso)

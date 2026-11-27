@@ -2,6 +2,8 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, Ban, Cable, Cloud, Cpu, Globe, Package, ShieldCheck, ShieldOff, Smartphone, Waypoints, Wifi, type LucideIcon } from 'lucide-react'
 import type { AppState } from '@/api/types'
 import { AnimatedList } from '@/components/ui/AnimatedList/AnimatedList'
+import { AnimatedNumber } from '@/components/ui/AnimatedNumber/AnimatedNumber'
+import { fmtMbps, fmtRate as fmtBytesRate } from '@/lib/format'
 import { Popover } from '@/components/ui/Popover/Popover'
 import { SwapText } from '@/components/ui/SwapText/SwapText'
 import { FlowInfo } from './FlowInfo'
@@ -281,6 +283,7 @@ export function TrafficFlow({ flow, state, branch }: { flow: Flow; state: AppSta
   const [piX, setPiX] = useState(0)
   const hasBranch = !!branch
   const layoutKey = flow.nodes.map((n) => n.id).join()
+  const net = state.device_metrics?.network || {}
   useLayoutEffect(() => {
     const el = wrap.current
     if (!el || !hasBranch) return
@@ -332,10 +335,17 @@ export function TrafficFlow({ flow, state, branch }: { flow: Flow; state: AppSta
     </ol>
       <div className="flow-under" style={piX ? ({ '--pi-x': `${piX}px` } as React.CSSProperties) : undefined}>
         {branch && piX ? <Spur branch={branch} /> : null}
-        <div className="flow-legend" aria-hidden>
-          <span><i className="legend-in" />In</span>
-          <span><i className="legend-out" />Out</span>
-        </div>
+        {/* Live totals double as the key: solid dot = data in, ring = requests out. */}
+        <dl className="flow-rates" aria-label="Network throughput">
+          <div className="flow-rate">
+            <dt><i className="legend-in" aria-hidden />In</dt>
+            <dd><strong><AnimatedNumber value={net.down_bytes_per_sec || 0} format={fmtMbps} /></strong><small><AnimatedNumber value={net.down_bytes_per_sec || 0} format={fmtBytesRate} /></small></dd>
+          </div>
+          <div className="flow-rate">
+            <dt><i className="legend-out" aria-hidden />Out</dt>
+            <dd><strong><AnimatedNumber value={net.up_bytes_per_sec || 0} format={fmtMbps} /></strong><small><AnimatedNumber value={net.up_bytes_per_sec || 0} format={fmtBytesRate} /></small></dd>
+          </div>
+        </dl>
       </div>
     </div>
   )

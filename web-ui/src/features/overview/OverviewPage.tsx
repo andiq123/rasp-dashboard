@@ -2,8 +2,6 @@ import { useEffect, useRef } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Activity,
-  ArrowDown,
-  ArrowUp,
   ChartLine,
   CircleStop,
   Cpu,
@@ -40,7 +38,7 @@ import { MonitorHistory } from '@/components/monitor/MonitorHistory'
 import { useLiveState } from '@/hooks/useLiveState'
 import { useSettled } from '@/hooks/useSettled'
 import { actionDoneLabel } from '@/lib/actions'
-import { fmtBytes, fmtPct, fmtRate } from '@/lib/format'
+import { fmtBytes, fmtPct } from '@/lib/format'
 import { MULLVAD_ACCOUNT_URL } from '@/lib/mullvad'
 import { appUsage, fmtMB, hostCapacity, reservedFromServices } from '@/lib/resources'
 import { MullvadTime } from './MullvadTime'
@@ -85,7 +83,6 @@ export function OverviewPage() {
   const mem = d.memory || {}
   const thermal = d.thermal || {}
   const storage = d.storage || {}
-  const net = d.network || {}
   const temp = Number(thermal.temperature_celsius || 0)
   const vpn = state.vpn_health || {}
   const vpnRepair = mode === 'mullvad' ? state.vpn_repair : undefined
@@ -303,16 +300,6 @@ export function OverviewPage() {
               warnAt={80}
               badAt={92}
             />
-          </div>
-          <div className="flex items-center gap-5 text-xs" aria-label="Network throughput">
-            <span className="inline-flex items-center gap-1.5 text-base-content/60">
-              <ArrowDown className="h-3.5 w-3.5" aria-hidden /> Down
-              <strong className="text-base-content font-semibold"><AnimatedNumber value={net.down_bytes_per_sec} format={fmtRate} /></strong>
-            </span>
-            <span className="inline-flex items-center gap-1.5 text-base-content/60">
-              <ArrowUp className="h-3.5 w-3.5" aria-hidden /> Up
-              <strong className="text-base-content font-semibold"><AnimatedNumber value={net.up_bytes_per_sec} format={fmtRate} /></strong>
-            </span>
           </div>
           <div>
             <Disclosure
