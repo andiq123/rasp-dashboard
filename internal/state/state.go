@@ -751,7 +751,8 @@ func healthIssues(st State) []HealthIssue {
 		}
 		issues = append(issues, HealthIssue{Code: "app-crash:" + a.Container, Severity: "critical", Title: name + " keeps crashing", Detail: detail})
 	}
-	if lc := st.LeakCheck; lc != nil && !lc.OK {
+	// Only while the tunnel is up: during an outage the VPN issue already covers it.
+	if lc := st.LeakCheck; lc != nil && !lc.OK && st.VPNHealth.InterfaceUp {
 		issues = append(issues, HealthIssue{Code: "vpn-leak", Severity: "critical", Title: "Traffic could leave outside the VPN", Detail: strings.Join(lc.Problems, ". ") + ".", Action: "restart-hotspot"})
 	}
 	if st.Mode == ModeMullvad {

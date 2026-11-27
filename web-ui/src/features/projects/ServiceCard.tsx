@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { Link } from 'react-router-dom'
-import { CircleStop, Loader2, Play, RotateCw, TriangleAlert } from 'lucide-react'
-import type { ActivitySnapshot, AppHealth, Service } from '@/api/types'
+import { CircleStop, Globe, Loader2, Play, RotateCw, TriangleAlert } from 'lucide-react'
+import type { ActivitySnapshot, AppHealth, LinkUptime, Service } from '@/api/types'
 import { Button } from '@/components/ui/Button/Button'
 import { ServiceUsage } from '@/components/ui/UsageMeter/UsageMeter'
 import { activityMatchesService } from '@/hooks/useActivity'
@@ -26,10 +26,11 @@ type Props = {
   onAction: (slug: string, action: string) => void
   sseLive?: boolean
   health?: AppHealth
+  link?: LinkUptime
 }
 
 /** Whole-card hit target to open details; action buttons sit above the link. */
-export function ServiceCard({ group, svc, selected, activity, actPending, onAction, sseLive, health }: Props) {
+export function ServiceCard({ group, svc, selected, activity, actPending, onAction, sseLive, health, link }: Props) {
   const st = statusLabel(svc)
   const building = isBuilding(svc)
   const queued = isQueued(svc)
@@ -99,6 +100,22 @@ export function ServiceCard({ group, svc, selected, activity, actPending, onActi
               {health.last_log ? <code title={health.last_log}>{health.last_log}</code> : null}
             </span>
           </div>
+        ) : null}
+
+        {link && link.checks ? (
+          <p className={`link-uptime${link.up ? '' : ' is-down'}`} title={`${link.url}, checked from the internet every 2 minutes`}>
+            <Globe aria-hidden />
+            {link.up ? (
+              <>
+                <span>Public link up</span>
+                <span className="tabular-nums">{link.uptime_percent >= 99.95 ? '100' : link.uptime_percent.toFixed(1)}% today</span>
+                {link.latency_ms ? <span className="tabular-nums">{link.latency_ms} ms</span> : null}
+              </>
+            ) : (
+              <span>Public link down: {link.error || `HTTP ${link.status}`}</span>
+            )}
+            {link.cert_days != null && link.cert_days < 14 ? <span className="is-warn">Certificate ends in {link.cert_days} d</span> : null}
+          </p>
         ) : null}
 
         {showUsage ? (

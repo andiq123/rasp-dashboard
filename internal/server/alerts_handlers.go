@@ -27,7 +27,7 @@ func (s *Server) watchAlerts(ctx context.Context) {
 				continue
 			}
 			sendCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-			s.Alerts.Evaluate(sendCtx, time.Now(), alertsFromState(st))
+			s.Alerts.Evaluate(sendCtx, time.Now(), append(alertsFromState(st), s.uptimeAlerts()...))
 			cancel()
 		}
 	}
@@ -41,14 +41,16 @@ func alertsFromState(st state.State) []alerts.Alert {
 		a := alerts.Alert{Key: is.Code, Title: is.Title, Body: is.Detail, Priority: "high", Tags: "warning", Grace: 2 * time.Minute}
 		switch {
 		case is.Code == "mullvad-expiring":
-			a.Priority, a.Tags, a.Grace, a.NoResolve = "default", "hourglass", 0, true
+			a.Category, a.Priority, a.Tags, a.Grace, a.NoResolve = alerts.EventMullvad, "default", "hourglass", 0, true
 		case strings.HasPrefix(is.Code, "app-crash:"):
-			a.Tags, a.Grace = "boom", 0
+			a.Category, a.Tags, a.Grace = alerts.EventApps, "boom", 0
 		case is.Code == "temperature-high" || is.Code == "thermal-throttling":
-			a.Tags, a.Grace = "thermometer", 5*time.Minute
-		case is.Code == "uplink-offline" || strings.HasPrefix(is.Code, "vpn-") || is.Code == "hotspot-down":
-			a.Priority, a.Tags = "urgent", "rotating_light"
-		case is.Severity != "critical":
+			a.Category, a.Tags, a.Grace = alerts.EventPi, "thermometer", 5*time.Minute
+		case is.Code == "uplink-offline" || strings.HasPrefix(is.Code, "vpn-") || is.Code == "hotspot-down" || is.Code == "proxy-down":
+			a.Category, a.Priority, a.Tags = alerts.EventInternet, "urgent", "rotating_light"
+		case is.Severity == "critical":
+			a.Category = alerts.EventInternet
+		default:
 			continue
 		}
 		if a.Body == "" {
@@ -57,7 +59,7 @@ func alertsFromState(st state.State) []alerts.Alert {
 		out = append(out, a)
 	}
 	if p := st.DeviceMetrics.Storage.UsedPercent; p >= 90 {
-		out = append(out, alerts.Alert{Key: "disk-full", Title: "The Pi's disk is almost full", Body: fmt.Sprintf("%.0f%% used. Deploys and databases may fail; clear old files or images.", p), Priority: "high", Tags: "floppy_disk"})
+		out = append(out, alerts.Alert{Key: "disk-full", Category: alerts.EventPi, Title: "The Pi's disk is almost full", Body: fmt.Sprintf("%.0f%% used. Deploys and databases may fail; clear old files or images.", p), Priority: "high", Tags: "floppy_disk"})
 	}
 	return out
 }

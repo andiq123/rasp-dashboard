@@ -1,6 +1,7 @@
 import { api } from './client'
 import type {
   AlertSettings,
+  LinkUptime,
   AlertStatus,
   ActivitySnapshot,
   ActivityLine,
@@ -55,6 +56,7 @@ export const clearGitHubToken = () => api('/api/github/token', { method: 'DELETE
 export const fetchMullvadAccount = () => api<MullvadAccount>('/api/mullvad/account')
 export const saveMullvadAccount = (accountNumber: string) =>
   api<MullvadAccount>('/api/mullvad/account', { method: 'POST', body: { account_number: accountNumber } })
+export const fetchUptime = () => api<LinkUptime[]>('/api/uptime')
 export const fetchAlerts = () => api<AlertStatus>('/api/alerts')
 export const saveAlerts = (body: AlertSettings) => api<AlertStatus>('/api/alerts', { method: 'POST', body })
 export const testAlerts = (ntfyURL: string) => api<AlertStatus>('/api/alerts/test', { method: 'POST', body: { ntfy_url: ntfyURL } })

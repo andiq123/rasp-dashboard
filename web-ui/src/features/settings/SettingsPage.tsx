@@ -229,10 +229,6 @@ export function SettingsPage() {
           </Panel>
 
           <MullvadPanel />
-          <AlertsPanel />
-          <DashboardExposure />
-        </div>
-
         <Panel
           title={<span className="inline-flex items-center gap-1.5"><Database aria-hidden /> Engines</span>}
           busy={engine.isFetching}
@@ -302,6 +298,13 @@ export function SettingsPage() {
             </>
           )}
         </Panel>
+        </div>
+
+        {/* Balanced columns: accounts and engines left, alerts and remote access right. */}
+        <div className="settings-col">
+          <AlertsPanel />
+          <DashboardExposure />
+        </div>
       </div>
 
       <DockerPanel />

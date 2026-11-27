@@ -4,6 +4,7 @@ export const queryKeys = {
   githubStatus: ['github', 'status'] as const,
   mullvadAccount: ['mullvad', 'account'] as const,
   alerts: ['alerts'] as const,
+  uptime: ['uptime'] as const,
   githubRepos: ['github', 'repos'] as const,
   githubBranches: (repo: string) => ['github', 'branches', repo] as const,
   githubDirs: (repo: string, branch: string, path = '') =>

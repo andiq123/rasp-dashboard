@@ -57,7 +57,17 @@ func (r *Reader) readAppHealth() []AppHealth {
 			if c.seen == nil {
 				c.seen = map[string][]restartMark{}
 			}
+			prevLog := map[string]string{}
+			for _, a := range c.apps {
+				prevLog[a.Container] = a.LastLog
+			}
 			c.apps = scoreApps(raw, c.seen, now)
+			// Keep the known log line until the refreshed one lands, so the card never blinks.
+			for i := range c.apps {
+				if c.apps[i].CrashLoop {
+					c.apps[i].LastLog = prevLog[c.apps[i].Container]
+				}
+			}
 			c.at, c.running = now, false
 			loops := []string{}
 			for _, a := range c.apps {

@@ -62,3 +62,28 @@ func TestValidateURL(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestDisabledThenEnabledAndMuted(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var m map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&m)
+		got = append(got, m["title"].(string))
+	}))
+	defer srv.Close()
+	e := New(filepath.Join(t.TempDir(), "alerts.json"))
+	ctx, t0 := context.Background(), time.Unix(0, 0)
+	disk := Alert{Key: "disk", Category: EventPi, Title: "Disk"}
+	app := Alert{Key: "app", Category: EventApps, Title: "App"}
+	e.Evaluate(ctx, t0, []Alert{disk, app})
+	if err := e.SetSettings(Settings{Enabled: true, NtfyURL: srv.URL + "/t", Muted: []string{EventApps, "bogus"}}); err != nil {
+		t.Fatal(err)
+	}
+	if st := e.Status(); len(st.Muted) != 1 {
+		t.Fatalf("unknown categories are dropped, got %v", st.Muted)
+	}
+	e.Evaluate(ctx, t0.Add(time.Minute), []Alert{disk, app})
+	if len(got) != 1 || got[0] != "Disk" {
+		t.Fatalf("an open problem is sent once alerts turn on; muted ones stay quiet, got %v", got)
+	}
+}

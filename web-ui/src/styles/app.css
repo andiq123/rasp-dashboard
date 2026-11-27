@@ -1070,3 +1070,21 @@ button:not(:disabled), summary { cursor: pointer; }
 .crash-note span { display: grid; gap: 2px; min-width: 0; }
 .crash-note strong { font-weight: 650; }
 .crash-note code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-muted); font-size: 10.5px; }
+
+/* Public link health on a service card: one quiet line, red only when visitors see errors. */
+.link-uptime { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; font-size: var(--text-micro); color: var(--ink-muted); }
+.link-uptime svg { width: 12px; height: 12px; color: var(--color-success); }
+.link-uptime.is-down { color: var(--color-error); }
+.link-uptime.is-down svg { color: var(--color-error); }
+.link-uptime .is-warn { color: var(--color-warning); }
+
+/* Alert events: one row each, the whole row toggles. */
+.event-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 2px 12px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.event-list legend { float: left; grid-column: 1 / -1; padding: 0 0 4px; font-size: var(--text-micro); font-weight: 650; color: var(--ink-muted); }
+.event-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; background: var(--surface-inset); border-radius: 10px; cursor: pointer; transition: background-color var(--dur-quick) var(--ease-standard); }
+.event-row:hover { background: color-mix(in oklab, var(--color-base-content) 6%, var(--surface-inset)); }
+.event-list { row-gap: 6px; }
+.event-row > svg { width: 15px; height: 15px; flex: none; color: var(--ink-muted); }
+.event-text { display: grid; flex: 1; min-width: 0; line-height: 1.3; }
+.event-text strong { font-size: var(--text-label); font-weight: 600; }
+.event-text small { font-size: var(--text-micro); color: var(--ink-faint); }

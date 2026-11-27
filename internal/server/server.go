@@ -52,6 +52,7 @@ type Server struct {
 	Postgres  *infra.Postgres
 	History   *monitor.Store
 	Alerts    *alerts.Engine
+	uptime    uptimeTracker
 	vpnRepair *vpnRepairCoordinator
 	// bgCtx is the lifetime context from StartBackground. Long-lived streams
 	// watch it so graceful shutdown is not held open by idle SSE clients.
@@ -100,6 +101,9 @@ func (s *Server) StartBackground(ctx context.Context) {
 	if s != nil && s.Alerts != nil {
 		go s.watchAlerts(ctx)
 	}
+	if s != nil && s.Deploy != nil {
+		go s.watchLinks(ctx)
+	}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -126,6 +130,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/mullvad/account", s.handleMullvadAccount)
 	mux.HandleFunc("/api/alerts", s.handleAlerts)
 	mux.HandleFunc("/api/alerts/test", s.handleAlerts)
+	mux.HandleFunc("/api/uptime", s.handleUptime)
 	mux.HandleFunc("/api/ports", s.handlePorts)
 	mux.HandleFunc("/api/github/", s.handleGitHub)
 	mux.HandleFunc("/api/github/status", s.handleGitHub)

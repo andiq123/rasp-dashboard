@@ -27,6 +27,7 @@ import {
   fetchPorts,
   fetchRepos,
   fetchServices,
+  fetchUptime,
   renameGroup,
   serviceAction,
 } from '@/api/endpoints'
@@ -134,6 +135,7 @@ export function ProjectsPage() {
   const { setPending } = usePendingAddGo()
   const { activity, live } = useActivity()
   const { state } = useLiveState()
+  const uptimeQ = useQuery({ queryKey: queryKeys.uptime, queryFn: fetchUptime, refetchInterval: 60_000 })
 
   const [wizard, setWizard] = useState<WizardStep>(null)
   const [groupName, setGroupName] = useState('')
@@ -618,6 +620,7 @@ export function ProjectsPage() {
                         actPending={svcAct.isPending && svcAct.variables?.slug === svc.slug}
                         onAction={(slug, action) => void onServiceAction(slug, action)}
                         health={(state.apps || []).find((a) => a.container === `fw-${groupSlug}-${svc.slug}`)}
+                        link={uptimeQ.data?.find((l) => l.group === groupSlug && l.slug === svc.slug)}
                       />
                     )}
                   </AnimatedServiceCollection>

@@ -23,11 +23,35 @@ import (
 type Settings struct {
 	Enabled bool   `json:"enabled"`
 	NtfyURL string `json:"ntfy_url"`
+	// Muted lists event categories the owner turned off; everything else is on,
+	// so categories added later are delivered by default.
+	Muted []string `json:"muted,omitempty"`
+}
+
+// Event categories, as shown in the dashboard's checklist.
+const (
+	EventInternet = "internet" // uplink, VPN, leaks, hotspot
+	EventMullvad  = "mullvad"  // subscription running out
+	EventApps     = "apps"     // crash loops
+	EventLinks    = "links"    // public links down, certificates
+	EventPi       = "pi"       // temperature, disk
+)
+
+var Events = []string{EventInternet, EventMullvad, EventApps, EventLinks, EventPi}
+
+func (s Settings) wants(category string) bool {
+	for _, m := range s.Muted {
+		if m == category {
+			return false
+		}
+	}
+	return true
 }
 
 // Alert is one condition that is currently true.
 type Alert struct {
 	Key      string
+	Category string
 	Title    string
 	Body     string
 	Priority string // ntfy priority: min, low, default, high, urgent
@@ -102,6 +126,17 @@ func (e *Engine) SetSettings(s Settings) error {
 		return err
 	}
 	s.NtfyURL = clean
+	known := map[string]bool{}
+	for _, ev := range Events {
+		known[ev] = true
+	}
+	muted := s.Muted[:0]
+	for _, m := range s.Muted {
+		if known[m] {
+			muted = append(muted, m)
+		}
+	}
+	s.Muted = muted
 	if s.Enabled && s.NtfyURL == "" {
 		return errors.New("add a topic URL before turning alerts on")
 	}
@@ -119,9 +154,12 @@ func (e *Engine) SetSettings(s Settings) error {
 }
 
 // Evaluate takes every condition that is true right now and sends what is due.
+// A condition only counts as sent once it was really delivered, so turning
+// alerts (or a category) on later still reports problems that are already open.
 func (e *Engine) Evaluate(ctx context.Context, now time.Time, current []Alert) {
 	e.mu.Lock()
 	s := e.settings
+	deliver := func(a Alert) bool { return s.Enabled && s.NtfyURL != "" && s.wants(a.Category) }
 	seen := map[string]bool{}
 	var send []Alert
 	for _, a := range current {
@@ -132,7 +170,7 @@ func (e *Engine) Evaluate(ctx context.Context, now time.Time, current []Alert) {
 			e.pending[a.Key] = p
 		}
 		p.alert = a
-		if !p.sent && now.Sub(p.since) >= a.Grace {
+		if !p.sent && now.Sub(p.since) >= a.Grace && deliver(a) {
 			p.sent = true
 			send = append(send, a)
 		}
@@ -142,14 +180,11 @@ func (e *Engine) Evaluate(ctx context.Context, now time.Time, current []Alert) {
 			continue
 		}
 		delete(e.pending, key)
-		if p.sent && !p.alert.NoResolve {
-			send = append(send, Alert{Key: key, Title: "Resolved: " + p.alert.Title, Body: "Back to normal.", Priority: "low", Tags: "white_check_mark"})
+		if p.sent && !p.alert.NoResolve && deliver(p.alert) {
+			send = append(send, Alert{Key: key, Category: p.alert.Category, Title: "Resolved: " + p.alert.Title, Body: "Back to normal.", Priority: "low", Tags: "white_check_mark"})
 		}
 	}
 	e.mu.Unlock()
-	if !s.Enabled || s.NtfyURL == "" {
-		return
-	}
 	for _, a := range send {
 		e.record(e.post(ctx, s.NtfyURL, a))
 	}

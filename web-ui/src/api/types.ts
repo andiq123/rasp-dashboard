@@ -539,7 +539,8 @@ export const LINKED_BUCKET_KEYS = [
   'FORCE_PATH_STYLE',
 ] as const
 
-export type AlertSettings = { enabled: boolean; ntfy_url: string }
+export type AlertEvent = 'internet' | 'mullvad' | 'apps' | 'links' | 'pi'
+export type AlertSettings = { enabled: boolean; ntfy_url: string; muted?: AlertEvent[] }
 export type AlertStatus = AlertSettings & { active: string[]; last_sent?: string; last_error?: string }
 
 /** Wi‑Fi traffic can only leave through the tunnel. */
@@ -563,4 +564,21 @@ export type AppHealth = {
   oom_killed?: boolean
   crash_loop?: boolean
   last_log?: string
+}
+
+/** A public link as seen from the internet, checked every 2 minutes. */
+export type LinkUptime = {
+  group: string
+  slug: string
+  name: string
+  url: string
+  up: boolean
+  status?: number
+  latency_ms?: number
+  error?: string
+  cert_days?: number
+  uptime_percent: number
+  checks: number
+  checked_at: string
+  failures: number
 }
