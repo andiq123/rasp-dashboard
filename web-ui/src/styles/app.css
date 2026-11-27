@@ -893,7 +893,7 @@ button:not(:disabled), summary { cursor: pointer; }
 @keyframes roll-out-down { to { transform: translateY(85%); opacity: 0; } }
 
 /* ── First-load intro: the bar settles, widgets rise in order (see useIntro) ── */
-.is-intro .app-bar { animation: intro-bar 460ms var(--ease-out-soft) both; }
+.is-intro-first .app-bar { animation: intro-bar 460ms var(--ease-out-soft) both; }
 .is-intro [data-intro] { animation: intro-rise 600ms var(--ease-out-soft) both; animation-delay: calc(120ms + var(--intro-i, 0) * 70ms); }
 @keyframes intro-bar { from { opacity: 0; transform: translateY(-8px); } }
 @keyframes intro-rise { from { opacity: 0; transform: translateY(14px) scale(0.985); } }
@@ -944,9 +944,6 @@ button:not(:disabled), summary { cursor: pointer; }
 ::view-transition-old(page) { animation: page-out 120ms var(--ease-standard) both; }
 ::view-transition-new(page) { animation: none; }
 @keyframes page-out { to { opacity: 0; } }
-/* The new page animates itself on mount, so lazy pages rise in when ready. */
-.page-enter { animation: page-in 340ms var(--ease-out-soft) backwards; }
-@keyframes page-in { from { opacity: 0; transform: translateY(8px); } }
 ::view-transition-group(nav-pill) {
   animation-duration: 340ms;
   animation-timing-function: var(--ease-out-soft);
@@ -1114,8 +1111,3 @@ button:not(:disabled), summary { cursor: pointer; }
 .scope-rails .scope-rail { transition: opacity var(--dur-slow) var(--ease-standard), left var(--dur-base) var(--ease-out-soft), width var(--dur-base) var(--ease-out-soft), color var(--dur-slow) var(--ease-standard); }
 .scope-rails.is-previewing .scope-rail { opacity: 0; }
 
-/* Settings: whatever a panel shows (loading line, then content) rises in as it
-   mounts, so each widget settles smoothly once its data arrives. */
-.settings-page .card-body > :not(.panel-heading) { animation: rise-in var(--dur-slow) var(--ease-out-soft) backwards; }
-.settings-page .card-body > :nth-child(3) { animation-delay: 40ms; }
-.settings-page .card-body > :nth-child(n + 4) { animation-delay: 80ms; }

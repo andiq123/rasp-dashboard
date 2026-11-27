@@ -10,7 +10,7 @@ import { SwapText } from '@/components/ui/SwapText/SwapText'
 import { Field, Input } from '@/components/ui/Field/Field'
 import { Modal } from '@/components/ui/Modal/Modal'
 import { Panel } from '@/components/ui/Panel/Panel'
-import { Spinner } from '@/components/ui/Spinner/Spinner'
+import { PanelSkeleton } from '@/components/ui/Skeleton/Skeleton'
 import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { muted, tile } from '@/lib/ui'
@@ -116,7 +116,7 @@ export function DashboardExposure() {
         busy={statusQ.isFetching || expose.isPending || close.isPending}
       >
         {statusQ.isLoading ? (
-          <Spinner compact label="Checking Cloudflare connector…" />
+          <PanelSkeleton rows={2} label="Checking Cloudflare connector" />
         ) : statusQ.isError ? (
           <Notice icon={TriangleAlert} tone="bad" title="Could not check remote access">{(statusQ.error as Error).message}</Notice>
         ) : (

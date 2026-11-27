@@ -18,7 +18,7 @@ import { Field, Input } from '@/components/ui/Field/Field'
 import { Notice } from '@/components/ui/Notice/Notice'
 import { Panel } from '@/components/ui/Panel/Panel'
 import { PageHeader, PageSub } from '@/components/ui/PageHeader/PageHeader'
-import { Spinner } from '@/components/ui/Spinner/Spinner'
+import { PanelSkeleton } from '@/components/ui/Skeleton/Skeleton'
 import { SwapText } from '@/components/ui/SwapText/SwapText'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { usePendingAddGo } from '@/features/projects/pendingAddGo'
@@ -174,7 +174,7 @@ export function SettingsPage() {
             }
           >
             {gh.isLoading ? (
-              <Spinner compact label="Checking GitHub…" />
+              <PanelSkeleton label="Checking GitHub" />
             ) : gh.isError ? (
               <Notice icon={TriangleAlert} tone="bad" title="Could not check GitHub" action={<Button variant="infoSoft" onClick={() => void gh.refetch()}>Retry</Button>}>
                 {(gh.error as Error).message}
@@ -234,7 +234,7 @@ export function SettingsPage() {
           busy={engine.isFetching}
         >
           {engine.isLoading ? (
-            <Spinner compact label="Loading engines…" />
+            <PanelSkeleton rows={3} label="Loading engines" />
           ) : engine.isError ? (
             <Notice icon={TriangleAlert} tone="bad" title="Could not load engines" action={<Button variant="infoSoft" onClick={() => void engine.refetch()}>Retry</Button>}>
               {(engine.error as Error).message}

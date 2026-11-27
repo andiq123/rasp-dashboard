@@ -18,7 +18,7 @@ import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { Disclosure } from '@/components/ui/Disclosure/Disclosure'
 import { Empty } from '@/components/ui/Empty/Empty'
 import { Panel } from '@/components/ui/Panel/Panel'
-import { Spinner } from '@/components/ui/Spinner/Spinner'
+import { PanelSkeleton } from '@/components/ui/Skeleton/Skeleton'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { fmtBytes } from '@/lib/format'
 import { muted, tile } from '@/lib/ui'
@@ -167,7 +167,7 @@ export function DockerPanel() {
       busy={manage.isFetching || act.isPending}
     >
       {manage.isLoading ? (
-        <Spinner compact label="Loading Docker…" />
+        <PanelSkeleton rows={3} label="Loading Docker" />
       ) : manage.isError ? (
         <Empty
           compact

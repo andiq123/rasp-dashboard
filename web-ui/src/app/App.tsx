@@ -1,7 +1,7 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { lazy, Suspense, useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { fetchState } from '@/api/endpoints'
+import { fetchAlerts, fetchDashboardTunnel, fetchEngine, fetchGitHubStatus, fetchManage, fetchMullvadAccount, fetchState } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import { Spinner } from '@/components/ui/Spinner/Spinner'
 import { OverviewPage } from '@/features/overview/OverviewPage'
@@ -17,17 +17,34 @@ const ProjectsPage = lazy(() => loadProjects().then((m) => ({ default: m.Project
 const SettingsPage = lazy(() => loadSettings().then((m) => ({ default: m.SettingsPage })))
 const FilesPage = lazy(() => loadFiles().then((m) => ({ default: m.FilesPage })))
 
-/** Fetch the other pages once the first one is idle, so switching never waits on a download. */
+/** Data every Settings widget needs, warmed in the background so the page opens complete. */
+const settingsQueries = [
+  { queryKey: queryKeys.githubStatus, queryFn: fetchGitHubStatus },
+  { queryKey: queryKeys.engine, queryFn: fetchEngine },
+  { queryKey: queryKeys.mullvadAccount, queryFn: fetchMullvadAccount },
+  { queryKey: queryKeys.alerts, queryFn: fetchAlerts },
+  { queryKey: queryKeys.dashboardTunnel, queryFn: fetchDashboardTunnel },
+  { queryKey: queryKeys.manage, queryFn: fetchManage },
+] as const
+
+/**
+ * Once the first page is idle, fetch the other pages' code and the Settings
+ * data, so switching never waits on a download or shows a loading state.
+ */
 function usePreloadPages() {
+  const qc = useQueryClient()
   useEffect(() => {
-    const run = () => void Promise.all([loadProjects(), loadFiles(), loadSettings()]).catch(() => {})
+    const run = () => {
+      void Promise.all([loadProjects(), loadFiles(), loadSettings()]).catch(() => {})
+      for (const q of settingsQueries) void qc.prefetchQuery(q as Parameters<typeof qc.prefetchQuery>[0])
+    }
     if ('requestIdleCallback' in window) {
       const id = window.requestIdleCallback(run, { timeout: 3000 })
       return () => window.cancelIdleCallback(id)
     }
     const t = setTimeout(run, 1500)
     return () => clearTimeout(t)
-  }, [])
+  }, [qc])
 }
 
 /** Only re-renders when reachability flips, not on every live state tick. */
@@ -48,12 +65,9 @@ function OfflineNotice() {
 }
 
 export function App() {
-  useIntro()
-  usePreloadPages()
   const section = useAppSection()
-  // Count section changes: the first page rides the intro, later ones rise in on their own.
-  const [nav, setNav] = useState({ section, count: 0 })
-  if (nav.section !== section) setNav({ section, count: nav.count + 1 })
+  useIntro(section)
+  usePreloadPages()
   return (
     <div className="app-shell flex min-h-svh flex-col">
       <a href="#app-main" className="skip-link">Skip to content</a>
@@ -62,8 +76,8 @@ export function App() {
         <ScrollMain />
         <OfflineNotice />
         <Suspense fallback={<Spinner label="Loading page…" />}>
-          {/* Keyed by section: each page rises in once its content is ready, even after a lazy load. */}
-          <div key={section} className={nav.count ? 'page-enter' : undefined}>
+          {/* Keyed by section: each page mounts fresh, and its widgets rise in via useIntro. */}
+          <div key={section}>
           <Routes>
             <Route path="/" element={<Navigate to="/overview" replace />} />
             <Route path="/overview" element={<OverviewPage />} />

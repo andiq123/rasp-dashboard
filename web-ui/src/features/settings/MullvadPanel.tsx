@@ -8,7 +8,7 @@ import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { Field, Input } from '@/components/ui/Field/Field'
 import { Notice } from '@/components/ui/Notice/Notice'
 import { Panel } from '@/components/ui/Panel/Panel'
-import { Spinner } from '@/components/ui/Spinner/Spinner'
+import { PanelSkeleton } from '@/components/ui/Skeleton/Skeleton'
 import { SwapText } from '@/components/ui/SwapText/SwapText'
 import { useToast } from '@/components/ui/Toast/Toast'
 import { daysLeftText, daysLeftTone, expiryDate, MULLVAD_ACCOUNT_URL } from '@/lib/mullvad'
@@ -63,7 +63,7 @@ export function MullvadPanel() {
       busy={acct.isFetching || save.isPending}
     >
       {acct.isLoading ? (
-        <Spinner compact label="Checking Mullvad…" />
+        <PanelSkeleton label="Checking Mullvad" />
       ) : a?.configured ? (
         <>
           <div className="item-row">

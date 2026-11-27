@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button/Button'
 import { Field, Input } from '@/components/ui/Field/Field'
 import { Notice } from '@/components/ui/Notice/Notice'
 import { Panel } from '@/components/ui/Panel/Panel'
-import { Spinner } from '@/components/ui/Spinner/Spinner'
+import { PanelSkeleton } from '@/components/ui/Skeleton/Skeleton'
 import { SwapText } from '@/components/ui/SwapText/SwapText'
 import { useToast } from '@/components/ui/Toast/Toast'
 
@@ -124,7 +124,7 @@ export function AlertsPanel() {
       busy={q.isFetching || save.isPending || connect.isPending}
     >
       {q.isLoading ? (
-        <Spinner compact label="Loading alerts…" />
+        <PanelSkeleton rows={4} label="Loading alerts" />
       ) : (
         <>
           {a?.enabled ? (
