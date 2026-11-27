@@ -14,7 +14,7 @@ import { queryKeys } from '@/api/queryKeys'
 import { Button } from '@/components/ui/Button/Button'
 import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { Disclosure } from '@/components/ui/Disclosure/Disclosure'
-import { Field, Input } from '@/components/ui/Field/Field'
+import { Field, Input, Select } from '@/components/ui/Field/Field'
 import { Notice } from '@/components/ui/Notice/Notice'
 import { Panel } from '@/components/ui/Panel/Panel'
 import { PageHeader, PageSub } from '@/components/ui/PageHeader/PageHeader'
@@ -282,18 +282,18 @@ export function SettingsPage() {
                 <Disclosure id="settings.build" title="Build settings" icon={Settings2} summary={`Postgres ${pgLabel}, Go ${goLabel}`}>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <Field label="Postgres version" htmlFor="settings-pg-version">
-                      <select id="settings-pg-version" className="select select-bordered select-sm w-full" value={pgVersion} onChange={(e) => setPgVersion(e.target.value)}>
+                      <Select id="settings-pg-version" value={pgVersion} onChange={(e) => setPgVersion(e.target.value)}>
                         {(engine.data?.postgres_options || []).map((o) => (
                           <option key={o.id} value={o.id}>{o.label || o.id}</option>
                         ))}
-                      </select>
+                      </Select>
                     </Field>
                     <Field label="Go toolchain" htmlFor="settings-go-toolchain" tip={engine.data?.go_resolved_hint}>
-                      <select id="settings-go-toolchain" className="select select-bordered select-sm w-full" value={goToolchain} onChange={(e) => setGoToolchain(e.target.value)}>
+                      <Select id="settings-go-toolchain" value={goToolchain} onChange={(e) => setGoToolchain(e.target.value)}>
                         {(engine.data?.go_options || []).map((o) => (
                           <option key={o.id} value={o.id}>{o.label || o.id}</option>
                         ))}
-                      </select>
+                      </Select>
                     </Field>
                     <div className="sm:col-span-2 flex justify-end">
                       <Button variant="primary" disabled={!engineDirty} loading={engSave.isPending} onClick={() => engSave.mutate()}>

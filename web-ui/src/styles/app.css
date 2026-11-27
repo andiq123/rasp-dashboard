@@ -1140,3 +1140,39 @@ button:not(:disabled), summary { cursor: pointer; }
 .res-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--route-proxy); }
 .res-sessions strong { text-align: right; font-weight: 650; font-variant-numeric: tabular-nums; }
 .res-sessions li.is-live .res-when { color: var(--route-proxy); }
+
+/* Service config: Source and Runtime side by side when there is room, one save bar under both. */
+.config-form { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 1200px) { .config-form { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.config-section { display: grid; gap: 12px; align-content: start; min-width: 0; padding: 14px; border-radius: var(--radius-inset, 14px); background: color-mix(in oklab, var(--surface-inset) 55%, transparent); }
+.config-heading { display: flex; align-items: center; gap: 6px; margin: 0; font-size: var(--text-label); font-weight: 650; color: var(--color-base-content); }
+.config-heading svg { width: 14px; height: 14px; color: var(--color-primary); }
+.config-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+
+/* Service header: facts as icon chips, the public link with its live health. */
+.svc-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.svc-chip { display: inline-flex; align-items: center; gap: 4px; height: 22px; max-width: 100%; padding: 0 8px; border-radius: 999px; font-size: var(--text-micro); font-weight: 600; color: var(--ink-muted); background: var(--surface-inset); transition: background-color var(--dur-quick) var(--ease-standard), color var(--dur-quick) var(--ease-standard); }
+.svc-chip svg { width: 12px; height: 12px; flex: none; }
+.svc-chip.is-mono { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 500; }
+.svc-chip em { font-style: normal; font-weight: 500; color: var(--ink-faint); }
+.svc-chip.is-link:hover { color: var(--color-primary); background: color-mix(in oklab, var(--color-primary) 10%, var(--surface-inset)); }
+.svc-link { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 4px; font-size: var(--text-micro); }
+.svc-link a { display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: min(100%, 28rem); font-weight: 600; color: var(--color-primary); }
+.svc-link a:hover span { text-decoration: underline; text-underline-offset: 2px; }
+.svc-link a > svg { width: 13px; height: 13px; flex: none; }
+.svc-link .svc-link-ext { width: 11px; height: 11px; opacity: 0.6; }
+.svc-link-state { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.svc-link-state svg { width: 12px; height: 12px; }
+.svc-link-state.is-ok { color: var(--color-success); }
+.svc-link-state.is-bad { color: var(--color-error); }
+.svc-link-state > span { font-weight: 500; color: var(--ink-faint); }
+
+/* Select: the input's look, a chevron that turns primary on focus, muted when empty. */
+.select-wrap { position: relative; display: flex; align-items: center; width: 100%; }
+.select-field { appearance: none; width: 100%; padding-right: 34px; cursor: pointer; background-image: none; transition: border-color var(--dur-quick) var(--ease-standard), box-shadow var(--dur-quick) var(--ease-standard), color var(--dur-quick) var(--ease-standard); }
+.select-field:hover:not(:disabled) { border-color: color-mix(in oklab, var(--color-primary) 35%, var(--color-base-300)); }
+.select-field:focus-visible { outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 16%, transparent); }
+.select-field.is-empty { color: var(--ink-faint); }
+.select-field option { color: var(--color-base-content); }
+.select-wrap > svg { position: absolute; right: 11px; width: 15px; height: 15px; color: var(--ink-faint); pointer-events: none; transition: color var(--dur-quick) var(--ease-standard); }
+.select-wrap:hover > svg, .select-wrap:focus-within > svg { color: var(--color-primary); }

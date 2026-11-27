@@ -1,9 +1,12 @@
 import type { RuntimeStats } from '@/api/types'
+import { AnimatedNumber } from '@/components/ui/AnimatedNumber/AnimatedNumber'
 import { muted } from '@/lib/ui'
 
 type MeterProps = {
   label: string
-  usedLabel: string
+  /** Live value; only the digits that change roll. */
+  used: number
+  format: (value: number) => string
   limitLabel: string
   percent: number
   tone?: 'mem' | 'cpu'
@@ -20,7 +23,8 @@ function fillClass(tone: MeterProps['tone'], over: boolean, warn: boolean): stri
 /** Smooth live usage bar — width transitions between SSE samples. */
 export function UsageMeter({
   label,
-  usedLabel,
+  used,
+  format,
   limitLabel,
   percent,
   tone = 'mem',
@@ -45,7 +49,7 @@ export function UsageMeter({
             compact ? 'text-[11px]' : 'text-xs'
           } ${over ? 'text-error' : 'text-base-content'}`}
         >
-          {usedLabel}
+          <AnimatedNumber value={used} format={format} />
           <span className={`font-medium ${muted}`}>{limitLabel ? ` of ${limitLabel}` : ', no limit'}</span>
         </span>
       </div>
@@ -57,7 +61,7 @@ export function UsageMeter({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(pct)}
-        aria-label={`${label} ${usedLabel} of ${limitLabel}`}
+        aria-label={`${label} ${format(used)} of ${limitLabel}`}
       >
         <div
           className={`usage-fill absolute inset-y-0 left-0 rounded-full ${fillClass(tone, over, warn)}`}
@@ -88,6 +92,7 @@ export function ServiceUsage({
   fallbackMem,
   fallbackCpu,
   live,
+  inline,
 }: {
   stats?: RuntimeStats | null
   compact?: boolean
@@ -95,6 +100,8 @@ export function ServiceUsage({
   fallbackCpu?: number
   /** Show a subtle live pulse when SSE is connected. */
   live?: boolean
+  /** Memory and CPU side by side (wide headers). */
+  inline?: boolean
 }) {
   if (!stats) return null
 
@@ -135,6 +142,7 @@ export function ServiceUsage({
       ) : null}
       <ServiceUsageMeters
         compact={compact}
+        inline={inline}
         memUsed={memUsed}
         memPct={memPct}
         limitMem={limitMem}
@@ -151,6 +159,7 @@ export function ServiceUsage({
 
 function ServiceUsageMeters({
   compact,
+  inline,
   memUsed,
   memPct,
   limitMem,
@@ -162,6 +171,7 @@ function ServiceUsageMeters({
   source,
 }: {
   compact?: boolean
+  inline?: boolean
   memUsed: number
   memPct: number
   limitMem: number
@@ -173,12 +183,13 @@ function ServiceUsageMeters({
   source?: string
 }) {
   return (
-    <div className={`grid ${compact ? 'gap-1.5' : 'gap-2.5'} min-w-0`}>
+    <div className={`grid ${compact ? 'gap-1.5' : 'gap-2.5'} ${inline ? 'sm:grid-cols-2 sm:gap-x-6' : ''} min-w-0`}>
       <UsageMeter
         compact={compact}
         tone="mem"
         label="Memory"
-        usedLabel={fmtMem(memUsed)}
+        used={memUsed}
+        format={fmtMem}
         limitLabel={limitMem > 0 ? fmtMem(limitMem) : ''}
         percent={memPct}
         hint={
@@ -195,7 +206,8 @@ function ServiceUsageMeters({
         compact={compact}
         tone="cpu"
         label="CPU"
-        usedLabel={fmtCpu(cpuUsed)}
+        used={cpuUsed}
+        format={fmtCpu}
         limitLabel={limitCpu > 0 ? `${limitCpu} ${limitCpu === 1 ? 'core' : 'cores'}` : ''}
         percent={cpuPct}
         hint={hint ? 'Percent of one core, against the CPU limit' : undefined}

@@ -1,5 +1,5 @@
 import { createContext, useContext, useId, useState } from 'react'
-import { Copy, Eye, EyeOff } from 'lucide-react'
+import { Copy, Eye, EyeOff, ChevronDown } from 'lucide-react'
 import { writeClipboardText } from '@/lib/clipboard'
 import type { InputHTMLAttributes, ReactNode, TextareaHTMLAttributes, SelectHTMLAttributes } from 'react'
 import { muted } from '@/lib/ui'
@@ -44,12 +44,25 @@ export function TextArea({ className = '', ...rest }: TextareaHTMLAttributes<HTM
   return <textarea id={field?.id} aria-describedby={field?.description} className={`textarea w-full font-mono text-xs min-h-28 ${className}`} {...rest} />
 }
 
-export function Select({ className = '', children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
+/**
+ * Native select (keyboard, mobile pickers and accessibility for free) styled
+ * like the inputs, with a chevron; an empty choice reads muted.
+ */
+export function Select({ className = '', children, value, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   const field = useContext(FieldContext)
   return (
-    <select id={field?.id} aria-describedby={field?.description} className={`select w-full ${className}`} {...rest}>
-      {children}
-    </select>
+    <span className={`select-wrap ${className}`}>
+      <select
+        id={field?.id}
+        aria-describedby={field?.description}
+        className={`input select-field${value === '' ? ' is-empty' : ''}`}
+        value={value}
+        {...rest}
+      >
+        {children}
+      </select>
+      <ChevronDown aria-hidden />
+    </span>
   )
 }
 

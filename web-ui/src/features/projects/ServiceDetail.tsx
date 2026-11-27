@@ -5,6 +5,12 @@ import {
   Activity,
   Braces,
   Check,
+  ShieldCheck,
+  Cpu,
+  Globe,
+  Hash,
+  Link2,
+  GitBranch,
   CircleStop,
   Cloud,
   CloudOff,
@@ -33,10 +39,12 @@ import {
   serviceAction,
   unexposeService,
   updateServiceSettings,
+  fetchUptime,
 } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import type { ActivityLine, ActivitySnapshot, Deployment, Progress, Service } from '@/api/types'
 import { LINKED_BUCKET_KEYS, LINKED_DB_KEYS, LINKED_REDIS_KEYS } from '@/api/types'
+import { AnimatedNumber } from '@/components/ui/AnimatedNumber/AnimatedNumber'
 import { Button } from '@/components/ui/Button/Button'
 import { useConfirm } from '@/components/ui/Confirm/Confirm'
 import { Empty } from '@/components/ui/Empty/Empty'
@@ -92,6 +100,8 @@ const TABS: Array<{ id: Tab; label: string; icon: LucideIcon }> = [
 ]
 
 export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Props) {
+  // Link health is shared with the cards (same cached query).
+  const uptimeQ = useQuery({ queryKey: queryKeys.uptime, queryFn: fetchUptime, refetchInterval: 60_000 })
   const { showToast } = useToast()
   const { confirm } = useConfirm()
   const qc = useQueryClient()
@@ -259,6 +269,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
   const st = statusLabel(svc)
   const typeIcon = serviceTypeIcon(svc.type)
   const publicUrl = svc.public_url || svc.url || ''
+  const link = uptimeQ.data?.find((l) => l.group === group && l.slug === slug)
   const tunnelExposed =
     !!svc.tunnel_active ||
     (!!svc.public_url && (svc.tunnel_mode === 'managed' || svc.public_url.includes('.trycloudflare.com')))
@@ -307,29 +318,36 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
                     : st.text}
               </span>
             </div>
-            <p className="meta m-0">
-              <span>{({ go: 'Go app', postgres: 'Postgres', redis: 'Redis', bucket: 'Bucket' } as Record<string, string>)[svc.type] || svc.type}</span>
-              {svc.port ? <span>:{svc.port}</span> : null}
-              {svc.repo ? <span className="truncate">{svc.repo}{svc.branch ? ` on ${svc.branch}` : ''}</span> : null}
-            </p>
+            {/* Facts as icon chips: type, port, source. */}
+            <div className="svc-chips">
+              <span className="svc-chip" title="Service type">{createElement(typeIcon, { 'aria-hidden': true })}{({ go: 'Go', postgres: 'Postgres', redis: 'Redis', bucket: 'Bucket' } as Record<string, string>)[svc.type] || svc.type}</span>
+              {svc.port ? <span className="svc-chip is-mono" title="Port on the Pi"><Hash aria-hidden />{svc.port}</span> : null}
+              {svc.repo ? (
+                <a className="svc-chip is-link" href={`https://github.com/${svc.repo}${svc.branch ? `/tree/${svc.branch}` : ''}`} target="_blank" rel="noreferrer" title={`${svc.repo} on GitHub`}>
+                  <GitBranch aria-hidden /><span className="truncate">{svc.repo.split('/').pop()}</span>{svc.branch ? <em>{svc.branch}</em> : null}
+                </a>
+              ) : null}
+            </div>
             {publicUrl ? (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <a
-                  className="link link-primary text-xs inline-flex items-center gap-1 w-fit max-w-full"
-                  href={publicUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  title={publicUrl}
-                >
-                  <span className="truncate max-w-[min(100%,28rem)]">{publicUrl.replace(/^https?:\/\//, '')}</span>
-                  <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
+              <div className="svc-link">
+                <a href={publicUrl} target="_blank" rel="noreferrer" title={publicUrl}>
+                  <Globe aria-hidden />
+                  <span className="truncate">{publicUrl.replace(/^https?:\/\//, '')}</span>
+                  <ExternalLink className="svc-link-ext" aria-hidden />
                 </a>
                 {svc.public_url && svc.tunnel_mode === 'managed' ? (
                   <span
-                    className={`text-xs font-medium ${tunnelBadge.tone.includes('success') ? 'text-success' : tunnelBadge.tone.includes('error') ? 'text-error' : 'text-base-content/70'}`}
+                    className={`svc-link-state ${tunnelBadge.tone.includes('success') ? 'is-ok' : tunnelBadge.tone.includes('error') ? 'is-bad' : ''}`}
                     title={svc.tunnel_id ? `${tunnelBadge.title || tunnelBadge.text} (tunnel …${svc.tunnel_id.slice(-4)})` : tunnelBadge.title}
                   >
+                    {tunnelBadge.tone.includes('success') ? <ShieldCheck aria-hidden /> : null}
                     {tunnelBadge.text}
+                  </span>
+                ) : null}
+                {link?.checks ? (
+                  <span className={`svc-link-state ${link.up ? '' : 'is-bad'}`} title="Checked from the internet every 2 minutes">
+                    <AnimatedNumber value={link.uptime_percent} format={(v) => `${v >= 99.95 ? '100' : v.toFixed(1)}%`} />
+                    {link.latency_ms ? <span className="tabular-nums">{link.latency_ms} ms</span> : null}
                   </span>
                 ) : null}
               </div>
@@ -425,6 +443,7 @@ export function ServiceDetail({ group, slug, siblings, onClose, onDeleted }: Pro
         <div className="px-3 sm:px-4 py-2.5 border-b border-base-300 bg-base-200/40">
           <ServiceUsage
             compact
+            inline
             live={live}
             stats={svc.stats}
             fallbackMem={svc.memory_mb}
@@ -883,7 +902,7 @@ function IntegrateTab({ svc, siblings }: { svc: Service; siblings: Service[] }) 
     const bucket = siblings.find((item) => item.slug === svc.linked_bucket)
     const redis = siblings.find((item) => item.slug === svc.linked_redis)
     return (
-      <div className="grid gap-4 max-w-3xl">
+      <div className="grid gap-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <span className="badge badge-primary badge-sm mb-2">Runtime integrations</span>
@@ -950,7 +969,7 @@ function IntegrateTab({ svc, siblings }: { svc: Service; siblings: Service[] }) 
   })
 
   return (
-    <div className="grid gap-4 max-w-3xl">
+    <div className="grid gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <span className="badge badge-primary badge-sm mb-2">Go integration</span>
@@ -1148,20 +1167,23 @@ function ConfigTab({
 
   return (
     <form
-      className="grid gap-3 max-w-2xl"
+      className="config-form"
       onSubmit={(e) => {
         e.preventDefault()
         save.mutate()
       }}
     >
+      {/* Two sections side by side on wide screens: where the code comes from, and how it runs. */}
+      <section className="config-section" aria-labelledby="cfg-source">
+        <h3 id="cfg-source" className="config-heading"><GitBranch aria-hidden />Source</h3>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Name" tip="Display name in the board (slug stays the same)." htmlFor="svc-name">
+        <Field label="Name" tip="Shown on the board; the slug stays." htmlFor="svc-name">
           <Input id="svc-name" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         {svc.type === 'go' ? (
           <Field
             label="Branch"
-            tip="Git branch to clone on the next redeploy."
+            tip="Used on the next redeploy."
             htmlFor="svc-branch"
           >
             <Input id="svc-branch" value={branch} onChange={(e) => setBranch(e.target.value)} />
@@ -1173,7 +1195,7 @@ function ConfigTab({
         <>
           <Field
             label="Root"
-            tip="Folder that contains go.mod. Browse the repo or pick a detected module."
+            tip="The folder with go.mod."
           >
             {svc.repo && branch ? (
               <RepoRootPicker
@@ -1193,7 +1215,7 @@ function ConfigTab({
           </Field>
           <Field
             label="Build command"
-            tip="Leave blank to use the default Go build. Override for custom scripts."
+            tip="Blank uses the default Go build."
             htmlFor="svc-build"
           >
             <Input id="svc-build" value={buildCmd} onChange={(e) => setBuildCmd(e.target.value)} />
@@ -1205,21 +1227,26 @@ function ConfigTab({
               checked={autoDeploy}
               onChange={(e) => setAutoDeploy(e.target.checked)}
             />
-            <span className="label-text text-xs">Auto-deploy on GitHub push</span>
+            <span className="label-text text-xs inline-flex items-center gap-1.5"><GitBranch className="h-3.5 w-3.5" aria-hidden />Auto-deploy on push</span>
           </label>
 
-          <div className={`${tile} p-2.5 grid gap-2`}>
-            <strong className="text-xs">Linked resources</strong>
+        </>
+      ) : null}
+      </section>
+
+      <section className="config-section" aria-labelledby="cfg-runtime">
+        <h3 id="cfg-runtime" className="config-heading"><Cpu aria-hidden />Runtime</h3>
+      {svc.type === 'go' ? (
+          <div className={`${tile} p-3 grid gap-2`}>
+            <strong className="text-xs inline-flex items-center gap-1.5"><Link2 className="h-3.5 w-3.5 text-primary" aria-hidden />Linked resources</strong>
             <p className={`text-[11px] m-0 ${muted}`}>
-              Same-group database, bucket, or Redis — connection env is injected at start (see Variables).
+              Connection settings are added to the app when it starts.
             </p>
             <div className="grid gap-2 sm:grid-cols-3">
               <Field
                 label="Database"
                 tip={
-                  db
-                    ? `Runtime injects ${LINKED_DB_KEYS.slice(0, 4).join(', ')}… from ${db}`
-                    : 'Optional Postgres in this group.'
+                  db ? `Adds ${LINKED_DB_KEYS[0]} and ${LINKED_DB_KEYS.length - 1} more.` : 'Optional.'
                 }
               >
                 <Select value={db} onChange={(e) => setDb(e.target.value)}>
@@ -1234,9 +1261,7 @@ function ConfigTab({
               <Field
                 label="Redis"
                 tip={
-                  redis
-                    ? `Runtime injects ${LINKED_REDIS_KEYS.slice(0, 4).join(', ')}… from ${redis}`
-                    : 'Optional private cache or queue in this group.'
+                  redis ? `Adds ${LINKED_REDIS_KEYS[0]} and ${LINKED_REDIS_KEYS.length - 1} more.` : 'Optional.'
                 }
               >
                 <Select value={redis} onChange={(e) => setRedis(e.target.value)}>
@@ -1251,9 +1276,7 @@ function ConfigTab({
               <Field
                 label="Bucket"
                 tip={
-                  bucket
-                    ? `Runtime injects ${LINKED_BUCKET_KEYS.slice(0, 4).join(', ')}… from ${bucket}`
-                    : 'Optional object storage in this group.'
+                  bucket ? `Adds ${LINKED_BUCKET_KEYS[0]} and ${LINKED_BUCKET_KEYS.length - 1} more.` : 'Optional.'
                 }
               >
                 <Select value={bucket} onChange={(e) => setBucket(e.target.value)}>
@@ -1267,7 +1290,6 @@ function ConfigTab({
               </Field>
             </div>
           </div>
-        </>
       ) : null}
 
       {svc.type === 'go' || svc.type === 'postgres' || svc.type === 'redis' ? (
@@ -1291,7 +1313,7 @@ function ConfigTab({
                   onChange={setMemory}
                   meta={`${mem}MB`}
                   liveValue={svc.running ? svc.stats?.memory_mb : null}
-                  tip={svc.type === 'redis' ? 'Docker limit; Redis uses up to 75% for data and leaves headroom for overhead.' : 'Docker memory limit for this container (64–3072MB).'}
+                  tip={svc.type === 'redis' ? 'Redis keeps up to 75% for data.' : 'Container limit, 64–3072 MB.'}
                 />
                 <ResourceSlider
                   id="svc-cpu"
@@ -1307,7 +1329,7 @@ function ConfigTab({
                       ? Math.round((svc.stats.cpu_percent / 100) * 10) / 10
                       : null
                   }
-                  tip="Docker CPU share for this container (0.1–4). Blue fill = live cores in use."
+                  tip="Container share, 0.1–4 cores. Blue shows live use."
                 />
               </div>
             </>
@@ -1321,8 +1343,10 @@ function ConfigTab({
         </Field>
       ) : null}
 
-      <div className="flex justify-end">
-        <Button type="submit" variant="primary" loading={save.isPending}>
+      </section>
+
+      <div className="config-actions">
+        <Button type="submit" variant="primary" icon={<Check className="h-3.5 w-3.5" aria-hidden />} loading={save.isPending}>
           Save changes
         </Button>
       </div>
@@ -1367,7 +1391,7 @@ function VariablesTab({ group, slug, svc }: { group: string; slug: string; svc: 
   const isConn = kind === 'postgres' || kind === 'bucket' || kind === 'redis'
 
   return (
-    <div className="grid gap-3 max-w-2xl">
+    <div className="grid gap-3">
       <Field
         label={isConn ? 'Connection variables' : 'Service variables'}
         tip={
