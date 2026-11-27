@@ -841,7 +841,7 @@ export function ProjectsPage() {
         </Field>
         <Field
           label="Root"
-          tip="Browse folders or pick a detected go.mod. Leave at repo root when it is at the top."
+          tip="The folder with go.mod."
         >
           <RepoRootPicker
             repo={goForm.repo}

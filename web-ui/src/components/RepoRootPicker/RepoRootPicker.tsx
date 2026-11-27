@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronRight, Folder, FolderOpen, Loader2 } from 'lucide-react'
+import { ArrowUp, Check, ChevronRight, FolderOpen, House, Package, Sparkles } from 'lucide-react'
 import { fetchDirs } from '@/api/endpoints'
 import { queryKeys } from '@/api/queryKeys'
 import { Button } from '@/components/ui/Button/Button'
 import { Empty } from '@/components/ui/Empty/Empty'
-import { muted, tile } from '@/lib/ui'
+import { PanelSkeleton } from '@/components/ui/Skeleton/Skeleton'
 
 type Props = {
   repo: string
@@ -18,22 +18,22 @@ type Props = {
 function parentOf(path: string): string {
   const p = path.replace(/\/+$/, '')
   const i = p.lastIndexOf('/')
-  if (i <= 0) return ''
-  return p.slice(0, i)
+  return i <= 0 ? '' : p.slice(0, i)
 }
 
 function crumbs(path: string): Array<{ label: string; path: string }> {
-  const parts = path.split('/').filter(Boolean)
-  const out: Array<{ label: string; path: string }> = [{ label: 'repo root', path: '' }]
+  const out: Array<{ label: string; path: string }> = []
   let acc = ''
-  for (const part of parts) {
+  for (const part of path.split('/').filter(Boolean)) {
     acc = acc ? `${acc}/${part}` : part
     out.push({ label: part, path: acc })
   }
   return out
 }
 
-/** Navigable GitHub directory picker for service root_dir. */
+const label = (path: string) => path || 'repo root'
+
+/** Browse the repo on GitHub and pick the folder with go.mod; detected modules are one tap. */
 export function RepoRootPicker({ repo, branch, value, onChange, disabled }: Props) {
   const [browse, setBrowse] = useState(value || '')
   // Reset browsing when the repo, branch or saved value changes (adjust during render).
@@ -49,123 +49,84 @@ export function RepoRootPicker({ repo, branch, value, onChange, disabled }: Prop
     queryFn: () => fetchDirs(repo, branch, browse),
     enabled: !!repo && !!branch && !disabled,
   })
-
   const modules = dirsQ.data?.go_modules || []
   const dirs = dirsQ.data?.dirs || []
   const suggested = dirsQ.data?.suggested_root || ''
+  const isModule = (path: string) => modules.some((m) => m.path === path)
+  const chosen = value === browse
 
   if (!repo || !branch) {
-    return (
-      <Empty compact title="Pick a repo and branch first" body="Then browse folders for go.mod." />
-    )
+    return <Empty compact title="Pick a repo and branch first" body="Then browse folders for go.mod." />
   }
 
   return (
-    <div className={`${tile} overflow-hidden`}>
-      <div className="flex flex-wrap items-center gap-1 px-2.5 py-2 border-b border-base-300 bg-base-100/70">
-        {crumbs(browse).map((c, i) => (
-          <span key={c.path || 'root'} className="inline-flex items-center gap-1 min-w-0">
-            {i > 0 ? <ChevronRight className={`h-3 w-3 shrink-0 ${muted}`} aria-hidden /> : null}
-            <button
-              type="button"
-              className={`text-xs font-semibold truncate max-w-[9rem] ${
-                c.path === browse ? 'text-primary' : muted
-              } hover:text-primary`}
-              disabled={disabled}
-              onClick={() => setBrowse(c.path)}
-            >
-              {c.label}
-            </button>
-          </span>
-        ))}
+    <div className="picker">
+      <div className="picker-bar">
+        <nav className="picker-crumbs" aria-label="Folder path">
+          <button type="button" className={browse === '' ? 'is-here' : undefined} disabled={disabled} onClick={() => setBrowse('')} title="Repo root">
+            <House aria-hidden /><span className="sr-only">Repo root</span>
+          </button>
+          {crumbs(browse).map((c) => (
+            <span key={c.path} className="picker-crumb">
+              <ChevronRight aria-hidden />
+              <button type="button" className={c.path === browse ? 'is-here' : undefined} disabled={disabled} onClick={() => setBrowse(c.path)}>{c.label}</button>
+            </span>
+          ))}
+        </nav>
         {browse ? (
-          <Button
-            variant="quiet"
-            className="ml-auto"
-            disabled={disabled}
-            onClick={() => setBrowse(parentOf(browse))}
-          >
-            Up
-          </Button>
+          <Button variant="quiet" icon={<ArrowUp className="h-3.5 w-3.5" aria-hidden />} disabled={disabled} onClick={() => setBrowse(parentOf(browse))} aria-label="Up one folder" title="Up one folder" />
         ) : null}
       </div>
 
-      <div className="px-2.5 py-2 flex flex-wrap gap-1.5 border-b border-base-300">
-        <Button
-          variant={value === browse ? 'primary' : 'quiet'}
-          disabled={disabled}
-          onClick={() => onChange(browse)}
-        >
-          Use {browse ? browse : 'repo root'}
-        </Button>
-        {value !== browse ? (
-          <span className={`text-[11px] self-center ${muted}`}>
-            Selected: {value || '(repo root)'}
-          </span>
+      <div className="picker-choice">
+        {chosen ? (
+          <span className="picker-chosen"><Check aria-hidden />Root: {label(value)}</span>
         ) : (
-          <span className={`text-[11px] self-center text-success`}>Selected</span>
+          <>
+            <Button variant="primary" icon={<Check className="h-3.5 w-3.5" aria-hidden />} disabled={disabled} onClick={() => onChange(browse)}>
+              Use {label(browse)}
+            </Button>
+            <span className="picker-note">Now: {label(value)}</span>
+          </>
         )}
       </div>
 
       {!browse && modules.length ? (
-        <div className="px-2.5 py-2 border-b border-base-300 grid gap-1">
-          <span className={`text-[11px] font-bold ${muted}`}>Module found</span>
-          <div className="flex flex-wrap gap-1">
-            <Button
-              variant={!value ? 'primary' : 'quiet'}
+        <div className="picker-modules" aria-label="Go modules found">
+          {modules.map((m) => (
+            <button
+              key={m.path}
+              type="button"
+              className={`picker-module${value === m.path ? ' is-on' : ''}`}
               disabled={disabled}
               onClick={() => {
-                setBrowse('')
-                onChange('')
+                setBrowse(m.path)
+                onChange(m.path)
               }}
             >
-              /
-            </Button>
-            {modules.map((m) => (
-              <Button
-                key={m.path}
-                variant={value === m.path ? 'primary' : 'quiet'}
-                disabled={disabled}
-                onClick={() => {
-                  setBrowse(m.path)
-                  onChange(m.path)
-                }}
-              >
-                {m.path}
-                {suggested === m.path ? ' · suggested' : ''}
-              </Button>
-            ))}
-          </div>
+              <Package aria-hidden />{label(m.path)}
+              {suggested === m.path ? <em><Sparkles aria-hidden />Suggested</em> : null}
+            </button>
+          ))}
         </div>
       ) : null}
 
-      <div className="max-h-48 overflow-auto">
+      <div key={browse} className="picker-list">
         {dirsQ.isLoading ? (
-          <div className={`flex items-center gap-2 px-3 py-4 text-xs ${muted}`}>
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Reading folders…
-          </div>
+          <div className="p-2"><PanelSkeleton rows={2} label="Reading folders" /></div>
         ) : dirsQ.isError ? (
           <Empty compact title="Could not list folders" body={(dirsQ.error as Error).message} />
         ) : !dirs.length ? (
-          <Empty
-            compact
-            icon={<Folder className="h-5 w-5" aria-hidden />}
-            title="No subfolders"
-            body="Use this path as the service root, or go up."
-          />
+          <p className="picker-empty">No subfolders here.</p>
         ) : (
-          <ul className="list-none m-0 p-0">
+          <ul>
             {dirs.map((d) => (
               <li key={d.path}>
-                <button
-                  type="button"
-                  disabled={disabled}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-primary/5 transition-colors duration-200 border-b border-base-300/60 last:border-0"
-                  onClick={() => setBrowse(d.path)}
-                >
-                  <FolderOpen className={`h-4 w-4 shrink-0 ${muted}`} aria-hidden />
-                  <span className="truncate font-medium">{d.name}</span>
-                  <span className={`ml-auto text-[11px] font-mono truncate max-w-[40%] ${muted}`}>{d.path}</span>
+                <button type="button" disabled={disabled} onClick={() => setBrowse(d.path)}>
+                  <FolderOpen aria-hidden />
+                  <span className="truncate">{d.name}</span>
+                  {isModule(d.path) ? <em>go.mod</em> : null}
+                  <ChevronRight className="picker-go" aria-hidden />
                 </button>
               </li>
             ))}
